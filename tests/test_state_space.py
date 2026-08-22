@@ -58,3 +58,35 @@ def test_invalid_D():
 
     with pytest.raises(ValueError):
         StateSpace(A, B, C, np.zeros((2, 1)))
+
+
+def test_state_derivative():
+    system = StateSpace(*valid_matrices())
+
+    result = system.state_derivative([1, 2], [3])
+
+    np.testing.assert_allclose(result, [2, -5])
+
+
+def test_output():
+    system = StateSpace(*valid_matrices())
+
+    result = system.output([1, 2], [3])
+
+    np.testing.assert_allclose(result, [1])
+
+
+@pytest.mark.parametrize("method_name", ["state_derivative", "output"])
+def test_invalid_state_vector_dimensions(method_name):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="x must be a 1D vector"):
+        getattr(system, method_name)([[1, 2]], [3])
+
+
+@pytest.mark.parametrize("method_name", ["state_derivative", "output"])
+def test_invalid_input_vector_dimensions(method_name):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="u must be a 1D vector"):
+        getattr(system, method_name)([1, 2], [[3]])

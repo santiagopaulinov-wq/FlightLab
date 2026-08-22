@@ -25,3 +25,25 @@ class StateSpace:
 
         if self.D.ndim != 2 or self.D.shape != (self.n_outputs, self.n_inputs):
             raise ValueError("D must have shape (p, m)")
+
+    def state_derivative(self, x, u):
+        x = np.asarray(x, dtype=float)
+        u = np.asarray(u, dtype=float)
+
+        if x.ndim != 1 or x.shape != (self.n_states,):
+            raise ValueError("x must be a 1D vector with shape (n_states,)")
+        if u.ndim != 1 or u.shape != (self.n_inputs,):
+            raise ValueError("u must be a 1D vector with shape (n_inputs,)")
+
+        return self.A @ x + self.B @ u
+
+    def output(self, x, u):
+        x = np.asarray(x, dtype=float)
+        u = np.asarray(u, dtype=float)
+
+        if x.ndim != 1 or x.shape != (self.n_states,):
+            raise ValueError("x must be a 1D vector with shape (n_states,)")
+        if u.ndim != 1 or u.shape != (self.n_inputs,):
+            raise ValueError("u must be a 1D vector with shape (n_inputs,)")
+
+        return self.C @ x + self.D @ u
