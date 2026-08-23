@@ -47,3 +47,59 @@ class StateSpace:
             raise ValueError("u must be a 1D vector with shape (n_inputs,)")
 
         return self.C @ x + self.D @ u
+
+    def euler_step(self, x, u, dt):
+        x = np.asarray(x, dtype=float)
+        dt = np.asarray(dt, dtype=float)
+
+        if dt.ndim != 0 or not np.isfinite(dt) or dt <= 0:
+            raise ValueError("dt must be a finite positive scalar")
+
+        return x + dt * self.state_derivative(x, u)
+
+    def simulate(self, x0, u, time):
+        """Simulate with left-endpoint inputs for forward-Euler integration.
+
+        Each output sample uses the input at its corresponding time sample.
+        ``u`` may be constant with shape ``(m,)`` or time-varying with shape
+        ``(N, m)``. Returns state and output trajectories with shapes ``(N, n)``
+        and ``(N, p)``, respectively, where ``N`` is the number of time samples,
+        ``n`` states, ``m`` inputs, and ``p`` outputs.
+        """
+        time = np.asarray(time, dtype=float)
+
+        if time.ndim != 1 or time.size == 0:
+            raise ValueError("time must be a non-empty 1D grid")
+        if not np.all(np.isfinite(time)):
+            raise ValueError("time values must be finite")
+
+        time_steps = np.diff(time)
+        if np.any(time_steps <= 0):
+            raise ValueError("time values must be strictly increasing")
+
+        state = np.asarray(x0, dtype=float)
+        u = np.asarray(u, dtype=float)
+
+        if u.ndim == 1 and u.shape == (self.n_inputs,):
+            input_trajectory = np.broadcast_to(u, (time.size, self.n_inputs))
+        elif u.ndim == 2 and u.shape == (time.size, self.n_inputs):
+            input_trajectory = u
+        else:
+            raise ValueError(
+                "u must have shape (n_inputs,) or (n_time_samples, n_inputs)"
+            )
+
+        self.state_derivative(state, input_trajectory[0])
+
+        state_trajectory = np.empty((time.size, self.n_states), dtype=float)
+        state_trajectory[0] = state
+
+        for index, dt in enumerate(time_steps, start=1):
+            state = self.euler_step(state, input_trajectory[index - 1], dt)
+            state_trajectory[index] = state
+
+        output_trajectory = np.empty((time.size, self.n_outputs), dtype=float)
+        for index, state in enumerate(state_trajectory):
+            output_trajectory[index] = self.output(state, input_trajectory[index])
+
+        return state_trajectory, output_trajectory
