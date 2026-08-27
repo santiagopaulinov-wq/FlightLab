@@ -256,6 +256,92 @@ def test_left_eigenvectors_preserve_complex_modes_and_modal_ordering():
     )
 
 
+def test_biorthogonal_modes_for_diagonal_real_system():
+    system = StateSpace(
+        np.diag([-1.0, -2.0, -3.0]),
+        np.zeros((3, 1)),
+        np.eye(3),
+        np.zeros((3, 1)),
+    )
+
+    modes = system.biorthogonal_modes()
+
+    assert modes.right_eigenvectors.shape == (3, 3)
+    assert modes.left_eigenvectors.shape == (3, 3)
+    np.testing.assert_array_equal(modes.eigenvalues, system.eigenvalues())
+    np.testing.assert_allclose(
+        modes.left_eigenvectors.conj().T @ modes.right_eigenvectors, np.eye(3)
+    )
+
+
+def test_biorthogonal_modes_for_nonsymmetric_diagonalizable_system():
+    system = StateSpace(
+        [[2.0, 1.0], [0.0, 3.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    modes = system.biorthogonal_modes()
+
+    assert not np.allclose(
+        np.abs(modes.left_eigenvectors), np.abs(modes.right_eigenvectors)
+    )
+    np.testing.assert_allclose(
+        modes.left_eigenvectors.conj().T @ modes.right_eigenvectors, np.eye(2)
+    )
+    for index, eigenvalue in enumerate(modes.eigenvalues):
+        right_vector = modes.right_eigenvectors[:, index]
+        left_vector = modes.left_eigenvectors[:, index]
+        np.testing.assert_allclose(
+            system.A @ right_vector, eigenvalue * right_vector
+        )
+        np.testing.assert_allclose(
+            left_vector.conj().T @ system.A,
+            eigenvalue * left_vector.conj().T,
+        )
+
+
+def test_biorthogonal_modes_preserve_complex_values_and_modal_ordering():
+    system = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    modes = system.biorthogonal_modes()
+    modal_eigenvalues = np.array(
+        [mode.eigenvalue for mode in system.modal_properties()]
+    )
+
+    assert np.iscomplexobj(modes.right_eigenvectors)
+    assert np.iscomplexobj(modes.left_eigenvectors)
+    np.testing.assert_array_equal(modes.eigenvalues, modal_eigenvalues)
+    for index, eigenvalue in enumerate(modes.eigenvalues):
+        right_vector = modes.right_eigenvectors[:, index]
+        left_vector = modes.left_eigenvectors[:, index]
+        np.testing.assert_allclose(left_vector.conj().T @ right_vector, 1.0)
+        np.testing.assert_allclose(
+            system.A @ right_vector, eigenvalue * right_vector
+        )
+        np.testing.assert_allclose(
+            left_vector.conj().T @ system.A,
+            eigenvalue * left_vector.conj().T,
+        )
+
+
+def test_biorthogonal_modes_reject_numerically_zero_paired_product(monkeypatch):
+    system = StateSpace(np.diag([-1.0, -2.0]), [[0.0], [0.0]], np.eye(2), [[0.0], [0.0]])
+    monkeypatch.setattr(system, "right_eigenvectors", lambda: np.eye(2))
+    monkeypatch.setattr(
+        system, "left_eigenvectors", lambda: np.array([[0.0, 1.0], [1.0, 0.0]])
+    )
+
+    with pytest.raises(ValueError, match="inner product is too close to zero"):
+        system.biorthogonal_modes()
+
+
 def test_invalid_A():
     _, B, C, D = valid_matrices()
 

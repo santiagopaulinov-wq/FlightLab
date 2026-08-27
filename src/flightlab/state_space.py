@@ -19,6 +19,14 @@ class ModalProperties(NamedTuple):
     time_constant: float | None
 
 
+class BiorthogonalModes(NamedTuple):
+    """Paired modal vectors with right columns scaled against left columns."""
+
+    eigenvalues: np.ndarray
+    right_eigenvectors: np.ndarray
+    left_eigenvectors: np.ndarray
+
+
 class StateSpace:
     def __init__(self, A, B, C, D):
         self.A = np.asarray(A, dtype=float)
@@ -85,6 +93,34 @@ class StateSpace:
             available[match] = False
 
         return matched_vectors
+
+    def biorthogonal_modes(self):
+        """Return paired modes scaled so each ``w_i^H @ v_i`` equals one.
+
+        Left eigenvectors retain their NumPy normalization. Each right
+        eigenvector is divided by its paired inner product with the left
+        eigenvector. No additional sign or phase canonicalization is applied.
+        """
+        eigenvalues = self.eigenvalues()
+        right_eigenvectors = self.right_eigenvectors().copy()
+        left_eigenvectors = self.left_eigenvectors()
+
+        for index in range(self.n_states):
+            paired_product = (
+                left_eigenvectors[:, index].conj().T
+                @ right_eigenvectors[:, index]
+            )
+            if np.isclose(paired_product, 0.0, rtol=0.0, atol=1e-12):
+                raise ValueError(
+                    "paired left/right eigenvector inner product is too close to zero"
+                )
+            right_eigenvectors[:, index] /= paired_product
+
+        return BiorthogonalModes(
+            eigenvalues=eigenvalues,
+            right_eigenvectors=right_eigenvectors,
+            left_eigenvectors=left_eigenvectors,
+        )
 
     def modal_properties(self):
         """Return modal quantities in the same order as :meth:`eigenvalues`."""
