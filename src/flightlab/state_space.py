@@ -142,6 +142,17 @@ class StateSpace:
         modes = self.biorthogonal_modes()
         return np.asarray(modes.left_eigenvectors.conj().T @ self.B, dtype=complex)
 
+    def modal_output_influence(self):
+        """Return ``C @ V`` with physical-output rows and mode columns.
+
+        ``V`` is the scaled right-eigenvector matrix from
+        :meth:`biorthogonal_modes`. Complex sign and phase are preserved; no
+        row or column normalization is applied. Direct feedthrough ``D`` is
+        not part of this modal-state output matrix.
+        """
+        modes = self.biorthogonal_modes()
+        return np.asarray(self.C @ modes.right_eigenvectors, dtype=complex)
+
     def modal_properties(self):
         """Return modal quantities in the same order as :meth:`eigenvalues`."""
         properties = []

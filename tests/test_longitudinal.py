@@ -47,12 +47,14 @@ def test_longitudinal_model_builds_expected_state_space_matrices():
     biorthogonal_modes = system.biorthogonal_modes()
     participation = system.participation_factors()
     modal_input = system.modal_input_influence()
+    modal_output = system.modal_output_influence()
     assert eigenvectors.shape == (4, 4)
     assert left_eigenvectors.shape == (4, 4)
     assert biorthogonal_modes.right_eigenvectors.shape == (4, 4)
     assert biorthogonal_modes.left_eigenvectors.shape == (4, 4)
     assert participation.shape == (4, 4)
     assert modal_input.shape == (4, 1)
+    assert modal_output.shape == (4, 4)
     assert np.all(np.isfinite(eigenvalues))
     assert np.all(np.isfinite(eigenvectors.real))
     assert np.all(np.isfinite(eigenvectors.imag))
@@ -66,6 +68,8 @@ def test_longitudinal_model_builds_expected_state_space_matrices():
     assert np.all(np.isfinite(participation.imag))
     assert np.all(np.isfinite(modal_input.real))
     assert np.all(np.isfinite(modal_input.imag))
+    assert np.all(np.isfinite(modal_output.real))
+    assert np.all(np.isfinite(modal_output.imag))
     np.testing.assert_array_equal(biorthogonal_modes.eigenvalues, eigenvalues)
     np.testing.assert_allclose(
         participation,
@@ -76,7 +80,11 @@ def test_longitudinal_model_builds_expected_state_space_matrices():
     np.testing.assert_allclose(
         modal_input, biorthogonal_modes.left_eigenvectors.conj().T @ system.B
     )
+    np.testing.assert_allclose(
+        modal_output, system.C @ biorthogonal_modes.right_eigenvectors
+    )
     assert LongitudinalModel.INPUT_ORDER == ("delta_e",)
+    assert LongitudinalModel.OUTPUT_ORDER == LongitudinalModel.STATE_ORDER
     for index, eigenvalue in enumerate(eigenvalues):
         vector = eigenvectors[:, index]
         np.testing.assert_allclose(system.A @ vector, eigenvalue * vector)
