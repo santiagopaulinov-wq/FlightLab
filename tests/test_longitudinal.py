@@ -82,6 +82,13 @@ def test_longitudinal_model_simulates_small_elevator_step():
         np.diff(states[:, 3]), np.diff(time) * states[:-1, 2]
     )
 
+    rk4_states, rk4_outputs = model.to_state_space().simulate(
+        np.zeros(4), np.array([0.01]), time, method="rk4"
+    )
+    assert rk4_states.shape == (time.size, 4)
+    assert np.all(np.isfinite(rk4_states))
+    np.testing.assert_allclose(rk4_outputs, rk4_states)
+
 
 def test_longitudinal_model_rejects_non_finite_parameter():
     parameters = valid_parameters()

@@ -218,6 +218,69 @@ def test_simulate_constant_input_backward_compatibility():
     np.testing.assert_allclose(outputs, [[1], [1.2]])
 
 
+def test_simulate_explicit_euler_matches_default_exactly():
+    system = StateSpace(*valid_matrices())
+    arguments = ([1.0, 2.0], [3.0], [0.0, 0.1, 0.3])
+
+    default_states, default_outputs = system.simulate(*arguments)
+    euler_states, euler_outputs = system.simulate(*arguments, method="euler")
+
+    np.testing.assert_array_equal(euler_states, default_states)
+    np.testing.assert_array_equal(euler_outputs, default_outputs)
+
+
+def test_simulate_rk4_matches_scalar_analytical_trajectory():
+    system = StateSpace([[-1.0]], [[0.0]], [[1.0]], [[0.0]])
+    time = np.array([0.0, 0.1, 0.2, 0.3])
+
+    states, outputs = system.simulate([1.0], [0.0], time, method="rk4")
+
+    expected = np.exp(-time)[:, np.newaxis]
+    np.testing.assert_allclose(states, expected, rtol=3e-7)
+    np.testing.assert_allclose(outputs, expected, rtol=3e-7)
+
+
+def test_simulate_rk4_is_more_accurate_than_euler():
+    system = StateSpace([[-1.0]], [[0.0]], [[1.0]], [[0.0]])
+    time = np.linspace(0.0, 1.0, 6)
+    exact_final_state = np.exp(-1.0)
+
+    euler_states, _ = system.simulate([1.0], [0.0], time, method="euler")
+    rk4_states, _ = system.simulate([1.0], [0.0], time, method="rk4")
+
+    assert abs(rk4_states[-1, 0] - exact_final_state) < abs(
+        euler_states[-1, 0] - exact_final_state
+    )
+
+
+def test_simulate_rk4_with_constant_input():
+    system = StateSpace([[-1.0]], [[1.0]], [[1.0]], [[0.0]])
+    time = np.array([0.0, 0.1, 0.2])
+
+    states, _ = system.simulate([0.0], [2.0], time, method="rk4")
+
+    expected = (2.0 * (1.0 - np.exp(-time)))[:, np.newaxis]
+    np.testing.assert_allclose(states, expected, rtol=1e-6, atol=1e-8)
+
+
+def test_simulate_rk4_uses_left_sampled_time_varying_input():
+    system = StateSpace([[0.0]], [[1.0]], [[1.0]], [[0.0]])
+
+    states, _ = system.simulate(
+        [0.0], [[1.0], [2.0], [100.0]], [0.0, 0.5, 1.0], method="rk4"
+    )
+
+    np.testing.assert_allclose(states, [[0.0], [0.5], [1.5]])
+
+
+@pytest.mark.parametrize("method", ["bogus", "Euler", None])
+def test_simulate_rejects_unsupported_integration_method(method):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="method must be 'euler' or 'rk4'"):
+        system.simulate([1.0, 2.0], [3.0], [0.0, 0.1], method=method)
+
+
 @pytest.mark.parametrize(
     "u",
     [3, [3, 4], [[3], [4]], [[3, 4], [5, 6], [7, 8]], [[[3]], [[4]], [[5]]]],

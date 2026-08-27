@@ -89,6 +89,13 @@ def test_lateral_directional_model_simulates_small_aileron_step():
     phi_rate = states[:-1, 1] + np.tan(model.trim_pitch) * states[:-1, 2]
     np.testing.assert_allclose(np.diff(states[:, 3]), np.diff(time) * phi_rate)
 
+    rk4_states, rk4_outputs = model.to_state_space().simulate(
+        np.zeros(4), np.array([0.01, 0.0]), time, method="rk4"
+    )
+    assert rk4_states.shape == (time.size, 4)
+    assert np.all(np.isfinite(rk4_states))
+    np.testing.assert_allclose(rk4_outputs, rk4_states)
+
 
 def test_lateral_directional_model_rejects_invalid_parameter():
     parameters = valid_parameters()

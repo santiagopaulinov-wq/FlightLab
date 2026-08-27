@@ -80,15 +80,20 @@ class StateSpace:
 
         return x + dt * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
 
-    def simulate(self, x0, u, time):
-        """Simulate with left-endpoint inputs for forward-Euler integration.
+    def simulate(self, x0, u, time, method="euler"):
+        """Simulate using Euler or RK4 with left-endpoint inputs.
 
         Each output sample uses the input at its corresponding time sample.
         ``u`` may be constant with shape ``(m,)`` or time-varying with shape
         ``(N, m)``. Returns state and output trajectories with shapes ``(N, n)``
         and ``(N, p)``, respectively, where ``N`` is the number of time samples,
-        ``n`` states, ``m`` inputs, and ``p`` outputs.
+        ``n`` states, ``m`` inputs, and ``p`` outputs. ``method`` must be
+        ``"euler"`` or ``"rk4"`` and defaults to ``"euler"``.
         """
+        if not isinstance(method, str) or method not in ("euler", "rk4"):
+            raise ValueError("method must be 'euler' or 'rk4'")
+
+        step = self.euler_step if method == "euler" else self.rk4_step
         time = np.asarray(time, dtype=float)
 
         if time.ndim != 1 or time.size == 0:
@@ -118,7 +123,7 @@ class StateSpace:
         state_trajectory[0] = state
 
         for index, dt in enumerate(time_steps, start=1):
-            state = self.euler_step(state, input_trajectory[index - 1], dt)
+            state = step(state, input_trajectory[index - 1], dt)
             state_trajectory[index] = state
 
         output_trajectory = np.empty((time.size, self.n_outputs), dtype=float)
