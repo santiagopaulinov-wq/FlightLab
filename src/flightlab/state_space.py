@@ -80,6 +80,10 @@ class StateSpace:
 
         return x + dt * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
 
+    def zero_input_response(self, x0, time, method="euler"):
+        """Simulate the response from an initial state with zero input."""
+        return self.simulate(x0, np.zeros(self.n_inputs), time, method=method)
+
     def simulate(self, x0, u, time, method="euler"):
         """Simulate using Euler or RK4 with left-endpoint inputs.
 

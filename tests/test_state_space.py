@@ -281,6 +281,87 @@ def test_simulate_rejects_unsupported_integration_method(method):
         system.simulate([1.0, 2.0], [3.0], [0.0, 0.1], method=method)
 
 
+def test_zero_input_response_for_scalar_decay_system():
+    system = StateSpace([[-1.0]], [[1.0]], [[1.0]], [[0.0]])
+
+    states, outputs = system.zero_input_response([2.0], [0.0, 0.1, 0.2])
+
+    np.testing.assert_allclose(states, [[2.0], [1.8], [1.62]])
+    np.testing.assert_allclose(outputs, states)
+
+
+def test_zero_input_response_has_nonzero_transient_from_nonzero_initial_state():
+    system = StateSpace([[-2.0]], [[1.0]], [[1.0]], [[0.0]])
+
+    states, _ = system.zero_input_response([1.0], [0.0, 0.1, 0.2], method="rk4")
+
+    assert np.all(states > 0.0)
+    assert np.any(states[1:] != 0.0)
+
+
+def test_zero_input_response_converges_toward_zero_for_stable_system():
+    system = StateSpace([[-1.0]], [[1.0]], [[1.0]], [[0.0]])
+    time = np.linspace(0.0, 5.0, 51)
+
+    states, _ = system.zero_input_response([3.0], time, method="rk4")
+
+    assert abs(states[-1, 0]) < abs(states[0, 0])
+    assert abs(states[-1, 0]) < 0.03
+
+
+def test_zero_input_response_euler_matches_direct_simulation():
+    system = StateSpace(*valid_matrices())
+    time = [0.0, 0.1, 0.3]
+
+    response = system.zero_input_response([1.0, 2.0], time, method="euler")
+    direct = system.simulate([1.0, 2.0], [0.0], time, method="euler")
+
+    for actual, expected in zip(response, direct, strict=True):
+        np.testing.assert_array_equal(actual, expected)
+
+
+def test_zero_input_response_rk4_matches_direct_simulation():
+    system = StateSpace(*valid_matrices())
+    time = [0.0, 0.1, 0.3]
+
+    response = system.zero_input_response([1.0, 2.0], time, method="rk4")
+    direct = system.simulate([1.0, 2.0], [0.0], time, method="rk4")
+
+    for actual, expected in zip(response, direct, strict=True):
+        np.testing.assert_array_equal(actual, expected)
+
+
+def test_zero_input_response_for_multi_state_system():
+    system = StateSpace(
+        [[0.0, 1.0], [-1.0, -1.0]],
+        [[1.0], [0.0]],
+        [[1.0, 0.0], [0.0, 1.0]],
+        [[0.0], [0.0]],
+    )
+
+    states, outputs = system.zero_input_response(
+        [1.0, -0.5], [0.0, 0.1, 0.2], method="rk4"
+    )
+
+    assert states.shape == (3, 2)
+    assert outputs.shape == (3, 2)
+    np.testing.assert_allclose(outputs, states)
+
+
+def test_zero_input_response_constructs_zero_for_multiple_inputs():
+    system = StateSpace(
+        [[0.0]],
+        [[1.0, -2.0, 4.0]],
+        [[1.0]],
+        [[3.0, 5.0, 7.0]],
+    )
+
+    states, outputs = system.zero_input_response([2.0], [0.0, 0.5, 1.0])
+
+    np.testing.assert_array_equal(states, [[2.0], [2.0], [2.0]])
+    np.testing.assert_array_equal(outputs, states)
+
+
 @pytest.mark.parametrize(
     "u",
     [3, [3, 4], [[3], [4]], [[3, 4], [5, 6], [7, 8]], [[[3]], [[4]], [[5]]]],

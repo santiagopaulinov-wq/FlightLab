@@ -96,6 +96,13 @@ def test_lateral_directional_model_simulates_small_aileron_step():
     assert np.all(np.isfinite(rk4_states))
     np.testing.assert_allclose(rk4_outputs, rk4_states)
 
+    zero_input_states, zero_input_outputs = model.to_state_space().zero_input_response(
+        np.array([0.1, 0.0, 0.0, 0.01]), time
+    )
+    assert zero_input_states.shape == (time.size, 4)
+    assert np.all(np.isfinite(zero_input_states))
+    np.testing.assert_allclose(zero_input_outputs, zero_input_states)
+
 
 def test_lateral_directional_model_rejects_invalid_parameter():
     parameters = valid_parameters()
