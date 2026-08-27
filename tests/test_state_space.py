@@ -436,6 +436,70 @@ def test_forced_response_outputs_include_direct_feedthrough():
     np.testing.assert_allclose(outputs, [[3.0], [7.0], [15.0]])
 
 
+def test_step_response_for_scalar_first_order_system_trends_to_steady_state():
+    system = StateSpace([[-1.0]], [[1.0]], [[1.0]], [[0.0]])
+    time = np.linspace(0.0, 2.0, 21)
+
+    states, outputs = system.step_response([1.0], time, method="rk4")
+
+    assert states[0, 0] == 0.0
+    assert np.all(np.diff(states[:, 0]) > 0.0)
+    assert states[-1, 0] < 1.0
+    np.testing.assert_allclose(outputs, states)
+
+
+def test_step_response_accepts_non_unit_amplitude():
+    system = StateSpace([[0.0]], [[2.0]], [[1.0]], [[0.0]])
+
+    states, _ = system.step_response([3.0], [0.0, 0.25, 0.5])
+
+    np.testing.assert_allclose(states, [[0.0], [1.5], [3.0]])
+
+
+def test_step_response_accepts_multiple_input_amplitudes():
+    system = StateSpace(
+        [[0.0, 0.0], [0.0, 0.0]],
+        [[1.0, 2.0], [-1.0, 3.0]],
+        np.eye(2),
+        np.zeros((2, 2)),
+    )
+
+    states, outputs = system.step_response([2.0, -1.0], [0.0, 0.25, 0.5])
+
+    np.testing.assert_allclose(states, [[0.0, 0.0], [0.0, -1.25], [0.0, -2.5]])
+    np.testing.assert_allclose(outputs, states)
+
+
+def test_step_response_outputs_include_direct_feedthrough():
+    system = StateSpace([[0.0]], [[1.0]], [[2.0]], [[3.0]])
+
+    states, outputs = system.step_response([2.0], [0.0, 0.5, 1.0])
+
+    np.testing.assert_allclose(states, [[0.0], [1.0], [2.0]])
+    np.testing.assert_allclose(outputs, [[6.0], [8.0], [10.0]])
+
+
+@pytest.mark.parametrize("method", ["euler", "rk4"])
+def test_step_response_matches_forced_response_with_constant_input(method):
+    system = StateSpace(*valid_matrices())
+    time = [0.0, 0.1, 0.3]
+    amplitude = [2.0]
+
+    response = system.step_response(amplitude, time, method=method)
+    forced = system.forced_response(amplitude, time, method=method)
+
+    for actual, expected in zip(response, forced, strict=True):
+        np.testing.assert_array_equal(actual, expected)
+
+
+@pytest.mark.parametrize("amplitude", [2.0, [[2.0]], [1.0, 2.0]])
+def test_step_response_rejects_invalid_amplitude_shape(amplitude):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match=r"amplitude must have shape \(n_inputs,\)"):
+        system.step_response(amplitude, [0.0, 0.1])
+
+
 @pytest.mark.parametrize(
     "u",
     [3, [3, 4], [[3], [4]], [[3, 4], [5, 6], [7, 8]], [[[3]], [[4]], [[5]]]],

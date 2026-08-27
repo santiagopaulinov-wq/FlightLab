@@ -88,6 +88,13 @@ class StateSpace:
         """Simulate the response to an input from the zero initial state."""
         return self.simulate(np.zeros(self.n_states), u, time, method=method)
 
+    def step_response(self, amplitude, time, method="euler"):
+        """Simulate the response to a constant input from the zero state."""
+        amplitude = np.asarray(amplitude, dtype=float)
+        if amplitude.ndim != 1 or amplitude.shape != (self.n_inputs,):
+            raise ValueError("amplitude must have shape (n_inputs,)")
+        return self.forced_response(amplitude, time, method=method)
+
     def simulate(self, x0, u, time, method="euler"):
         """Simulate using Euler or RK4 with left-endpoint inputs.
 
