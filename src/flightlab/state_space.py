@@ -122,6 +122,16 @@ class StateSpace:
             left_eigenvectors=left_eigenvectors,
         )
 
+    def participation_factors(self):
+        """Return complex state participation factors by state row and mode column.
+
+        For biorthogonally scaled modal vectors, element ``[k, i]`` is
+        ``v[k, i] * conjugate(w[k, i])``. No magnitude conversion or further
+        column normalization is applied.
+        """
+        modes = self.biorthogonal_modes()
+        return modes.right_eigenvectors * np.conj(modes.left_eigenvectors)
+
     def modal_properties(self):
         """Return modal quantities in the same order as :meth:`eigenvalues`."""
         properties = []

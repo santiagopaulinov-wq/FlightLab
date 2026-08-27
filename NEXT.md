@@ -1,10 +1,11 @@
 # Current completed capabilities
 
-- `StateSpace` supports output evaluation, forward-Euler and classical RK4 state stepping, Euler or RK4 simulation with constant or time-varying inputs, zero-input, zero-state forced-response, step-response, and finite-grid numerical impulse-response simulation, eigenvalue calculation, continuous-time modal properties, right- and left-eigenvector modal shapes, explicit biorthogonal modal scaling, and asymptotic-stability checks.
+- `StateSpace` supports output evaluation, forward-Euler and classical RK4 state stepping, Euler or RK4 simulation with constant or time-varying inputs, zero-input, zero-state forced-response, step-response, and finite-grid numerical impulse-response simulation, eigenvalue calculation, continuous-time modal properties, right- and left-eigenvector modal shapes, explicit biorthogonal modal scaling, state participation factors, and asymptotic-stability checks.
 - Modal properties preserve eigenvalue ordering and provide natural frequency, damping ratio, damped natural frequency, period, and signed time constant where applicable; non-applicable quantities are represented by `None`.
 - Right modal shapes use NumPy-normalized eigenvector columns, with column `i` corresponding to eigenvalue and modal-property result `i`; complex phase is preserved.
 - Left modal shapes are NumPy-normalized columns explicitly matched to the corresponding eigenvalue order and satisfy `w_i^H A = lambda_i w_i^H`; complex phase is preserved.
 - Biorthogonal modes preserve paired left columns and scale only right columns by `w_i^H v_i`, producing `w_i^H v_i = 1`; numerically unsafe near-zero paired products raise an error.
+- State participation factors use `p[k, i] = v[k, i] * conjugate(w[k, i])` from biorthogonal modes, preserving state rows, modal columns, and complex values without magnitude normalization.
 - Numerical impulse response uses a left-sampled rectangular pulse over the first interval with amplitude `impulse / (time[1] - time[0])` and zero input samples afterward.
 - Generic trajectory analysis extracts component-wise minima and maxima with their first occurrence times from state or output trajectories.
 - `LongitudinalModel` uses states `(u, w, q, theta)` with elevator input.
@@ -15,12 +16,12 @@
 
 # Current test count
 
-125 tests.
+128 tests.
 
 # Current architectural boundary
 
-Linear dimensional state-space foundations, explicit Euler and RK4 simulation, zero-input, zero-state forced-response, step-response, finite-grid numerical impulse-response simulation, eigenvalue-based scalar modal properties, paired right and left modal shapes with explicit biorthogonal scaling, asymptotic-stability analysis, and basic trajectory-extrema analysis are complete. Do not redesign these foundations next session unless a verified inconsistency is found.
+Linear dimensional state-space foundations, explicit Euler and RK4 simulation, zero-input, zero-state forced-response, step-response, finite-grid numerical impulse-response simulation, eigenvalue-based scalar modal properties, paired right and left modal shapes with explicit biorthogonal scaling, state participation analysis, asymptotic-stability analysis, and basic trajectory-extrema analysis are complete. Do not redesign these foundations next session unless a verified inconsistency is found.
 
 # Next recommended technical step
 
-Add general state participation factors from the verified biorthogonally scaled modal vectors, without aircraft-mode classification or dominant-state labels.
+Add a general modal input-influence matrix from the verified scaled left eigenvectors and `B`, without aircraft-mode classification or control-design metrics.

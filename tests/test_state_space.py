@@ -342,6 +342,63 @@ def test_biorthogonal_modes_reject_numerically_zero_paired_product(monkeypatch):
         system.biorthogonal_modes()
 
 
+def test_participation_factors_for_diagonal_real_system():
+    system = StateSpace(
+        np.diag([-1.0, -2.0, -3.0]),
+        np.zeros((3, 1)),
+        np.eye(3),
+        np.zeros((3, 1)),
+    )
+
+    participation = system.participation_factors()
+
+    assert participation.shape == (3, 3)
+    np.testing.assert_allclose(participation, np.eye(3))
+    np.testing.assert_allclose(np.sum(participation, axis=0), np.ones(3))
+
+
+def test_participation_factors_match_biorthogonal_modes_for_nonsymmetric_system():
+    system = StateSpace(
+        [[1.0, 1.0], [-2.0, 4.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    modes = system.biorthogonal_modes()
+    participation = system.participation_factors()
+    expected = modes.right_eigenvectors * np.conj(modes.left_eigenvectors)
+
+    np.testing.assert_array_equal(modes.eigenvalues, system.eigenvalues())
+    np.testing.assert_allclose(
+        [mode.eigenvalue for mode in system.modal_properties()], modes.eigenvalues
+    )
+    np.testing.assert_allclose(participation, expected)
+    assert np.all(np.abs(participation) > 0.0)
+    np.testing.assert_allclose(np.sum(participation, axis=0), np.ones(2))
+
+
+def test_participation_factors_preserve_complex_conjugate_modes():
+    system = StateSpace(
+        [[-1.0, -3.0, 1.0], [2.0, -1.0, 2.0], [1.0, 0.0, -4.0]],
+        np.zeros((3, 1)),
+        np.eye(3),
+        np.zeros((3, 1)),
+    )
+
+    modes = system.biorthogonal_modes()
+    participation = system.participation_factors()
+
+    assert participation.shape == (3, 3)
+    assert np.iscomplexobj(participation)
+    assert np.any(np.abs(participation.imag) > 0.0)
+    np.testing.assert_allclose(
+        participation,
+        modes.right_eigenvectors * np.conj(modes.left_eigenvectors),
+    )
+    np.testing.assert_allclose(np.sum(participation, axis=0), np.ones(3))
+
+
 def test_invalid_A():
     _, B, C, D = valid_matrices()
 

@@ -50,10 +50,12 @@ def test_lateral_directional_model_builds_expected_state_space_matrices():
     eigenvectors = system.right_eigenvectors()
     left_eigenvectors = system.left_eigenvectors()
     biorthogonal_modes = system.biorthogonal_modes()
+    participation = system.participation_factors()
     assert eigenvectors.shape == (4, 4)
     assert left_eigenvectors.shape == (4, 4)
     assert biorthogonal_modes.right_eigenvectors.shape == (4, 4)
     assert biorthogonal_modes.left_eigenvectors.shape == (4, 4)
+    assert participation.shape == (4, 4)
     assert np.all(np.isfinite(eigenvalues))
     assert np.all(np.isfinite(eigenvectors.real))
     assert np.all(np.isfinite(eigenvectors.imag))
@@ -63,6 +65,15 @@ def test_lateral_directional_model_builds_expected_state_space_matrices():
     assert np.all(np.isfinite(biorthogonal_modes.right_eigenvectors.imag))
     assert np.all(np.isfinite(biorthogonal_modes.left_eigenvectors.real))
     assert np.all(np.isfinite(biorthogonal_modes.left_eigenvectors.imag))
+    assert np.all(np.isfinite(participation.real))
+    assert np.all(np.isfinite(participation.imag))
+    np.testing.assert_array_equal(biorthogonal_modes.eigenvalues, eigenvalues)
+    np.testing.assert_allclose(
+        participation,
+        biorthogonal_modes.right_eigenvectors
+        * np.conj(biorthogonal_modes.left_eigenvectors),
+    )
+    np.testing.assert_allclose(np.sum(participation, axis=0), np.ones(4))
     for index, eigenvalue in enumerate(eigenvalues):
         vector = eigenvectors[:, index]
         np.testing.assert_allclose(system.A @ vector, eigenvalue * vector)
