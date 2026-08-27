@@ -32,6 +32,29 @@ def test_dimensions():
     assert system.n_outputs == 1
 
 
+def test_eigenvalues_and_asymptotic_stability_for_stable_system():
+    system = StateSpace(*valid_matrices())
+
+    np.testing.assert_allclose(np.sort(system.eigenvalues()), [-2, -1])
+    assert system.is_asymptotically_stable() is True
+
+
+def test_asymptotic_stability_rejects_unstable_system():
+    _, B, C, D = valid_matrices()
+    system = StateSpace([[0, 1], [2, 1]], B, C, D)
+
+    assert np.any(system.eigenvalues().real > 0.0)
+    assert system.is_asymptotically_stable() is False
+
+
+def test_asymptotic_stability_rejects_marginal_system():
+    _, B, C, D = valid_matrices()
+    system = StateSpace([[0, -1], [1, 0]], B, C, D)
+
+    np.testing.assert_allclose(system.eigenvalues().real, 0.0, atol=1e-15)
+    assert system.is_asymptotically_stable() is False
+
+
 def test_invalid_A():
     _, B, C, D = valid_matrices()
 

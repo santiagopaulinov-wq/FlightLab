@@ -26,6 +26,14 @@ class StateSpace:
         if self.D.ndim != 2 or self.D.shape != (self.n_outputs, self.n_inputs):
             raise ValueError("D must have shape (p, m)")
 
+    def eigenvalues(self):
+        """Return the eigenvalues of the continuous-time system matrix."""
+        return np.linalg.eigvals(self.A)
+
+    def is_asymptotically_stable(self):
+        """Return whether every eigenvalue has a strictly negative real part."""
+        return bool(np.all(self.eigenvalues().real < 0.0))
+
     def state_derivative(self, x, u):
         x = np.asarray(x, dtype=float)
         u = np.asarray(u, dtype=float)
