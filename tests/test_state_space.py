@@ -125,6 +125,64 @@ def test_modal_properties_for_zero_eigenvalue_are_not_applicable():
     assert mode.time_constant is None
 
 
+def test_right_eigenvectors_for_diagonal_matrix_have_expected_modal_subspaces():
+    system = StateSpace(
+        np.diag([-1.0, -2.0, -3.0]),
+        np.zeros((3, 1)),
+        np.eye(3),
+        np.zeros((3, 1)),
+    )
+
+    eigenvectors = system.right_eigenvectors()
+
+    assert eigenvectors.shape == (3, 3)
+    np.testing.assert_allclose(np.abs(eigenvectors), np.eye(3))
+    np.testing.assert_allclose(np.linalg.norm(eigenvectors, axis=0), np.ones(3))
+
+
+def test_right_eigenvectors_for_non_diagonal_system_satisfy_eigenpair_equation():
+    system = StateSpace(
+        [[2.0, 1.0], [0.0, 3.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    eigenvalues = system.eigenvalues()
+    eigenvectors = system.right_eigenvectors()
+
+    for index, eigenvalue in enumerate(eigenvalues):
+        vector = eigenvectors[:, index]
+        np.testing.assert_allclose(system.A @ vector, eigenvalue * vector)
+    np.testing.assert_allclose(np.linalg.norm(eigenvectors, axis=0), np.ones(2))
+
+
+def test_right_eigenvectors_preserve_complex_conjugate_modes_and_ordering():
+    system = StateSpace(
+        [[-1.0, -2.0], [2.0, -1.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    eigenvalues = system.eigenvalues()
+    eigenvectors = system.right_eigenvectors()
+    modal_eigenvalues = np.array(
+        [mode.eigenvalue for mode in system.modal_properties()]
+    )
+
+    assert np.iscomplexobj(eigenvectors)
+    np.testing.assert_array_equal(modal_eigenvalues, eigenvalues)
+    np.testing.assert_allclose(eigenvalues[0], np.conj(eigenvalues[1]))
+    np.testing.assert_allclose(
+        np.abs(eigenvectors[:, 0]), np.abs(eigenvectors[:, 1])
+    )
+    for index, eigenvalue in enumerate(eigenvalues):
+        vector = eigenvectors[:, index]
+        np.testing.assert_allclose(system.A @ vector, eigenvalue * vector)
+    np.testing.assert_allclose(np.linalg.norm(eigenvectors, axis=0), np.ones(2))
+
+
 def test_invalid_A():
     _, B, C, D = valid_matrices()
 

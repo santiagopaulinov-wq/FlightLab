@@ -48,6 +48,15 @@ class StateSpace:
         """Return the eigenvalues of the continuous-time system matrix."""
         return np.linalg.eigvals(self.A)
 
+    def right_eigenvectors(self):
+        """Return normalized right eigenvectors as columns.
+
+        Column ``i`` corresponds to eigenvalue ``i`` from :meth:`eigenvalues`
+        and satisfies ``A @ v[:, i] = eigenvalues()[i] * v[:, i]``.
+        NumPy's normalization and complex phase are preserved.
+        """
+        return np.linalg.eig(self.A).eigenvectors
+
     def modal_properties(self):
         """Return modal quantities in the same order as :meth:`eigenvalues`."""
         properties = []
