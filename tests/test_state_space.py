@@ -183,6 +183,79 @@ def test_right_eigenvectors_preserve_complex_conjugate_modes_and_ordering():
     np.testing.assert_allclose(np.linalg.norm(eigenvectors, axis=0), np.ones(2))
 
 
+def test_left_eigenvectors_for_diagonal_matrix_have_expected_modal_subspaces():
+    system = StateSpace(
+        np.diag([-1.0, -2.0, -3.0]),
+        np.zeros((3, 1)),
+        np.eye(3),
+        np.zeros((3, 1)),
+    )
+
+    eigenvectors = system.left_eigenvectors()
+
+    assert eigenvectors.shape == (3, 3)
+    assert np.all(np.isfinite(eigenvectors.real))
+    assert np.all(np.isfinite(eigenvectors.imag))
+    np.testing.assert_allclose(np.abs(eigenvectors), np.eye(3))
+    np.testing.assert_allclose(np.linalg.norm(eigenvectors, axis=0), np.ones(3))
+
+
+def test_left_eigenvectors_differ_from_right_for_nonsymmetric_system():
+    system = StateSpace(
+        [[2.0, 1.0], [0.0, 3.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    eigenvalues = system.eigenvalues()
+    left_eigenvectors = system.left_eigenvectors()
+    right_eigenvectors = system.right_eigenvectors()
+
+    assert not np.allclose(np.abs(left_eigenvectors), np.abs(right_eigenvectors))
+    for index, eigenvalue in enumerate(eigenvalues):
+        vector = left_eigenvectors[:, index]
+        np.testing.assert_allclose(
+            vector.conj().T @ system.A, eigenvalue * vector.conj().T
+        )
+    np.testing.assert_allclose(
+        np.linalg.norm(left_eigenvectors, axis=0), np.ones(2)
+    )
+
+
+def test_left_eigenvectors_preserve_complex_modes_and_modal_ordering():
+    system = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    eigenvalues = system.eigenvalues()
+    left_eigenvectors = system.left_eigenvectors()
+    modal_eigenvalues = np.array(
+        [mode.eigenvalue for mode in system.modal_properties()]
+    )
+
+    assert left_eigenvectors.shape == (2, 2)
+    assert np.iscomplexobj(left_eigenvectors)
+    assert np.all(np.isfinite(left_eigenvectors.real))
+    assert np.all(np.isfinite(left_eigenvectors.imag))
+    np.testing.assert_array_equal(modal_eigenvalues, eigenvalues)
+    np.testing.assert_allclose(eigenvalues[0], np.conj(eigenvalues[1]))
+    np.testing.assert_allclose(
+        np.abs(left_eigenvectors[:, 0]), np.abs(left_eigenvectors[:, 1])
+    )
+    for index, eigenvalue in enumerate(eigenvalues):
+        vector = left_eigenvectors[:, index]
+        np.testing.assert_allclose(
+            vector.conj().T @ system.A, eigenvalue * vector.conj().T
+        )
+    np.testing.assert_allclose(
+        np.linalg.norm(left_eigenvectors, axis=0), np.ones(2)
+    )
+
+
 def test_invalid_A():
     _, B, C, D = valid_matrices()
 

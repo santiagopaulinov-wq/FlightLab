@@ -48,13 +48,22 @@ def test_lateral_directional_model_builds_expected_state_space_matrices():
     np.testing.assert_allclose([mode.eigenvalue for mode in modes], system.eigenvalues())
     eigenvalues = system.eigenvalues()
     eigenvectors = system.right_eigenvectors()
+    left_eigenvectors = system.left_eigenvectors()
     assert eigenvectors.shape == (4, 4)
+    assert left_eigenvectors.shape == (4, 4)
     assert np.all(np.isfinite(eigenvalues))
     assert np.all(np.isfinite(eigenvectors.real))
     assert np.all(np.isfinite(eigenvectors.imag))
+    assert np.all(np.isfinite(left_eigenvectors.real))
+    assert np.all(np.isfinite(left_eigenvectors.imag))
     for index, eigenvalue in enumerate(eigenvalues):
         vector = eigenvectors[:, index]
         np.testing.assert_allclose(system.A @ vector, eigenvalue * vector)
+        left_vector = left_eigenvectors[:, index]
+        np.testing.assert_allclose(
+            left_vector.conj().T @ system.A,
+            eigenvalue * left_vector.conj().T,
+        )
     assert isinstance(system.is_asymptotically_stable(), bool)
     assert system.rk4_step(np.zeros(4), np.zeros(2), 0.01).shape == (4,)
 

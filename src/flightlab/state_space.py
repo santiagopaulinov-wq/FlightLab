@@ -57,6 +57,35 @@ class StateSpace:
         """
         return np.linalg.eig(self.A).eigenvectors
 
+    def left_eigenvectors(self):
+        """Return normalized left eigenvectors as paired columns.
+
+        Column ``i`` corresponds to eigenvalue ``i`` from :meth:`eigenvalues`
+        and satisfies ``w[:, i].conj().T @ A = eigenvalues()[i] *
+        w[:, i].conj().T``. NumPy's normalization and complex phase are
+        preserved.
+        """
+        eigenvalues = self.eigenvalues()
+        adjoint_result = np.linalg.eig(self.A.conj().T)
+        available = np.ones(self.n_states, dtype=bool)
+        matched_vectors = np.empty_like(adjoint_result.eigenvectors)
+
+        for index, eigenvalue in enumerate(eigenvalues):
+            distances = np.abs(adjoint_result.eigenvalues - np.conj(eigenvalue))
+            distances[~available] = np.inf
+            match = int(np.argmin(distances))
+            if not np.isclose(
+                adjoint_result.eigenvalues[match],
+                np.conj(eigenvalue),
+                rtol=1e-7,
+                atol=1e-10,
+            ):
+                raise RuntimeError("could not match left eigenvector to eigenvalue")
+            matched_vectors[:, index] = adjoint_result.eigenvectors[:, match]
+            available[match] = False
+
+        return matched_vectors
+
     def modal_properties(self):
         """Return modal quantities in the same order as :meth:`eigenvalues`."""
         properties = []
