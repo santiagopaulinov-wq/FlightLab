@@ -399,6 +399,64 @@ def test_participation_factors_preserve_complex_conjugate_modes():
     np.testing.assert_allclose(np.sum(participation, axis=0), np.ones(3))
 
 
+def test_modal_input_influence_for_diagonal_system_preserves_input_columns():
+    inputs = np.array([[1.0, 10.0], [2.0, 20.0], [3.0, 30.0]])
+    system = StateSpace(
+        np.diag([-1.0, -2.0, -3.0]),
+        inputs,
+        np.eye(3),
+        np.zeros((3, 2)),
+    )
+
+    influence = system.modal_input_influence()
+
+    assert influence.shape == (3, 2)
+    assert np.iscomplexobj(influence)
+    np.testing.assert_allclose(influence, inputs)
+
+
+def test_modal_input_influence_matches_biorthogonal_left_vectors():
+    system = StateSpace(
+        [[1.0, 1.0], [-2.0, 4.0]],
+        [[1.0, -2.0], [3.0, 4.0]],
+        np.eye(2),
+        np.zeros((2, 2)),
+    )
+
+    modes = system.biorthogonal_modes()
+    influence = system.modal_input_influence()
+
+    np.testing.assert_array_equal(modes.eigenvalues, system.eigenvalues())
+    np.testing.assert_allclose(
+        [mode.eigenvalue for mode in system.modal_properties()], modes.eigenvalues
+    )
+    np.testing.assert_allclose(
+        system.participation_factors(),
+        modes.right_eigenvectors * np.conj(modes.left_eigenvectors),
+    )
+    np.testing.assert_allclose(influence, modes.left_eigenvectors.conj().T @ system.B)
+    assert np.all(np.isfinite(influence.real))
+    assert np.all(np.isfinite(influence.imag))
+
+
+def test_modal_input_influence_preserves_complex_conjugate_modes():
+    system = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        [[1.0, 2.0], [3.0, 4.0]],
+        np.eye(2),
+        np.zeros((2, 2)),
+    )
+
+    modes = system.biorthogonal_modes()
+    influence = system.modal_input_influence()
+
+    assert influence.shape == (2, 2)
+    assert np.iscomplexobj(influence)
+    assert np.any(np.abs(influence.imag) > 0.0)
+    np.testing.assert_allclose(influence, modes.left_eigenvectors.conj().T @ system.B)
+    np.testing.assert_allclose(influence[0], np.conj(influence[1]))
+
+
 def test_invalid_A():
     _, B, C, D = valid_matrices()
 

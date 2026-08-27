@@ -51,11 +51,13 @@ def test_lateral_directional_model_builds_expected_state_space_matrices():
     left_eigenvectors = system.left_eigenvectors()
     biorthogonal_modes = system.biorthogonal_modes()
     participation = system.participation_factors()
+    modal_input = system.modal_input_influence()
     assert eigenvectors.shape == (4, 4)
     assert left_eigenvectors.shape == (4, 4)
     assert biorthogonal_modes.right_eigenvectors.shape == (4, 4)
     assert biorthogonal_modes.left_eigenvectors.shape == (4, 4)
     assert participation.shape == (4, 4)
+    assert modal_input.shape == (4, 2)
     assert np.all(np.isfinite(eigenvalues))
     assert np.all(np.isfinite(eigenvectors.real))
     assert np.all(np.isfinite(eigenvectors.imag))
@@ -67,6 +69,8 @@ def test_lateral_directional_model_builds_expected_state_space_matrices():
     assert np.all(np.isfinite(biorthogonal_modes.left_eigenvectors.imag))
     assert np.all(np.isfinite(participation.real))
     assert np.all(np.isfinite(participation.imag))
+    assert np.all(np.isfinite(modal_input.real))
+    assert np.all(np.isfinite(modal_input.imag))
     np.testing.assert_array_equal(biorthogonal_modes.eigenvalues, eigenvalues)
     np.testing.assert_allclose(
         participation,
@@ -74,6 +78,10 @@ def test_lateral_directional_model_builds_expected_state_space_matrices():
         * np.conj(biorthogonal_modes.left_eigenvectors),
     )
     np.testing.assert_allclose(np.sum(participation, axis=0), np.ones(4))
+    np.testing.assert_allclose(
+        modal_input, biorthogonal_modes.left_eigenvectors.conj().T @ system.B
+    )
+    assert LateralDirectionalModel.INPUT_ORDER == ("delta_a", "delta_r")
     for index, eigenvalue in enumerate(eigenvalues):
         vector = eigenvectors[:, index]
         np.testing.assert_allclose(system.A @ vector, eigenvalue * vector)

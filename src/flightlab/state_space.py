@@ -132,6 +132,16 @@ class StateSpace:
         modes = self.biorthogonal_modes()
         return modes.right_eigenvectors * np.conj(modes.left_eigenvectors)
 
+    def modal_input_influence(self):
+        """Return ``W^H @ B`` with mode rows and physical-input columns.
+
+        ``W`` is the paired left-eigenvector matrix from
+        :meth:`biorthogonal_modes`. Complex sign and phase are preserved; no
+        row or column normalization is applied.
+        """
+        modes = self.biorthogonal_modes()
+        return np.asarray(modes.left_eigenvectors.conj().T @ self.B, dtype=complex)
+
     def modal_properties(self):
         """Return modal quantities in the same order as :meth:`eigenvalues`."""
         properties = []
