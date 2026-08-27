@@ -500,6 +500,81 @@ def test_step_response_rejects_invalid_amplitude_shape(amplitude):
         system.step_response(amplitude, [0.0, 0.1])
 
 
+def test_impulse_response_for_scalar_system_uses_unit_area_pulse():
+    system = StateSpace([[-1.0]], [[1.0]], [[1.0]], [[0.0]])
+
+    states, outputs = system.impulse_response([1.0], [0.0, 0.1, 0.2, 0.3])
+
+    np.testing.assert_allclose(states, [[0.0], [1.0], [0.9], [0.81]])
+    np.testing.assert_allclose(outputs, states)
+
+
+def test_impulse_response_accepts_non_unit_area():
+    system = StateSpace([[0.0]], [[2.0]], [[1.0]], [[0.0]])
+
+    states, _ = system.impulse_response([3.0], [0.0, 0.25, 0.5])
+
+    np.testing.assert_allclose(states, [[0.0], [6.0], [6.0]])
+
+
+def test_impulse_response_pulse_area_and_zero_later_inputs_with_feedthrough():
+    system = StateSpace([[0.0]], [[0.0]], [[0.0]], [[2.0]])
+    time = np.array([0.0, 0.25, 0.75])
+    impulse = np.array([3.0])
+
+    _, outputs = system.impulse_response(impulse, time)
+
+    pulse = outputs[0] / 2.0
+    np.testing.assert_allclose(pulse * (time[1] - time[0]), impulse)
+    np.testing.assert_array_equal(outputs[1:], [[0.0], [0.0]])
+    np.testing.assert_allclose(outputs[0], 2.0 * impulse / 0.25)
+
+
+def test_impulse_response_accepts_multiple_input_areas():
+    system = StateSpace(
+        [[0.0, 0.0], [0.0, 0.0]],
+        [[1.0, 2.0], [-1.0, 3.0]],
+        np.eye(2),
+        np.zeros((2, 2)),
+    )
+
+    states, outputs = system.impulse_response([2.0, -1.0], [0.0, 0.25, 0.5])
+
+    np.testing.assert_allclose(states, [[0.0, 0.0], [0.0, -5.0], [0.0, -5.0]])
+    np.testing.assert_allclose(outputs, states)
+
+
+@pytest.mark.parametrize("method", ["euler", "rk4"])
+def test_impulse_response_matches_explicit_forced_response(method):
+    system = StateSpace(*valid_matrices())
+    time = np.array([0.0, 0.1, 0.3])
+    impulse = np.array([2.0])
+    inputs = np.zeros((time.size, 1))
+    inputs[0] = impulse / (time[1] - time[0])
+
+    response = system.impulse_response(impulse, time, method=method)
+    forced = system.forced_response(inputs, time, method=method)
+
+    for actual, expected in zip(response, forced, strict=True):
+        np.testing.assert_array_equal(actual, expected)
+
+
+@pytest.mark.parametrize("impulse", [2.0, [[2.0]], [1.0, 2.0]])
+def test_impulse_response_rejects_invalid_impulse_shape(impulse):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match=r"impulse must have shape \(n_inputs,\)"):
+        system.impulse_response(impulse, [0.0, 0.1])
+
+
+@pytest.mark.parametrize("time", [[], [0.0], 0.0])
+def test_impulse_response_requires_at_least_two_time_samples(time):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="time must contain at least two samples"):
+        system.impulse_response([1.0], time)
+
+
 @pytest.mark.parametrize(
     "u",
     [3, [3, 4], [[3], [4]], [[3, 4], [5, 6], [7, 8]], [[[3]], [[4]], [[5]]]],

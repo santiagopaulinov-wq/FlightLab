@@ -95,6 +95,26 @@ class StateSpace:
             raise ValueError("amplitude must have shape (n_inputs,)")
         return self.forced_response(amplitude, time, method=method)
 
+    def impulse_response(self, impulse, time, method="euler"):
+        """Simulate a finite-width numerical approximation to an impulse.
+
+        This is not an exact Dirac delta. The requested impulse-area vector is
+        applied as a left-sampled rectangular pulse over the first interval:
+        ``u[0] = impulse / (time[1] - time[0])``. All later input samples are
+        zero, so the first pulse's numerical area equals ``impulse``.
+        """
+        impulse = np.asarray(impulse, dtype=float)
+        if impulse.ndim != 1 or impulse.shape != (self.n_inputs,):
+            raise ValueError("impulse must have shape (n_inputs,)")
+
+        time = np.asarray(time, dtype=float)
+        if time.ndim != 1 or time.size < 2:
+            raise ValueError("time must contain at least two samples")
+
+        input_trajectory = np.zeros((time.size, self.n_inputs), dtype=float)
+        input_trajectory[0] = impulse / (time[1] - time[0])
+        return self.forced_response(input_trajectory, time, method=method)
+
     def simulate(self, x0, u, time, method="euler"):
         """Simulate using Euler or RK4 with left-endpoint inputs.
 

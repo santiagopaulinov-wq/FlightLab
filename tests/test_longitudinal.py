@@ -116,6 +116,16 @@ def test_longitudinal_model_simulates_small_elevator_step():
     assert np.any(np.abs(step_states[1:]) > 0.0)
     np.testing.assert_allclose(step_outputs, step_states)
 
+    impulse_states, impulse_outputs = model.to_state_space().impulse_response(
+        np.array([0.01]), time
+    )
+    assert impulse_states.shape == (time.size, 4)
+    assert impulse_outputs.shape == (time.size, 4)
+    assert np.all(np.isfinite(impulse_states))
+    assert np.all(np.isfinite(impulse_outputs))
+    assert np.any(np.abs(impulse_states[1:]) > 0.0)
+    np.testing.assert_allclose(impulse_outputs, impulse_states)
+
 
 def test_longitudinal_model_rejects_non_finite_parameter():
     parameters = valid_parameters()
