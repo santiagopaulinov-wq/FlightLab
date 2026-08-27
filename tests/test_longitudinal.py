@@ -39,6 +39,7 @@ def test_longitudinal_model_builds_expected_state_space_matrices():
     np.testing.assert_array_equal(system.D, np.zeros((4, 1)))
     assert system.eigenvalues().shape == (4,)
     assert isinstance(system.is_asymptotically_stable(), bool)
+    assert system.rk4_step(np.zeros(4), np.zeros(1), 0.01).shape == (4,)
 
 
 def test_longitudinal_model_declares_state_input_and_output_ordering():

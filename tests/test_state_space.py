@@ -107,6 +107,71 @@ def test_euler_step():
     np.testing.assert_allclose(result, [1.2, 1.5])
 
 
+def test_rk4_step_matches_scalar_analytical_solution():
+    system = StateSpace([[-2.0]], [[0.0]], [[1.0]], [[0.0]])
+
+    result = system.rk4_step([1.0], [0.0], 0.1)
+
+    np.testing.assert_allclose(result, [np.exp(-0.2)], rtol=2e-5)
+
+
+def test_rk4_step_is_more_accurate_than_euler_for_scalar_system():
+    system = StateSpace([[-2.0]], [[0.0]], [[1.0]], [[0.0]])
+    exact = np.exp(-0.2)
+
+    euler_error = abs(system.euler_step([1.0], [0.0], 0.1)[0] - exact)
+    rk4_error = abs(system.rk4_step([1.0], [0.0], 0.1)[0] - exact)
+
+    assert rk4_error < euler_error
+
+
+def test_rk4_step_for_multi_state_system():
+    system = StateSpace(
+        [[0.0, 1.0], [-1.0, 0.0]],
+        [[0.0], [0.0]],
+        [[1.0, 0.0]],
+        [[0.0]],
+    )
+    dt = 0.1
+
+    result = system.rk4_step([1.0, 0.0], [0.0], dt)
+
+    np.testing.assert_allclose(
+        result,
+        [1.0 - dt**2 / 2.0 + dt**4 / 24.0, -dt + dt**3 / 6.0],
+    )
+
+
+def test_rk4_step_with_nonzero_control_input():
+    system = StateSpace([[0.0]], [[2.0]], [[1.0]], [[0.0]])
+
+    result = system.rk4_step([1.0], [3.0], 0.25)
+
+    np.testing.assert_allclose(result, [2.5])
+
+
+@pytest.mark.parametrize(
+    ("x", "u", "message"),
+    [
+        ([[1.0, 2.0]], [3.0], "x must be a 1D vector"),
+        ([1.0, 2.0], [[3.0]], "u must be a 1D vector"),
+    ],
+)
+def test_rk4_step_rejects_invalid_state_and_input_shapes(x, u, message):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match=message):
+        system.rk4_step(x, u, 0.1)
+
+
+@pytest.mark.parametrize("dt", [0, -0.1, np.inf, [0.1]])
+def test_rk4_step_requires_positive_finite_scalar_dt(dt):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="dt must be a finite positive scalar"):
+        system.rk4_step([1.0, 2.0], [3.0], dt)
+
+
 @pytest.mark.parametrize("dt", [0, -0.1, np.inf, [0.1]])
 def test_euler_step_requires_positive_finite_scalar_dt(dt):
     system = StateSpace(*valid_matrices())

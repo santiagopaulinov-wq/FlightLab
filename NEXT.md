@@ -1,6 +1,6 @@
 # Current completed capabilities
 
-- `StateSpace` supports output evaluation, forward-Euler stepping, constant or time-varying input simulation, eigenvalue calculation, and continuous-time asymptotic-stability checks.
+- `StateSpace` supports output evaluation, forward-Euler and classical RK4 state stepping, forward-Euler simulation with constant or time-varying inputs, eigenvalue calculation, and continuous-time asymptotic-stability checks.
 - Generic trajectory analysis extracts component-wise minima and maxima with their first occurrence times from state or output trajectories.
 - `LongitudinalModel` uses states `(u, w, q, theta)` with elevator input.
 - `LateralDirectionalModel` uses states `(v, p, r, phi)` with aileron and rudder inputs.
@@ -10,12 +10,12 @@
 
 # Current test count
 
-57 tests.
+67 tests.
 
 # Current architectural boundary
 
-Linear dimensional state-space foundations, forward-Euler simulation, eigenvalue-based asymptotic-stability analysis, and basic trajectory-extrema analysis are complete. Do not redesign these foundations next session unless a verified inconsistency is found.
+Linear dimensional state-space foundations, forward-Euler simulation, one-step Euler and RK4 integration, eigenvalue-based asymptotic-stability analysis, and basic trajectory-extrema analysis are complete. Do not redesign these foundations next session unless a verified inconsistency is found.
 
 # Next recommended technical step
 
-Add fourth-order Runge-Kutta state stepping while preserving forward Euler as the existing explicit simulation method.
+Add an explicit integration-method selection to `StateSpace.simulate()` so trajectories can use either the existing forward-Euler step or RK4.

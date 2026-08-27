@@ -65,6 +65,21 @@ class StateSpace:
 
         return x + dt * self.state_derivative(x, u)
 
+    def rk4_step(self, x, u, dt):
+        """Advance one step using classical fourth-order Runge-Kutta."""
+        x = np.asarray(x, dtype=float)
+        dt = np.asarray(dt, dtype=float)
+
+        if dt.ndim != 0 or not np.isfinite(dt) or dt <= 0:
+            raise ValueError("dt must be a finite positive scalar")
+
+        k1 = self.state_derivative(x, u)
+        k2 = self.state_derivative(x + dt * k1 / 2.0, u)
+        k3 = self.state_derivative(x + dt * k2 / 2.0, u)
+        k4 = self.state_derivative(x + dt * k3, u)
+
+        return x + dt * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
+
     def simulate(self, x0, u, time):
         """Simulate with left-endpoint inputs for forward-Euler integration.
 
