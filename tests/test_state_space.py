@@ -362,6 +362,80 @@ def test_zero_input_response_constructs_zero_for_multiple_inputs():
     np.testing.assert_array_equal(outputs, states)
 
 
+def test_forced_response_for_scalar_system_starts_from_zero():
+    system = StateSpace([[-1.0]], [[1.0]], [[1.0]], [[0.0]])
+
+    states, outputs = system.forced_response([2.0], [0.0, 0.1, 0.2])
+
+    np.testing.assert_allclose(states, [[0.0], [0.2], [0.38]])
+    np.testing.assert_allclose(outputs, states)
+    assert states[0, 0] == 0.0
+    assert states[-1, 0] != 0.0
+
+
+def test_forced_response_accepts_time_varying_input_trajectory():
+    system = StateSpace([[0.0]], [[1.0]], [[1.0]], [[0.0]])
+
+    states, outputs = system.forced_response(
+        [[1.0], [2.0], [3.0]], [0.0, 0.5, 1.0]
+    )
+
+    np.testing.assert_allclose(states, [[0.0], [0.5], [1.5]])
+    np.testing.assert_allclose(outputs, states)
+
+
+@pytest.mark.parametrize("method", ["euler", "rk4"])
+def test_forced_response_matches_direct_zero_state_simulation(method):
+    system = StateSpace(*valid_matrices())
+    time = [0.0, 0.1, 0.3]
+    inputs = [[1.0], [2.0], [3.0]]
+
+    response = system.forced_response(inputs, time, method=method)
+    direct = system.simulate(np.zeros(2), inputs, time, method=method)
+
+    for actual, expected in zip(response, direct, strict=True):
+        np.testing.assert_array_equal(actual, expected)
+
+
+def test_forced_response_for_multi_state_system():
+    system = StateSpace(
+        [[0.0, 1.0], [-1.0, -1.0]],
+        [[0.0], [2.0]],
+        [[1.0, 0.0], [0.0, 1.0]],
+        [[0.0], [0.0]],
+    )
+
+    states, outputs = system.forced_response([0.5], [0.0, 0.1, 0.2], method="rk4")
+
+    assert states.shape == (3, 2)
+    assert outputs.shape == (3, 2)
+    assert np.any(states[1:] != 0.0)
+    np.testing.assert_allclose(outputs, states)
+
+
+def test_forced_response_accepts_multiple_inputs():
+    system = StateSpace(
+        [[0.0, 0.0], [0.0, 0.0]],
+        [[1.0, 2.0], [-1.0, 3.0]],
+        np.eye(2),
+        np.zeros((2, 2)),
+    )
+
+    states, _ = system.forced_response([2.0, -1.0], [0.0, 0.25, 0.5])
+
+    np.testing.assert_allclose(states, [[0.0, 0.0], [0.0, -1.25], [0.0, -2.5]])
+
+
+def test_forced_response_outputs_include_direct_feedthrough():
+    system = StateSpace([[0.0]], [[1.0]], [[2.0]], [[3.0]])
+    inputs = [[1.0], [2.0], [4.0]]
+
+    states, outputs = system.forced_response(inputs, [0.0, 0.5, 1.0])
+
+    np.testing.assert_allclose(states, [[0.0], [0.5], [1.5]])
+    np.testing.assert_allclose(outputs, [[3.0], [7.0], [15.0]])
+
+
 @pytest.mark.parametrize(
     "u",
     [3, [3, 4], [[3], [4]], [[3, 4], [5, 6], [7, 8]], [[[3]], [[4]], [[5]]]],
