@@ -1,6 +1,7 @@
 # Current completed capabilities
 
-- `StateSpace` supports output evaluation, forward-Euler and classical RK4 state stepping, Euler or RK4 simulation with constant or time-varying inputs, zero-input, zero-state forced-response, step-response, and finite-grid numerical impulse-response simulation, eigenvalue calculation, and continuous-time asymptotic-stability checks.
+- `StateSpace` supports output evaluation, forward-Euler and classical RK4 state stepping, Euler or RK4 simulation with constant or time-varying inputs, zero-input, zero-state forced-response, step-response, and finite-grid numerical impulse-response simulation, eigenvalue calculation, continuous-time modal properties, and asymptotic-stability checks.
+- Modal properties preserve eigenvalue ordering and provide natural frequency, damping ratio, damped natural frequency, period, and signed time constant where applicable; non-applicable quantities are represented by `None`.
 - Numerical impulse response uses a left-sampled rectangular pulse over the first interval with amplitude `impulse / (time[1] - time[0])` and zero input samples afterward.
 - Generic trajectory analysis extracts component-wise minima and maxima with their first occurrence times from state or output trajectories.
 - `LongitudinalModel` uses states `(u, w, q, theta)` with elevator input.
@@ -11,12 +12,12 @@
 
 # Current test count
 
-110 tests.
+115 tests.
 
 # Current architectural boundary
 
-Linear dimensional state-space foundations, explicit Euler and RK4 simulation, zero-input, zero-state forced-response, step-response, and finite-grid numerical impulse-response simulation, eigenvalue-based asymptotic-stability analysis, and basic trajectory-extrema analysis are complete. Do not redesign these foundations next session unless a verified inconsistency is found.
+Linear dimensional state-space foundations, explicit Euler and RK4 simulation, zero-input, zero-state forced-response, step-response, finite-grid numerical impulse-response simulation, eigenvalue-based modal and asymptotic-stability analysis, and basic trajectory-extrema analysis are complete. Do not redesign these foundations next session unless a verified inconsistency is found.
 
 # Next recommended technical step
 
-Add a general ramp-response convenience for `StateSpace`, using an explicit sampled ramp convention and the verified forced-response path.
+Add general right-eigenvector modal shapes for `StateSpace`, preserving eigenvalue ordering and avoiding aircraft-specific mode classification.

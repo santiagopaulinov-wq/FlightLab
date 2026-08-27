@@ -55,6 +55,76 @@ def test_asymptotic_stability_rejects_marginal_system():
     assert system.is_asymptotically_stable() is False
 
 
+def test_modal_properties_for_stable_complex_conjugate_pair():
+    system = StateSpace(
+        [[-1.0, -2.0], [2.0, -1.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    modes = system.modal_properties()
+
+    assert len(modes) == 2
+    np.testing.assert_allclose([mode.eigenvalue for mode in modes], system.eigenvalues())
+    for mode in modes:
+        assert mode.natural_frequency == pytest.approx(np.sqrt(5.0))
+        assert mode.damping_ratio == pytest.approx(1.0 / np.sqrt(5.0))
+        assert mode.damped_natural_frequency == pytest.approx(2.0)
+        assert mode.period == pytest.approx(np.pi)
+        assert mode.time_constant == pytest.approx(1.0)
+    assert modes[0][1:] == pytest.approx(modes[1][1:])
+
+
+def test_modal_properties_for_unstable_complex_conjugate_pair():
+    system = StateSpace(
+        [[1.0, -2.0], [2.0, 1.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    modes = system.modal_properties()
+
+    for mode in modes:
+        assert mode.natural_frequency == pytest.approx(np.sqrt(5.0))
+        assert mode.damping_ratio == pytest.approx(-1.0 / np.sqrt(5.0))
+        assert mode.damped_natural_frequency == pytest.approx(2.0)
+        assert mode.period == pytest.approx(np.pi)
+        assert mode.time_constant == pytest.approx(-1.0)
+    assert modes[0][1:] == pytest.approx(modes[1][1:])
+
+
+@pytest.mark.parametrize(
+    ("eigenvalue", "expected_time_constant"),
+    [(-2.0, 0.5), (4.0, -0.25)],
+)
+def test_modal_properties_for_real_eigenvalue(eigenvalue, expected_time_constant):
+    system = StateSpace([[eigenvalue]], [[0.0]], [[1.0]], [[0.0]])
+
+    mode = system.modal_properties()[0]
+
+    assert mode.eigenvalue == complex(eigenvalue)
+    assert mode.time_constant == pytest.approx(expected_time_constant)
+    assert mode.natural_frequency is None
+    assert mode.damping_ratio is None
+    assert mode.damped_natural_frequency is None
+    assert mode.period is None
+
+
+def test_modal_properties_for_zero_eigenvalue_are_not_applicable():
+    system = StateSpace([[0.0]], [[0.0]], [[1.0]], [[0.0]])
+
+    mode = system.modal_properties()[0]
+
+    assert mode.eigenvalue == 0j
+    assert mode.natural_frequency is None
+    assert mode.damping_ratio is None
+    assert mode.damped_natural_frequency is None
+    assert mode.period is None
+    assert mode.time_constant is None
+
+
 def test_invalid_A():
     _, B, C, D = valid_matrices()
 

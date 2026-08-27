@@ -43,6 +43,9 @@ def test_lateral_directional_model_builds_expected_state_space_matrices():
     np.testing.assert_array_equal(system.C, np.eye(4))
     np.testing.assert_array_equal(system.D, np.zeros((4, 2)))
     assert system.eigenvalues().shape == (4,)
+    modes = system.modal_properties()
+    assert len(modes) == 4
+    np.testing.assert_allclose([mode.eigenvalue for mode in modes], system.eigenvalues())
     assert isinstance(system.is_asymptotically_stable(), bool)
     assert system.rk4_step(np.zeros(4), np.zeros(2), 0.01).shape == (4,)
 

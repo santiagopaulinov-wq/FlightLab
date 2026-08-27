@@ -1,4 +1,22 @@
+from typing import NamedTuple
+
 import numpy as np
+
+
+class ModalProperties(NamedTuple):
+    """Modal quantities for one continuous-time eigenvalue.
+
+    Quantities that do not apply are represented by ``None``. In particular,
+    real modes have no oscillatory quantities, and a zero eigenvalue has no
+    derived modal quantities.
+    """
+
+    eigenvalue: complex
+    natural_frequency: float | None
+    damping_ratio: float | None
+    damped_natural_frequency: float | None
+    period: float | None
+    time_constant: float | None
 
 
 class StateSpace:
@@ -29,6 +47,39 @@ class StateSpace:
     def eigenvalues(self):
         """Return the eigenvalues of the continuous-time system matrix."""
         return np.linalg.eigvals(self.A)
+
+    def modal_properties(self):
+        """Return modal quantities in the same order as :meth:`eigenvalues`."""
+        properties = []
+        for eigenvalue in self.eigenvalues():
+            eigenvalue = complex(eigenvalue)
+            real_part = eigenvalue.real
+            imaginary_part = eigenvalue.imag
+
+            if imaginary_part != 0.0:
+                natural_frequency = abs(eigenvalue)
+                damping_ratio = -real_part / natural_frequency
+                damped_natural_frequency = abs(imaginary_part)
+                period = 2.0 * np.pi / damped_natural_frequency
+            else:
+                natural_frequency = None
+                damping_ratio = None
+                damped_natural_frequency = None
+                period = None
+
+            time_constant = -1.0 / real_part if real_part != 0.0 else None
+            properties.append(
+                ModalProperties(
+                    eigenvalue=eigenvalue,
+                    natural_frequency=natural_frequency,
+                    damping_ratio=damping_ratio,
+                    damped_natural_frequency=damped_natural_frequency,
+                    period=period,
+                    time_constant=time_constant,
+                )
+            )
+
+        return tuple(properties)
 
     def is_asymptotically_stable(self):
         """Return whether every eigenvalue has a strictly negative real part."""
