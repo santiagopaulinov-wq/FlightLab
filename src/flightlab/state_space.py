@@ -88,6 +88,18 @@ class ModalStateSpace(NamedTuple):
 
         return z + dt * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
 
+    def exact_step(self, z, dt):
+        """Propagate unforced modal coordinates exactly over one interval."""
+        z = np.asarray(z)
+        dt = np.asarray(dt, dtype=float)
+
+        if dt.ndim != 0 or not np.isfinite(dt) or dt <= 0:
+            raise ValueError("dt must be a finite positive scalar")
+        if z.ndim != 1 or z.shape != (self.Lambda.shape[0],):
+            raise ValueError("z must be a 1D vector with shape (n_states,)")
+
+        return np.exp(np.diag(self.Lambda) * dt) * z
+
     def simulate(self, z0, u, time, method="euler"):
         """Simulate modal dynamics using Euler or RK4 with left-endpoint inputs.
 
