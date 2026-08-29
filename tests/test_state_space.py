@@ -1000,6 +1000,82 @@ def test_modal_zero_input_response_matches_coupled_physical_response(method):
     np.testing.assert_allclose(modal_outputs, physical_outputs, atol=1e-11)
 
 
+@pytest.mark.parametrize("method", ["euler", "rk4"])
+@pytest.mark.parametrize(
+    "inputs",
+    [
+        np.array([0.4, -1.2]),
+        np.array(
+            [[0.4, -1.2], [0.0, 0.5], [-0.75, 0.25], [2.0, -1.0]]
+        ),
+    ],
+    ids=["constant", "time_varying"],
+)
+def test_modal_forced_response_matches_direct_zero_state_simulation(
+    method, inputs
+):
+    representation = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        [[1.0, -2.0], [0.5, 3.0]],
+        [[1.0, 2.0], [-0.5, 3.0], [2.0, -1.0]],
+        [[0.1, 0.2], [0.3, 0.4], [-0.2, 0.5]],
+    ).modal_representation()
+    time = np.array([0.0, 0.05, 0.2, 0.3])
+
+    states, outputs = representation.forced_response(
+        inputs, time, method=method
+    )
+    direct_states, direct_outputs = representation.simulate(
+        np.zeros(2), inputs, time, method=method
+    )
+
+    assert states.shape == (4, 2)
+    assert outputs.shape == (4, 3)
+    assert np.iscomplexobj(states)
+    assert np.iscomplexobj(outputs)
+    assert np.all(np.isfinite(states))
+    assert np.all(np.isfinite(outputs))
+    np.testing.assert_array_equal(states[0], np.zeros(2))
+    np.testing.assert_array_equal(states, direct_states)
+    np.testing.assert_array_equal(outputs, direct_outputs)
+
+
+@pytest.mark.parametrize("method", ["euler", "rk4"])
+@pytest.mark.parametrize(
+    "inputs",
+    [
+        np.array([0.4, -1.2]),
+        np.array(
+            [[0.4, -1.2], [0.0, 0.5], [-0.75, 0.25], [2.0, -1.0]]
+        ),
+    ],
+    ids=["constant", "time_varying"],
+)
+def test_modal_forced_response_matches_coupled_physical_response(method, inputs):
+    system = StateSpace(
+        [[-1.0, 2.0, 0.5], [-3.0, -1.0, 1.0], [0.25, -0.5, -4.0]],
+        [[1.0, -2.0], [0.5, 3.0], [-1.0, 0.25]],
+        [[1.0, 0.0, 2.0], [-0.5, 3.0, 1.0]],
+        [[0.1, 0.2], [0.3, 0.4]],
+    )
+    modes = system.biorthogonal_modes()
+    representation = system.modal_representation()
+    time = np.array([0.0, 0.025, 0.1, 0.2])
+
+    physical_states, physical_outputs = system.forced_response(
+        inputs, time, method=method
+    )
+    modal_states, modal_outputs = representation.forced_response(
+        inputs, time, method=method
+    )
+    reconstructed_states = modal_states @ modes.right_eigenvectors.T
+
+    np.testing.assert_allclose(
+        reconstructed_states, physical_states, atol=1e-11
+    )
+    np.testing.assert_allclose(modal_outputs, physical_outputs, atol=1e-11)
+
+
 def test_invalid_A():
     _, B, C, D = valid_matrices()
 

@@ -148,6 +148,12 @@ class ModalStateSpace(NamedTuple):
             z0, np.zeros(self.G_modal.shape[1]), time, method=method
         )
 
+    def forced_response(self, u, time, method="euler"):
+        """Simulate the modal response to an input from the zero state."""
+        return self.simulate(
+            np.zeros(self.Lambda.shape[0]), u, time, method=method
+        )
+
 
 class StateSpace:
     def __init__(self, A, B, C, D):
