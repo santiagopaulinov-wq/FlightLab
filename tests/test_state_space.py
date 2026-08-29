@@ -946,6 +946,167 @@ def test_modal_exact_step_requires_positive_finite_scalar_dt(dt):
         representation.exact_step([1.0, 2.0], dt)
 
 
+def test_exact_zero_input_response_matches_scalar_decay_on_nonuniform_grid():
+    representation = StateSpace(
+        [[-2.0]], [[0.0]], [[3.0]], [[0.0]]
+    ).modal_representation()
+    initial_state = np.array([1.5 + 0.25j])
+    time = np.array([2.0, 2.1, 2.4, 3.0])
+
+    states, outputs = representation.exact_zero_input_response(
+        initial_state, time
+    )
+
+    expected_states = (
+        np.exp(-2.0 * (time - time[0]))[:, np.newaxis] * initial_state
+    )
+    assert states.shape == (4, 1)
+    assert outputs.shape == (4, 1)
+    assert np.iscomplexobj(states)
+    assert np.iscomplexobj(outputs)
+    assert np.all(np.isfinite(states))
+    assert np.all(np.isfinite(outputs))
+    np.testing.assert_array_equal(states[0], initial_state)
+    np.testing.assert_allclose(states, expected_states)
+    np.testing.assert_allclose(outputs, 3.0 * expected_states)
+
+
+def test_exact_zero_input_response_matches_complex_oscillatory_solution():
+    representation = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    ).modal_representation()
+    initial_state = np.array([1.0 + 2.0j, -0.5 + 0.75j])
+    time = np.array([0.0, 0.1, 0.35, 0.8])
+
+    states, _ = representation.exact_zero_input_response(initial_state, time)
+
+    expected = np.exp(
+        np.outer(time - time[0], np.diag(representation.Lambda))
+    ) * initial_state
+    np.testing.assert_allclose(states, expected)
+    assert np.any(np.abs(states.imag) > 0.0)
+
+
+def test_exact_zero_input_response_preserves_zero_state():
+    representation = StateSpace(*valid_matrices()).modal_representation()
+
+    states, outputs = representation.exact_zero_input_response(
+        np.zeros(2), [0.0, 0.1, 0.4]
+    )
+
+    np.testing.assert_array_equal(states, np.zeros((3, 2), dtype=complex))
+    np.testing.assert_array_equal(outputs, np.zeros((3, 1), dtype=complex))
+
+
+def test_exact_zero_input_response_matches_repeated_exact_steps():
+    representation = StateSpace(
+        np.diag([-1.0, -2.0, 0.5]),
+        np.zeros((3, 1)),
+        np.eye(3),
+        np.zeros((3, 1)),
+    ).modal_representation()
+    initial_state = np.array([1.0 + 0.5j, -2.0j, 0.25])
+    time = np.array([0.0, 0.05, 0.2, 0.7])
+
+    states, _ = representation.exact_zero_input_response(initial_state, time)
+
+    expected = initial_state.copy()
+    np.testing.assert_array_equal(states[0], expected)
+    for index, dt in enumerate(np.diff(time), start=1):
+        expected = representation.exact_step(expected, dt)
+        np.testing.assert_array_equal(states[index], expected)
+
+
+def test_exact_zero_input_response_is_consistent_for_coupled_system():
+    system = StateSpace(
+        [[-1.0, 2.0, 0.5], [-3.0, -1.0, 1.0], [0.25, -0.5, -4.0]],
+        np.zeros((3, 1)),
+        [[1.0, 0.0, 2.0], [-0.5, 3.0, 1.0]],
+        np.zeros((2, 1)),
+    )
+    modes = system.biorthogonal_modes()
+    representation = system.modal_representation()
+    initial_state = np.array([1.25, -0.75, 2.5])
+    initial_modal_state = modes.left_eigenvectors.conj().T @ initial_state
+    time = np.array([1.0, 1.05, 1.2, 1.7])
+
+    modal_states, modal_outputs = representation.exact_zero_input_response(
+        initial_modal_state, time
+    )
+
+    for index, elapsed_time in enumerate(time - time[0]):
+        modal_factors = np.exp(modes.eigenvalues * elapsed_time)
+        expected_modal_state = modal_factors * initial_modal_state
+        expected_physical_state = (
+            modes.right_eigenvectors
+            @ np.diag(modal_factors)
+            @ modes.left_eigenvectors.conj().T
+            @ initial_state
+        )
+        reconstructed_state = modes.right_eigenvectors @ modal_states[index]
+        np.testing.assert_allclose(
+            modal_states[index], expected_modal_state, atol=1e-12
+        )
+        np.testing.assert_allclose(
+            reconstructed_state, expected_physical_state, atol=1e-12
+        )
+        np.testing.assert_allclose(
+            modal_outputs[index], system.C @ expected_physical_state, atol=1e-12
+        )
+
+
+def test_exact_zero_input_response_outperforms_numerical_trajectories():
+    representation = StateSpace(
+        [[-2.0]], [[0.0]], [[1.0]], [[0.0]]
+    ).modal_representation()
+    initial_state = np.array([1.0])
+    time = np.linspace(0.0, 1.0, 5)
+
+    exact_states, _ = representation.exact_zero_input_response(
+        initial_state, time
+    )
+    euler_states, _ = representation.zero_input_response(
+        initial_state, time, method="euler"
+    )
+    rk4_states, _ = representation.zero_input_response(
+        initial_state, time, method="rk4"
+    )
+    analytical = np.exp(-2.0 * time)[:, np.newaxis]
+
+    np.testing.assert_allclose(exact_states, analytical)
+    euler_error = np.linalg.norm(euler_states - exact_states)
+    rk4_error = np.linalg.norm(rk4_states - exact_states)
+    assert rk4_error < euler_error
+
+
+@pytest.mark.parametrize(
+    ("time", "message"),
+    [
+        ([], "time must be a non-empty 1D grid"),
+        ([[0.0, 0.1]], "time must be a non-empty 1D grid"),
+        ([0.0, np.nan], "time values must be finite"),
+        ([0.0, 0.0], "time values must be strictly increasing"),
+        ([0.1, 0.0], "time values must be strictly increasing"),
+    ],
+)
+def test_exact_zero_input_response_rejects_invalid_time_grids(time, message):
+    representation = StateSpace(*valid_matrices()).modal_representation()
+
+    with pytest.raises(ValueError, match=message):
+        representation.exact_zero_input_response([1.0, 2.0], time)
+
+
+@pytest.mark.parametrize("z0", [[1.0], [[1.0, 2.0]]])
+def test_exact_zero_input_response_rejects_invalid_state_shape(z0):
+    representation = StateSpace(*valid_matrices()).modal_representation()
+
+    with pytest.raises(ValueError, match="z must be a 1D vector"):
+        representation.exact_zero_input_response(z0, [0.0])
+
+
 def test_modal_simulate_zero_input_preserves_initial_complex_state():
     representation = StateSpace(
         [[-1.0, -3.0], [2.0, -1.0]],

@@ -100,6 +100,39 @@ class ModalStateSpace(NamedTuple):
 
         return np.exp(np.diag(self.Lambda) * dt) * z
 
+    def exact_zero_input_response(self, z0, time):
+        """Propagate an unforced modal trajectory exactly over a time grid."""
+        time = np.asarray(time, dtype=float)
+        if time.ndim != 1 or time.size == 0:
+            raise ValueError("time must be a non-empty 1D grid")
+        if not np.all(np.isfinite(time)):
+            raise ValueError("time values must be finite")
+
+        time_steps = np.diff(time)
+        if np.any(time_steps <= 0):
+            raise ValueError("time values must be strictly increasing")
+
+        state = np.asarray(z0)
+        n_states = self.Lambda.shape[0]
+        if state.ndim != 1 or state.shape != (n_states,):
+            raise ValueError("z must be a 1D vector with shape (n_states,)")
+
+        zero_input = np.zeros(self.G_modal.shape[1])
+        state_trajectory = np.empty((time.size, n_states), dtype=complex)
+        state_trajectory[0] = state
+
+        for index, dt in enumerate(time_steps, start=1):
+            state = self.exact_step(state, dt)
+            state_trajectory[index] = state
+
+        output_trajectory = np.empty(
+            (time.size, self.H_modal.shape[0]), dtype=complex
+        )
+        for index, state in enumerate(state_trajectory):
+            output_trajectory[index] = self.output(state, zero_input)
+
+        return state_trajectory, output_trajectory
+
     def simulate(self, z0, u, time, method="euler"):
         """Simulate modal dynamics using Euler or RK4 with left-endpoint inputs.
 
