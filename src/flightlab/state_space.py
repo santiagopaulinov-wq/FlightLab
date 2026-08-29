@@ -88,6 +88,60 @@ class ModalStateSpace(NamedTuple):
 
         return z + dt * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
 
+    def simulate(self, z0, u, time, method="euler"):
+        """Simulate modal dynamics using Euler or RK4 with left-endpoint inputs.
+
+        ``u`` may be constant with shape ``(m,)`` or time-varying with shape
+        ``(N, m)``. Modal-state and output trajectories have shapes ``(N, n)``
+        and ``(N, p)``, respectively.
+        """
+        if not isinstance(method, str) or method not in ("euler", "rk4"):
+            raise ValueError("method must be 'euler' or 'rk4'")
+
+        step = self.euler_step if method == "euler" else self.rk4_step
+        time = np.asarray(time, dtype=float)
+
+        if time.ndim != 1 or time.size == 0:
+            raise ValueError("time must be a non-empty 1D grid")
+        if not np.all(np.isfinite(time)):
+            raise ValueError("time values must be finite")
+
+        time_steps = np.diff(time)
+        if np.any(time_steps <= 0):
+            raise ValueError("time values must be strictly increasing")
+
+        state = np.asarray(z0)
+        u = np.asarray(u)
+        n_states = self.Lambda.shape[0]
+        n_inputs = self.G_modal.shape[1]
+        n_outputs = self.H_modal.shape[0]
+
+        if u.ndim == 1 and u.shape == (n_inputs,):
+            input_trajectory = np.broadcast_to(u, (time.size, n_inputs))
+        elif u.ndim == 2 and u.shape == (time.size, n_inputs):
+            input_trajectory = u
+        else:
+            raise ValueError(
+                "u must have shape (n_inputs,) or (n_time_samples, n_inputs)"
+            )
+
+        self.state_derivative(state, input_trajectory[0])
+
+        state_trajectory = np.empty((time.size, n_states), dtype=complex)
+        state_trajectory[0] = state
+
+        for index, dt in enumerate(time_steps, start=1):
+            state = step(state, input_trajectory[index - 1], dt)
+            state_trajectory[index] = state
+
+        output_trajectory = np.empty((time.size, n_outputs), dtype=complex)
+        for index, state in enumerate(state_trajectory):
+            output_trajectory[index] = self.output(
+                state, input_trajectory[index]
+            )
+
+        return state_trajectory, output_trajectory
+
 
 class StateSpace:
     def __init__(self, A, B, C, D):

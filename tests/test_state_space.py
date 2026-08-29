@@ -816,6 +816,133 @@ def test_modal_steps_require_positive_finite_scalar_dt(method, dt):
         getattr(representation, method)([1.0, 2.0], [0.0], dt)
 
 
+def test_modal_simulate_zero_input_preserves_initial_complex_state():
+    representation = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    ).modal_representation()
+    z0 = np.array([1.0 + 0.5j, -0.25 - 2.0j])
+    time = np.array([0.0, 0.1, 0.25])
+
+    states, outputs = representation.simulate(z0, [0.0], time)
+
+    assert states.shape == (3, 2)
+    assert outputs.shape == (3, 2)
+    assert np.iscomplexobj(states)
+    assert np.iscomplexobj(outputs)
+    assert np.all(np.isfinite(states))
+    assert np.all(np.isfinite(outputs))
+    np.testing.assert_array_equal(states[0], z0)
+    expected = z0.copy()
+    for index, dt in enumerate(np.diff(time), start=1):
+        expected = representation.euler_step(expected, [0.0], dt)
+        np.testing.assert_allclose(states[index], expected)
+
+
+def test_modal_simulate_constant_input_rk4_matches_repeated_steps():
+    representation = StateSpace(*valid_matrices()).modal_representation()
+    z0 = np.array([0.5 + 0.25j, -1.0j])
+    u = np.array([2.0])
+    time = np.array([0.0, 0.05, 0.2, 0.3])
+
+    states, outputs = representation.simulate(z0, u, time, method="rk4")
+
+    expected = z0.copy()
+    np.testing.assert_array_equal(states[0], expected)
+    for index, dt in enumerate(np.diff(time), start=1):
+        expected = representation.rk4_step(expected, u, dt)
+        np.testing.assert_allclose(states[index], expected)
+    for index, state in enumerate(states):
+        np.testing.assert_allclose(outputs[index], representation.output(state, u))
+
+
+def test_modal_simulate_uses_left_sampled_time_varying_input():
+    representation = StateSpace(
+        [[0.0]], [[1.0]], [[1.0]], [[2.0]]
+    ).modal_representation()
+    inputs = np.array([[1.0], [2.0], [100.0]])
+
+    states, outputs = representation.simulate(
+        [0.0], inputs, [0.0, 0.5, 1.0], method="euler"
+    )
+
+    np.testing.assert_allclose(states, [[0.0], [0.5], [1.5]])
+    np.testing.assert_allclose(outputs, [[2.0], [4.5], [201.5]])
+
+
+@pytest.mark.parametrize("method", ["euler", "rk4"])
+def test_modal_simulation_matches_coupled_physical_trajectory(method):
+    system = StateSpace(
+        [[-1.0, 2.0, 0.5], [-3.0, -1.0, 1.0], [0.25, -0.5, -4.0]],
+        [[1.0, -2.0], [0.5, 3.0], [-1.0, 0.25]],
+        [[1.0, 0.0, 2.0], [-0.5, 3.0, 1.0]],
+        [[0.1, 0.2], [0.3, 0.4]],
+    )
+    modes = system.biorthogonal_modes()
+    representation = system.modal_representation()
+    initial_state = np.array([1.25, -0.75, 2.5])
+    initial_modal_state = modes.left_eigenvectors.conj().T @ initial_state
+    inputs = np.array(
+        [[0.4, -1.2], [0.0, 0.5], [-0.75, 0.25], [2.0, -1.0]]
+    )
+    time = np.array([0.0, 0.025, 0.1, 0.2])
+
+    physical_states, physical_outputs = system.simulate(
+        initial_state, inputs, time, method=method
+    )
+    modal_states, modal_outputs = representation.simulate(
+        initial_modal_state, inputs, time, method=method
+    )
+    reconstructed_states = modal_states @ modes.right_eigenvectors.T
+
+    np.testing.assert_allclose(
+        reconstructed_states, physical_states, atol=1e-11
+    )
+    np.testing.assert_allclose(modal_outputs, physical_outputs, atol=1e-11)
+
+
+@pytest.mark.parametrize("method", ["bogus", "Euler", None])
+def test_modal_simulate_rejects_unsupported_integration_method(method):
+    representation = StateSpace(*valid_matrices()).modal_representation()
+
+    with pytest.raises(ValueError, match="method must be 'euler' or 'rk4'"):
+        representation.simulate([1.0, 2.0], [3.0], [0.0, 0.1], method=method)
+
+
+@pytest.mark.parametrize(
+    ("time", "message"),
+    [
+        ([], "time must be a non-empty 1D grid"),
+        ([[0.0, 0.1]], "time must be a non-empty 1D grid"),
+        ([0.0, np.nan], "time values must be finite"),
+        ([0.0, 0.0], "time values must be strictly increasing"),
+        ([0.1, 0.0], "time values must be strictly increasing"),
+    ],
+)
+def test_modal_simulate_rejects_invalid_time_grids(time, message):
+    representation = StateSpace(*valid_matrices()).modal_representation()
+
+    with pytest.raises(ValueError, match=message):
+        representation.simulate([1.0, 2.0], [3.0], time)
+
+
+@pytest.mark.parametrize(
+    ("z0", "u", "message"),
+    [
+        ([[1.0, 2.0]], [3.0], "z must be a 1D vector"),
+        ([1.0, 2.0], [3.0, 4.0], "u must have shape"),
+        ([1.0, 2.0], [[3.0], [4.0], [5.0]], "u must have shape"),
+    ],
+)
+def test_modal_simulate_rejects_invalid_state_and_input_shapes(z0, u, message):
+    representation = StateSpace(*valid_matrices()).modal_representation()
+
+    with pytest.raises(ValueError, match=message):
+        representation.simulate(z0, u, [0.0, 0.1])
+
+
 def test_invalid_A():
     _, B, C, D = valid_matrices()
 
