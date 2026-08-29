@@ -163,6 +163,25 @@ class ModalStateSpace(NamedTuple):
             raise ValueError("amplitude values must be finite")
         return self.forced_response(amplitude, time, method=method)
 
+    def impulse_response(self, impulse, time, method="euler"):
+        """Simulate a finite-width modal approximation to an impulse.
+
+        The impulse-area vector is applied as a left-sampled rectangular pulse
+        over the first interval. All later input samples are zero.
+        """
+        impulse = np.asarray(impulse, dtype=float)
+        n_inputs = self.G_modal.shape[1]
+        if impulse.ndim != 1 or impulse.shape != (n_inputs,):
+            raise ValueError("impulse must have shape (n_inputs,)")
+
+        time = np.asarray(time, dtype=float)
+        if time.ndim != 1 or time.size < 2:
+            raise ValueError("time must contain at least two samples")
+
+        input_trajectory = np.zeros((time.size, n_inputs), dtype=float)
+        input_trajectory[0] = impulse / (time[1] - time[0])
+        return self.forced_response(input_trajectory, time, method=method)
+
 
 class StateSpace:
     def __init__(self, A, B, C, D):

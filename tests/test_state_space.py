@@ -1167,6 +1167,84 @@ def test_modal_step_response_rejects_unsupported_method():
         representation.step_response([1.0], [0.0, 0.1], method="bogus")
 
 
+@pytest.mark.parametrize("method", ["euler", "rk4"])
+def test_modal_impulse_response_matches_explicit_numerical_pulse(method):
+    representation = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        [[1.0, -2.0], [0.5, 3.0]],
+        [[1.0, 2.0], [-0.5, 3.0], [2.0, -1.0]],
+        [[0.1, 0.2], [0.3, 0.4], [-0.2, 0.5]],
+    ).modal_representation()
+    impulse = np.array([2.0, -1.5])
+    time = np.array([0.0, 0.05, 0.2, 0.3])
+    pulse = np.zeros((time.size, 2))
+    pulse[0] = impulse / (time[1] - time[0])
+
+    states, outputs = representation.impulse_response(
+        impulse, time, method=method
+    )
+    forced_states, forced_outputs = representation.forced_response(
+        pulse, time, method=method
+    )
+
+    assert states.shape == (4, 2)
+    assert outputs.shape == (4, 3)
+    assert np.iscomplexobj(states)
+    assert np.iscomplexobj(outputs)
+    assert np.all(np.isfinite(states))
+    assert np.all(np.isfinite(outputs))
+    np.testing.assert_array_equal(states[0], np.zeros(2))
+    np.testing.assert_array_equal(states, forced_states)
+    np.testing.assert_array_equal(outputs, forced_outputs)
+    np.testing.assert_allclose(pulse[0] * (time[1] - time[0]), impulse)
+    np.testing.assert_array_equal(pulse[1:], np.zeros((3, 2)))
+
+
+@pytest.mark.parametrize("method", ["euler", "rk4"])
+def test_modal_impulse_response_matches_coupled_physical_response(method):
+    system = StateSpace(
+        [[-1.0, 2.0, 0.5], [-3.0, -1.0, 1.0], [0.25, -0.5, -4.0]],
+        [[1.0, -2.0], [0.5, 3.0], [-1.0, 0.25]],
+        [[1.0, 0.0, 2.0], [-0.5, 3.0, 1.0]],
+        [[0.1, 0.2], [0.3, 0.4]],
+    )
+    modes = system.biorthogonal_modes()
+    representation = system.modal_representation()
+    impulse = np.array([2.0, -1.5])
+    time = np.array([0.0, 0.025, 0.1, 0.2])
+
+    physical_states, physical_outputs = system.impulse_response(
+        impulse, time, method=method
+    )
+    modal_states, modal_outputs = representation.impulse_response(
+        impulse, time, method=method
+    )
+    reconstructed_states = modal_states @ modes.right_eigenvectors.T
+
+    np.testing.assert_allclose(
+        reconstructed_states, physical_states, atol=1e-11
+    )
+    np.testing.assert_allclose(modal_outputs, physical_outputs, atol=1e-11)
+
+
+@pytest.mark.parametrize("impulse", [1.0, [1.0], [[1.0, 2.0]]])
+def test_modal_impulse_response_rejects_invalid_impulse_shape(impulse):
+    representation = StateSpace(
+        np.eye(2), np.eye(2), np.eye(2), np.zeros((2, 2))
+    ).modal_representation()
+
+    with pytest.raises(ValueError, match="impulse must have shape"):
+        representation.impulse_response(impulse, [0.0, 0.1])
+
+
+@pytest.mark.parametrize("time", [[], [0.0], [[0.0, 0.1]]])
+def test_modal_impulse_response_requires_two_time_samples(time):
+    representation = StateSpace(*valid_matrices()).modal_representation()
+
+    with pytest.raises(ValueError, match="time must contain at least two samples"):
+        representation.impulse_response([1.0], time)
+
+
 def test_invalid_A():
     _, B, C, D = valid_matrices()
 
