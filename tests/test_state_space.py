@@ -946,6 +946,203 @@ def test_modal_exact_step_requires_positive_finite_scalar_dt(dt):
         representation.exact_step([1.0, 2.0], dt)
 
 
+def test_exact_forced_step_with_zero_input_matches_exact_step():
+    representation = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    ).modal_representation()
+    state = np.array([1.0 + 2.0j, -0.5 + 0.75j])
+
+    forced = representation.exact_forced_step(state, [0.0], 0.3)
+    unforced = representation.exact_step(state, 0.3)
+
+    np.testing.assert_array_equal(forced, unforced)
+
+
+@pytest.mark.parametrize("eigenvalue", [-2.0, 0.75])
+def test_exact_forced_step_matches_real_scalar_solution(eigenvalue):
+    representation = StateSpace(
+        [[eigenvalue]], [[1.5]], [[1.0]], [[0.0]]
+    ).modal_representation()
+    state = np.array([0.8 + 0.2j])
+    control = np.array([2.0])
+    dt = 0.4
+
+    result = representation.exact_forced_step(state, control, dt)
+
+    forcing = representation.G_modal @ control
+    expected = (
+        np.exp(eigenvalue * dt) * state
+        + np.expm1(eigenvalue * dt) / eigenvalue * forcing
+    )
+    assert result.shape == (1,)
+    assert np.iscomplexobj(result)
+    assert np.all(np.isfinite(result))
+    np.testing.assert_allclose(result, expected)
+
+
+def test_exact_forced_step_matches_complex_modal_solution():
+    representation = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        [[1.0], [2.0]],
+        np.eye(2),
+        np.zeros((2, 1)),
+    ).modal_representation()
+    state = np.array([1.0 + 2.0j, -0.5 + 0.75j])
+    control = np.array([1.25])
+    dt = 0.2
+
+    result = representation.exact_forced_step(state, control, dt)
+
+    eigenvalues = np.diag(representation.Lambda)
+    forcing = representation.G_modal @ control
+    expected = (
+        np.exp(eigenvalues * dt) * state
+        + np.expm1(eigenvalues * dt) / eigenvalues * forcing
+    )
+    np.testing.assert_allclose(result, expected)
+    assert np.any(np.abs(result.imag) > 0.0)
+
+
+def test_exact_forced_step_propagates_multiple_modes_and_inputs():
+    system = StateSpace(
+        np.diag([-2.0, 0.5, -0.25]),
+        [[1.0, -2.0], [0.5, 3.0], [-1.0, 0.25]],
+        np.eye(3),
+        np.zeros((3, 2)),
+    )
+    representation = system.modal_representation()
+    state = np.array([1.0 + 0.5j, -2.0j, 0.25])
+    control = np.array([0.4, -1.2])
+    dt = 0.35
+
+    result = representation.exact_forced_step(state, control, dt)
+
+    eigenvalues = np.diag(representation.Lambda)
+    forcing = representation.G_modal @ control
+    expected = (
+        np.exp(eigenvalues * dt) * state
+        + np.expm1(eigenvalues * dt) / eigenvalues * forcing
+    )
+    np.testing.assert_allclose(result, expected)
+    assert np.all(np.abs(forcing) > 0.0)
+
+
+def test_exact_forced_step_uses_zero_eigenvalue_limit():
+    representation = StateSpace(
+        [[0.0]], [[2.0]], [[1.0]], [[0.0]]
+    ).modal_representation()
+    state = np.array([1.0 + 0.5j])
+    control = np.array([3.0])
+    dt = 0.25
+
+    result = representation.exact_forced_step(state, control, dt)
+
+    forcing = representation.G_modal @ control
+    np.testing.assert_allclose(result, state + dt * forcing)
+
+
+def test_exact_forced_step_is_continuous_near_zero_eigenvalue():
+    representation = StateSpace(
+        [[1e-14]], [[2.0]], [[1.0]], [[0.0]]
+    ).modal_representation()
+    state = np.array([1.0])
+    control = np.array([3.0])
+    dt = 0.25
+
+    result = representation.exact_forced_step(state, control, dt)
+    zero_limit = state + dt * (representation.G_modal @ control)
+
+    np.testing.assert_allclose(result, zero_limit, rtol=1e-14, atol=1e-14)
+
+
+def test_exact_forced_step_from_zero_state_matches_forcing_solution():
+    representation = StateSpace(
+        [[-1.5]], [[2.0]], [[1.0]], [[0.0]]
+    ).modal_representation()
+    control = np.array([1.25])
+    dt = 0.4
+
+    result = representation.exact_forced_step([0.0], control, dt)
+
+    forcing = representation.G_modal @ control
+    expected = np.expm1(-1.5 * dt) / -1.5 * forcing
+    np.testing.assert_allclose(result, expected)
+
+
+def test_exact_forced_step_is_consistent_for_coupled_system():
+    system = StateSpace(
+        [[-1.0, 2.0, 0.5], [-3.0, -1.0, 1.0], [0.25, -0.5, -4.0]],
+        [[1.0, -2.0], [0.5, 3.0], [-1.0, 0.25]],
+        np.eye(3),
+        np.zeros((3, 2)),
+    )
+    modes = system.biorthogonal_modes()
+    representation = system.modal_representation()
+    initial_state = np.array([1.25, -0.75, 2.5])
+    initial_modal_state = modes.left_eigenvectors.conj().T @ initial_state
+    control = np.array([0.4, -1.2])
+    dt = 0.35
+
+    exact_modal_state = representation.exact_forced_step(
+        initial_modal_state, control, dt
+    )
+    eigenvalues = modes.eigenvalues
+    forcing = representation.G_modal @ control
+    expected_modal_state = (
+        np.exp(eigenvalues * dt) * initial_modal_state
+        + np.expm1(eigenvalues * dt) / eigenvalues * forcing
+    )
+    reconstructed_state = modes.right_eigenvectors @ exact_modal_state
+    expected_physical_state = modes.right_eigenvectors @ expected_modal_state
+
+    np.testing.assert_allclose(exact_modal_state, expected_modal_state, atol=1e-12)
+    np.testing.assert_allclose(
+        reconstructed_state, expected_physical_state, atol=1e-12
+    )
+
+
+def test_exact_forced_step_outperforms_numerical_steps():
+    representation = StateSpace(
+        [[-2.0]], [[1.5]], [[1.0]], [[0.0]]
+    ).modal_representation()
+    state = np.array([1.0])
+    control = np.array([2.0])
+    dt = 0.5
+
+    exact = representation.exact_forced_step(state, control, dt)
+    euler = representation.euler_step(state, control, dt)
+    rk4 = representation.rk4_step(state, control, dt)
+    analytical = np.exp(-2.0 * dt) * state + np.expm1(-2.0 * dt) / -2.0 * 3.0
+
+    np.testing.assert_allclose(exact, analytical)
+    assert np.linalg.norm(rk4 - exact) < np.linalg.norm(euler - exact)
+
+
+@pytest.mark.parametrize(
+    ("z", "u", "message"),
+    [
+        ([[1.0, 2.0]], [0.0], "z must be a 1D vector"),
+        ([1.0, 2.0], [[0.0]], "u must be a 1D vector"),
+    ],
+)
+def test_exact_forced_step_rejects_invalid_shapes(z, u, message):
+    representation = StateSpace(*valid_matrices()).modal_representation()
+
+    with pytest.raises(ValueError, match=message):
+        representation.exact_forced_step(z, u, 0.1)
+
+
+@pytest.mark.parametrize("dt", [0, -0.1, np.inf, [0.1]])
+def test_exact_forced_step_requires_positive_finite_scalar_dt(dt):
+    representation = StateSpace(*valid_matrices()).modal_representation()
+
+    with pytest.raises(ValueError, match="dt must be a finite positive scalar"):
+        representation.exact_forced_step([1.0, 2.0], [0.0], dt)
+
+
 def test_exact_zero_input_response_matches_scalar_decay_on_nonuniform_grid():
     representation = StateSpace(
         [[-2.0]], [[0.0]], [[3.0]], [[0.0]]

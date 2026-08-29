@@ -100,6 +100,25 @@ class ModalStateSpace(NamedTuple):
 
         return np.exp(np.diag(self.Lambda) * dt) * z
 
+    def exact_forced_step(self, z, u, dt):
+        """Propagate modal coordinates exactly for one constant-input interval."""
+        homogeneous_state = self.exact_step(z, dt)
+        u = np.asarray(u)
+        n_inputs = self.G_modal.shape[1]
+        if u.ndim != 1 or u.shape != (n_inputs,):
+            raise ValueError("u must be a 1D vector with shape (n_inputs,)")
+
+        scaled_eigenvalues = np.diag(self.Lambda) * dt
+        forcing_factors = np.ones_like(scaled_eigenvalues, dtype=complex)
+        np.divide(
+            np.expm1(scaled_eigenvalues),
+            scaled_eigenvalues,
+            out=forcing_factors,
+            where=scaled_eigenvalues != 0.0,
+        )
+        forcing = self.G_modal @ u
+        return homogeneous_state + dt * forcing_factors * forcing
+
     def exact_zero_input_response(self, z0, time):
         """Propagate an unforced modal trajectory exactly over a time grid."""
         time = np.asarray(time, dtype=float)
