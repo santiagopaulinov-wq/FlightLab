@@ -142,6 +142,12 @@ class ModalStateSpace(NamedTuple):
 
         return state_trajectory, output_trajectory
 
+    def zero_input_response(self, z0, time, method="euler"):
+        """Simulate the modal response from an initial state with zero input."""
+        return self.simulate(
+            z0, np.zeros(self.G_modal.shape[1]), time, method=method
+        )
+
 
 class StateSpace:
     def __init__(self, A, B, C, D):
