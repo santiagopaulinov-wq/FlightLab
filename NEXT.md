@@ -1,43 +1,128 @@
-# Current completed capabilities
+# FlightLab session checkpoint
 
-- `StateSpace` supports output evaluation, forward-Euler and classical RK4 state stepping, Euler or RK4 simulation with constant or time-varying inputs, zero-input, zero-state forced-response, step-response, and finite-grid numerical impulse-response simulation, complete numerical and exact zero-order-hold modal-coordinate infrastructure, state participation factors, normalized modal state characterization by physical-state index, modal input and output influence, continuous-time modal properties, and asymptotic-stability checks.
-- Modal properties preserve eigenvalue ordering and provide natural frequency, damping ratio, damped natural frequency, period, and signed time constant where applicable; non-applicable quantities are represented by `None`.
-- Right modal shapes use NumPy-normalized eigenvector columns, with column `i` corresponding to eigenvalue and modal-property result `i`; complex phase is preserved.
-- Left modal shapes are NumPy-normalized columns explicitly matched to the corresponding eigenvalue order and satisfy `w_i^H A = lambda_i w_i^H`; complex phase is preserved.
-- Biorthogonal modes preserve paired left columns and scale only right columns by `w_i^H v_i`, producing `w_i^H v_i = 1`; numerically unsafe near-zero paired products raise an error.
-- State participation factors use `p[k, i] = v[k, i] * conjugate(w[k, i])` from biorthogonal modes, preserving state rows, modal columns, and complex values without magnitude normalization.
-- Modal input influence uses `G_modal = W^H B` from biorthogonal modes, preserving mode rows, physical-input columns, and complex values without normalization.
-- Modal output influence uses `H_modal = C V` from biorthogonal modes, preserving physical-output rows, mode columns, and complex values without normalization; direct feedthrough `D` remains separate.
-- Modal state decomposition uses `z = W^H x`, and reconstruction uses `x = V z`, preserving complex modal coordinates and recovering compatible physical state vectors within numerical tolerance.
-- The modal state-space bundle provides `(Lambda, G_modal, H_modal, D)` for `z_dot = Lambda z + G_modal u` and `y = H_modal z + D u`, using the verified biorthogonal basis.
-- Modal derivative and output evaluation apply the bundled matrices directly, preserve complex modal coordinates, and do not recompute modal quantities.
-- Modal Euler and RK4 stepping follow the physical-coordinate integration conventions while preserving complex modal states.
-- Modal time-grid simulation supports constant and left-sampled time-varying inputs with Euler or RK4, returning complex modal-state and output trajectories.
-- Modal zero-input response delegates to modal simulation with a correctly sized zero-input vector.
-- Modal forced response delegates to modal simulation with a correctly sized zero initial modal state and supports constant or time-varying inputs.
-- Modal step response accepts the established full input-amplitude vector and delegates constant-input evaluation to modal forced response.
-- Modal impulse response uses the same first-interval rectangular pulse convention as the physical system and delegates integration to modal forced response.
-- Exact unforced modal stepping applies `exp(lambda_i * dt)` independently to each modal coordinate without a matrix-exponential dependency.
-- Exact unforced modal time-grid propagation iterates with the verified exact step and evaluates outputs with zero input.
-- Exact constant-input modal stepping combines the verified homogeneous step with a stable `expm1` forcing factor and an explicit zero-eigenvalue limit.
-- Exact modal simulation applies the verified constant-input step over each interval using the established left-sampled zero-order-hold convention.
-- Modal state characterization derives real nonnegative magnitudes from existing participation factors, normalizes each mode to unit sum, and reports all numerically tied dominant state indices without aircraft-specific labels.
-- Numerical impulse response uses a left-sampled rectangular pulse over the first interval with amplitude `impulse / (time[1] - time[0])` and zero input samples afterward.
-- Generic trajectory analysis extracts component-wise minima and maxima with their first occurrence times from state or output trajectories.
-- `LongitudinalModel` uses states `(u, w, q, theta)` with elevator input.
-- `LateralDirectionalModel` uses states `(v, p, r, phi)` with aileron and rudder inputs.
-- Both models use SI units and right-handed body axes (x forward, y right, z down).
-- Both model formulations have been audited for physical, dimensional, and sign consistency.
-- Synthetic longitudinal and lateral-directional dynamic-response tests exist.
+## Current project stage
 
-# Current test count
+FlightLab has completed enough of its modal numerical infrastructure for the
+current project stage and has entered the generic modal flight-dynamics
+interpretation layer. The latest interpretation capability characterizes how
+physical state indices participate in each individual eigenmode. No
+aircraft-specific mode names or classification heuristics exist yet.
 
-270 tests.
+## Latest verified implementation commit
 
-# Current architectural boundary
+- Commit: `9c541f2e21f770bde1f40ceb246cce6244537139`
+- Message: `feat: characterize modal state participation`
 
-The modal numerical infrastructure is sufficiently complete for the current project stage. FlightLab has moved into a generic modal flight-dynamics interpretation layer, beginning with normalized physical-state participation and dominant state indices. Aircraft-specific mode names and heuristics remain outside the current boundary. Do not redesign the verified numerical foundations unless a verified inconsistency is found.
+## Current verification baseline
 
-# Next recommended technical step
+- Test count: 270 tests.
+- `uv run pytest -q` passes.
+- `.venv/bin/ruff check` passes.
+- `git diff --check` passes.
 
-Group conjugate eigenvalues into generic modal families while preserving individual-mode results, without assigning aircraft-specific mode names.
+## Important existing capabilities
+
+- General continuous-time `StateSpace` construction, output evaluation,
+  asymptotic-stability checks, Euler/RK4 stepping, time-grid simulation, and
+  zero-input, forced, step, and finite-grid impulse responses.
+- Longitudinal states `(u, w, q, theta)` with elevator input and
+  lateral-directional states `(v, p, r, phi)` with aileron/rudder inputs, using
+  SI units and right-handed body axes `(x forward, y right, z down)`.
+- Eigenvalues and continuous-time modal properties in stable eigenvalue order.
+- Paired right/left eigenvectors and verified biorthogonal modes satisfying
+  `W^H V ~= I`.
+- State participation factors `p[k, i] = v[k, i] * conjugate(w[k, i])`.
+- Modal coordinates `z = W^H x`, reconstruction `x = V z`, and modal matrices
+  `(Lambda, G_modal, H_modal, D)`.
+- Modal derivative/output evaluation, Euler/RK4 stepping and simulation, and
+  zero-input, forced, step, and finite-grid impulse response helpers.
+- Exact unforced and constant-input modal stepping, exact unforced trajectories,
+  and exact zero-order-hold modal simulation without SciPy.
+- `ModalStateCharacterization` and
+  `StateSpace.modal_state_characterization()`, providing one result per
+  eigenmode with its eigenvalue, existing `ModalProperties`, unit-sum
+  nonnegative state-participation magnitudes, and all dominant state indices.
+- Characterization preserves eigenvalue ordering, is invariant to reciprocal
+  biorthogonal vector scaling, and treats conjugate modes consistently without
+  collapsing them.
+- Generic trajectory-extrema analysis and synthetic longitudinal and
+  lateral-directional response tests.
+
+## Architectural constraints
+
+- Preserve the existing eigenvalue ordering and individual
+  `ModalStateCharacterization` results.
+- Reuse `eigenvalues()`, `modal_properties()`, participation factors, and the
+  existing characterization infrastructure.
+- Do not duplicate eigendecomposition or eigenvector-pairing logic.
+- Keep generic interpretation at the `StateSpace` layer based on physical-state
+  indices; `StateSpace` does not know aircraft state names.
+- Preserve all verified flight-dynamics equations, units, axes, and sign
+  conventions.
+- Preserve complex modal mathematics and use explicit numerical tolerances for
+  conjugate matching.
+- Add no dependencies and avoid unrelated refactors.
+- Do not resume expanding modal numerical response helpers unless a later
+  interpretation capability requires it.
+
+## Must not be added or changed next
+
+- Do not classify short period or phugoid modes.
+- Do not classify Dutch roll, roll subsidence, or spiral modes.
+- Do not assign any aircraft-specific mode names.
+- Do not introduce frequency, damping, or time-constant threshold heuristics.
+- Do not add real aircraft data or controllers.
+- Do not change the verified numerical modal infrastructure, flight-dynamics
+  equations, or sign conventions without a demonstrated inconsistency.
+- Do not add dependencies or perform unrelated refactors.
+
+## Exact next smallest task
+
+### Generic conjugate-mode family grouping
+
+Group complex-conjugate eigenmodes into one generic modal family while keeping
+each real eigenvalue as its own family. Preserve direct access to the existing
+individual `ModalStateCharacterization` objects inside each family. Do not
+assign aircraft-specific names.
+
+## Suggested implementation direction
+
+- Add a small immutable structured result consistent with the existing
+  `NamedTuple` APIs, representing one generic modal family.
+- Build families from `StateSpace.modal_state_characterization()` so the
+  individual characterization objects, eigenvalue ordering, modal properties,
+  normalized participation magnitudes, and dominant indices remain canonical.
+- Traverse results in existing eigenvalue order. A real eigenvalue creates a
+  one-member family; a non-real eigenvalue is paired once with its numerical
+  complex conjugate.
+- Match conjugates using explicit `rtol`/`atol` values consistent with current
+  eigenvalue matching practices. Never pair merely by frequency proximity.
+- Preserve deterministic family ordering according to the first member's
+  original eigenvalue index and preserve member ordering within each family.
+- Raise a clear error if a genuinely complex eigenvalue has no safe conjugate
+  match rather than silently inventing a family.
+
+## Focused tests to add
+
+- One family per real eigenvalue for a diagonal real system.
+- One two-member family for a simple complex-conjugate pair.
+- Mixed real and complex spectra produce the expected family count and preserve
+  original ordering.
+- Each family retains the exact individual `ModalStateCharacterization`
+  results in the expected member order.
+- No eigenmode is lost, duplicated, or assigned to more than one family.
+- Conjugate-family eigenvalues are conjugates within numerical tolerance.
+- Conjugate members retain consistent participation magnitudes and dominant
+  state indices.
+- A nontrivial coupled system is grouped correctly.
+- Numerically unsafe or unmatched complex modes produce a clear failure.
+- No aircraft-specific labels or threshold-based classification appear.
+
+## Commands that must pass
+
+```bash
+uv run pytest -q
+.venv/bin/ruff check
+git diff --check
+git status
+```
