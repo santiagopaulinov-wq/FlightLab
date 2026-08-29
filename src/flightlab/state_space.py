@@ -63,6 +63,31 @@ class ModalStateSpace(NamedTuple):
 
         return self.H_modal @ z + self.D @ u
 
+    def euler_step(self, z, u, dt):
+        """Advance one modal-coordinate step using forward Euler."""
+        z = np.asarray(z)
+        dt = np.asarray(dt, dtype=float)
+
+        if dt.ndim != 0 or not np.isfinite(dt) or dt <= 0:
+            raise ValueError("dt must be a finite positive scalar")
+
+        return z + dt * self.state_derivative(z, u)
+
+    def rk4_step(self, z, u, dt):
+        """Advance one modal-coordinate step using classical Runge-Kutta."""
+        z = np.asarray(z)
+        dt = np.asarray(dt, dtype=float)
+
+        if dt.ndim != 0 or not np.isfinite(dt) or dt <= 0:
+            raise ValueError("dt must be a finite positive scalar")
+
+        k1 = self.state_derivative(z, u)
+        k2 = self.state_derivative(z + dt * k1 / 2.0, u)
+        k3 = self.state_derivative(z + dt * k2 / 2.0, u)
+        k4 = self.state_derivative(z + dt * k3, u)
+
+        return z + dt * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
+
 
 class StateSpace:
     def __init__(self, A, B, C, D):

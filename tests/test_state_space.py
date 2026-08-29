@@ -731,6 +731,91 @@ def test_modal_evaluation_rejects_incompatible_shapes(method, z, u, message):
         getattr(representation, method)(z, u)
 
 
+def test_modal_euler_step_matches_forward_euler_with_complex_values():
+    system = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        [[1.0, -2.0], [0.5, 3.0]],
+        np.eye(2),
+        np.zeros((2, 2)),
+    )
+    representation = system.modal_representation()
+    z = np.array([1.0 + 2.0j, -0.5 + 0.75j])
+    u = np.array([0.25, -1.5])
+    dt = 0.05
+
+    result = representation.euler_step(z, u, dt)
+
+    assert result.shape == (2,)
+    assert np.iscomplexobj(result)
+    assert np.all(np.isfinite(result))
+    np.testing.assert_allclose(
+        result, z + dt * representation.state_derivative(z, u)
+    )
+
+
+def test_modal_rk4_step_matches_scalar_analytical_zero_input_solution():
+    system = StateSpace([[-2.0]], [[0.0]], [[1.0]], [[0.0]])
+    representation = system.modal_representation()
+    z = np.array([1.0 + 0.5j])
+
+    result = representation.rk4_step(z, [0.0], 0.1)
+
+    assert result.shape == (1,)
+    assert np.iscomplexobj(result)
+    assert np.all(np.isfinite(result))
+    np.testing.assert_allclose(result, z * np.exp(-0.2), rtol=2e-5)
+
+
+@pytest.mark.parametrize("method", ["euler_step", "rk4_step"])
+def test_modal_step_matches_coupled_physical_step(method):
+    system = StateSpace(
+        [[-1.0, 2.0, 0.5], [-3.0, -1.0, 1.0], [0.25, -0.5, -4.0]],
+        [[1.0, -2.0], [0.5, 3.0], [-1.0, 0.25]],
+        np.eye(3),
+        np.zeros((3, 2)),
+    )
+    modes = system.biorthogonal_modes()
+    representation = system.modal_representation()
+    state = np.array([1.25, -0.75, 2.5])
+    z = modes.left_eigenvectors.conj().T @ state
+    u = np.array([0.4, -1.2])
+    dt = 0.025
+
+    modal_next = getattr(representation, method)(z, u, dt)
+    physical_next = getattr(system, method)(state, u, dt)
+
+    np.testing.assert_allclose(
+        modes.right_eigenvectors @ modal_next,
+        physical_next,
+        atol=1e-12,
+    )
+
+
+@pytest.mark.parametrize(
+    ("method", "z", "u", "message"),
+    [
+        ("euler_step", [[1.0, 2.0]], [0.0], "z must be a 1D vector"),
+        ("euler_step", [1.0, 2.0], [[0.0]], "u must be a 1D vector"),
+        ("rk4_step", [[1.0, 2.0]], [0.0], "z must be a 1D vector"),
+        ("rk4_step", [1.0, 2.0], [[0.0]], "u must be a 1D vector"),
+    ],
+)
+def test_modal_steps_reject_incompatible_shapes(method, z, u, message):
+    representation = StateSpace(*valid_matrices()).modal_representation()
+
+    with pytest.raises(ValueError, match=message):
+        getattr(representation, method)(z, u, 0.1)
+
+
+@pytest.mark.parametrize("method", ["euler_step", "rk4_step"])
+@pytest.mark.parametrize("dt", [0, -0.1, np.inf, [0.1]])
+def test_modal_steps_require_positive_finite_scalar_dt(method, dt):
+    representation = StateSpace(*valid_matrices()).modal_representation()
+
+    with pytest.raises(ValueError, match="dt must be a finite positive scalar"):
+        getattr(representation, method)([1.0, 2.0], [0.0], dt)
+
+
 def test_invalid_A():
     _, B, C, D = valid_matrices()
 
