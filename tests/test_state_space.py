@@ -1304,6 +1304,146 @@ def test_exact_zero_input_response_rejects_invalid_state_shape(z0):
         representation.exact_zero_input_response(z0, [0.0])
 
 
+def test_exact_simulate_matches_scalar_constant_input_solution():
+    representation = StateSpace(
+        [[-2.0]], [[1.5]], [[2.0]], [[0.25]]
+    ).modal_representation()
+    initial_state = np.array([1.0 + 0.5j])
+    control = np.array([2.0])
+    time = np.array([1.0, 1.1, 1.4, 2.0])
+
+    states, outputs = representation.exact_simulate(
+        initial_state, control, time
+    )
+
+    elapsed = time - time[0]
+    forcing = (representation.G_modal @ control)[0]
+    expected_states = (
+        np.exp(-2.0 * elapsed) * initial_state[0]
+        + np.expm1(-2.0 * elapsed) / -2.0 * forcing
+    )[:, np.newaxis]
+    assert states.shape == (4, 1)
+    assert outputs.shape == (4, 1)
+    assert np.iscomplexobj(states)
+    assert np.iscomplexobj(outputs)
+    assert np.all(np.isfinite(states))
+    assert np.all(np.isfinite(outputs))
+    np.testing.assert_array_equal(states[0], initial_state)
+    np.testing.assert_allclose(states, expected_states)
+    np.testing.assert_allclose(
+        outputs,
+        2.0 * expected_states + 0.25 * control,
+    )
+
+
+def test_exact_simulate_zero_input_matches_exact_zero_input_response():
+    representation = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        np.zeros((2, 2)),
+        np.eye(2),
+        np.zeros((2, 2)),
+    ).modal_representation()
+    initial_state = np.array([1.0 + 2.0j, -0.5 + 0.75j])
+    time = np.array([0.0, 0.1, 0.35, 0.8])
+
+    exact = representation.exact_simulate(initial_state, np.zeros(2), time)
+    unforced = representation.exact_zero_input_response(initial_state, time)
+
+    for actual, expected in zip(exact, unforced, strict=True):
+        np.testing.assert_array_equal(actual, expected)
+
+
+def test_exact_simulate_coupled_system_uses_left_sampled_multi_input():
+    system = StateSpace(
+        [[-1.0, 2.0, 0.5], [-3.0, -1.0, 1.0], [0.25, -0.5, -4.0]],
+        [[1.0, -2.0], [0.5, 3.0], [-1.0, 0.25]],
+        [[1.0, 0.0, 2.0], [-0.5, 3.0, 1.0]],
+        [[0.1, 0.2], [0.3, 0.4]],
+    )
+    modes = system.biorthogonal_modes()
+    representation = system.modal_representation()
+    initial_state = np.array([1.25, -0.75, 2.5])
+    initial_modal_state = modes.left_eigenvectors.conj().T @ initial_state
+    inputs = np.array(
+        [[0.4, -1.2], [0.0, 0.5], [-0.75, 0.25], [2.0, -1.0]]
+    )
+    time = np.array([0.0, 0.025, 0.1, 0.2])
+
+    modal_states, modal_outputs = representation.exact_simulate(
+        initial_modal_state, inputs, time
+    )
+    reconstructed_states = modal_states @ modes.right_eigenvectors.T
+
+    assert reconstructed_states.shape == (4, 3)
+    assert np.all(np.isfinite(reconstructed_states))
+    for index, dt in enumerate(np.diff(time)):
+        expected_next = representation.exact_forced_step(
+            modal_states[index], inputs[index], dt
+        )
+        np.testing.assert_array_equal(modal_states[index + 1], expected_next)
+    for index, state in enumerate(modal_states):
+        np.testing.assert_allclose(
+            modal_outputs[index],
+            representation.H_modal @ state + representation.D @ inputs[index],
+        )
+
+
+def test_exact_simulate_outperforms_numerical_forced_trajectories():
+    representation = StateSpace(
+        [[-2.0]], [[1.5]], [[1.0]], [[0.0]]
+    ).modal_representation()
+    initial_state = np.array([1.0])
+    control = np.array([2.0])
+    time = np.linspace(0.0, 1.0, 5)
+
+    exact_states, _ = representation.exact_simulate(
+        initial_state, control, time
+    )
+    euler_states, _ = representation.simulate(
+        initial_state, control, time, method="euler"
+    )
+    rk4_states, _ = representation.simulate(
+        initial_state, control, time, method="rk4"
+    )
+
+    euler_error = np.linalg.norm(euler_states - exact_states)
+    rk4_error = np.linalg.norm(rk4_states - exact_states)
+    assert euler_error > 0.0
+    assert rk4_error < euler_error
+
+
+@pytest.mark.parametrize(
+    ("time", "message"),
+    [
+        ([], "time must be a non-empty 1D grid"),
+        ([[0.0, 0.1]], "time must be a non-empty 1D grid"),
+        ([0.0, np.nan], "time values must be finite"),
+        ([0.0, 0.0], "time values must be strictly increasing"),
+        ([0.1, 0.0], "time values must be strictly increasing"),
+    ],
+)
+def test_exact_simulate_rejects_invalid_time_grids(time, message):
+    representation = StateSpace(*valid_matrices()).modal_representation()
+
+    with pytest.raises(ValueError, match=message):
+        representation.exact_simulate([1.0, 2.0], [3.0], time)
+
+
+@pytest.mark.parametrize(
+    ("z0", "u", "message"),
+    [
+        ([[1.0, 2.0]], [3.0], "z must be a 1D vector"),
+        ([1.0, 2.0], [3.0, 4.0], "u must have shape"),
+        ([1.0, 2.0], [[3.0], [4.0], [5.0]], "u must have shape"),
+    ],
+)
+def test_exact_simulate_rejects_invalid_state_and_input_shapes(z0, u, message):
+    representation = StateSpace(*valid_matrices()).modal_representation()
+
+    with pytest.raises(ValueError, match=message):
+        representation.exact_simulate(z0, u, [0.0, 0.1])
+
+
 def test_modal_simulate_zero_input_preserves_initial_complex_state():
     representation = StateSpace(
         [[-1.0, -3.0], [2.0, -1.0]],
