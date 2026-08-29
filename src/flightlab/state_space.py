@@ -153,6 +153,24 @@ class StateSpace:
         modes = self.biorthogonal_modes()
         return np.asarray(self.C @ modes.right_eigenvectors, dtype=complex)
 
+    def modal_coordinates(self, x):
+        """Transform a physical state vector to modal coordinates ``W^H @ x``."""
+        x = np.asarray(x)
+        if x.ndim != 1 or x.shape != (self.n_states,):
+            raise ValueError("x must have shape (n_states,)")
+
+        modes = self.biorthogonal_modes()
+        return np.asarray(modes.left_eigenvectors.conj().T @ x, dtype=complex)
+
+    def reconstruct_state(self, z):
+        """Reconstruct a physical state vector from modal coordinates ``V @ z``."""
+        z = np.asarray(z)
+        if z.ndim != 1 or z.shape != (self.n_states,):
+            raise ValueError("z must have shape (n_states,)")
+
+        modes = self.biorthogonal_modes()
+        return np.asarray(modes.right_eigenvectors @ z, dtype=complex)
+
     def modal_properties(self):
         """Return modal quantities in the same order as :meth:`eigenvalues`."""
         properties = []

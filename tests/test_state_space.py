@@ -518,6 +518,77 @@ def test_modal_output_influence_preserves_complex_conjugate_modes():
     np.testing.assert_allclose(influence[:, 0], np.conj(influence[:, 1]))
 
 
+def test_modal_coordinates_and_reconstructed_state_have_expected_shapes():
+    system = StateSpace(
+        np.diag([-1.0, -2.0, -3.0]),
+        np.zeros((3, 1)),
+        np.eye(3),
+        np.zeros((3, 1)),
+    )
+
+    coordinates = system.modal_coordinates([1.0, -2.0, 3.0])
+    reconstructed = system.reconstruct_state(coordinates)
+
+    assert coordinates.shape == (3,)
+    assert reconstructed.shape == (3,)
+    assert np.all(np.isfinite(coordinates))
+    assert np.all(np.isfinite(reconstructed))
+
+
+def test_modal_reconstruction_recovers_state_for_coupled_system():
+    system = StateSpace(
+        [[-1.0, 2.0, 0.5], [-3.0, -1.0, 1.0], [0.25, -0.5, -4.0]],
+        np.zeros((3, 2)),
+        np.eye(3),
+        np.zeros((3, 2)),
+    )
+    state = np.array([1.25, -0.75, 2.5])
+
+    coordinates = system.modal_coordinates(state)
+    reconstructed = system.reconstruct_state(coordinates)
+
+    modes = system.biorthogonal_modes()
+    np.testing.assert_allclose(
+        modes.left_eigenvectors.conj().T @ modes.right_eigenvectors,
+        np.eye(3),
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(reconstructed, state, atol=1e-12)
+
+
+def test_modal_coordinates_preserve_complex_values_for_oscillatory_modes():
+    system = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+    state = np.array([1.0, 2.0])
+
+    coordinates = system.modal_coordinates(state)
+
+    assert np.iscomplexobj(coordinates)
+    assert np.any(np.abs(coordinates.imag) > 0.0)
+    np.testing.assert_allclose(coordinates[0], np.conj(coordinates[1]))
+    np.testing.assert_allclose(system.reconstruct_state(coordinates), state)
+
+
+@pytest.mark.parametrize(
+    ("method", "value", "message"),
+    [
+        ("modal_coordinates", [[1.0, 2.0]], "x must have shape"),
+        ("reconstruct_state", [[1.0, 2.0]], "z must have shape"),
+    ],
+)
+def test_modal_coordinate_transforms_reject_incompatible_shapes(
+    method, value, message
+):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match=message):
+        getattr(system, method)(value)
+
+
 def test_invalid_A():
     _, B, C, D = valid_matrices()
 
