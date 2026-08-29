@@ -1,6 +1,6 @@
 # Current completed capabilities
 
-- `StateSpace` supports output evaluation, forward-Euler and classical RK4 state stepping, Euler or RK4 simulation with constant or time-varying inputs, zero-input, zero-state forced-response, step-response, and finite-grid numerical impulse-response simulation, eigenvalue calculation, continuous-time modal properties, right- and left-eigenvector modal shapes, explicit biorthogonal modal scaling, modal state decomposition and reconstruction, a complete modal state-space representation with derivative, output, Euler/RK4 stepping, exact unforced and constant-input stepping, exact unforced and zero-order-hold time-grid propagation, numerical time-grid simulation, zero-input response, forced response, step response, and finite-grid impulse response, state participation factors, modal input and output influence, and asymptotic-stability checks.
+- `StateSpace` supports output evaluation, forward-Euler and classical RK4 state stepping, Euler or RK4 simulation with constant or time-varying inputs, zero-input, zero-state forced-response, step-response, and finite-grid numerical impulse-response simulation, complete numerical and exact zero-order-hold modal-coordinate infrastructure, state participation factors, normalized modal state characterization by physical-state index, modal input and output influence, continuous-time modal properties, and asymptotic-stability checks.
 - Modal properties preserve eigenvalue ordering and provide natural frequency, damping ratio, damped natural frequency, period, and signed time constant where applicable; non-applicable quantities are represented by `None`.
 - Right modal shapes use NumPy-normalized eigenvector columns, with column `i` corresponding to eigenvalue and modal-property result `i`; complex phase is preserved.
 - Left modal shapes are NumPy-normalized columns explicitly matched to the corresponding eigenvalue order and satisfy `w_i^H A = lambda_i w_i^H`; complex phase is preserved.
@@ -21,6 +21,7 @@
 - Exact unforced modal time-grid propagation iterates with the verified exact step and evaluates outputs with zero input.
 - Exact constant-input modal stepping combines the verified homogeneous step with a stable `expm1` forcing factor and an explicit zero-eigenvalue limit.
 - Exact modal simulation applies the verified constant-input step over each interval using the established left-sampled zero-order-hold convention.
+- Modal state characterization derives real nonnegative magnitudes from existing participation factors, normalizes each mode to unit sum, and reports all numerically tied dominant state indices without aircraft-specific labels.
 - Numerical impulse response uses a left-sampled rectangular pulse over the first interval with amplitude `impulse / (time[1] - time[0])` and zero input samples afterward.
 - Generic trajectory analysis extracts component-wise minima and maxima with their first occurrence times from state or output trajectories.
 - `LongitudinalModel` uses states `(u, w, q, theta)` with elevator input.
@@ -31,12 +32,12 @@
 
 # Current test count
 
-265 tests.
+270 tests.
 
 # Current architectural boundary
 
-Linear dimensional state-space foundations, explicit Euler and RK4 simulation, zero-input, zero-state forced-response, step-response, finite-grid numerical impulse-response simulation, eigenvalue-based scalar modal properties, paired right and left modal shapes with explicit biorthogonal scaling, modal state decomposition and reconstruction, a complete modal state-space representation with derivative, output, Euler/RK4 stepping, exact unforced and constant-input stepping, exact unforced and zero-order-hold time-grid propagation, numerical time-grid simulation, zero-input response, forced response, step response, and finite-grid impulse response, state participation and modal input/output-influence analysis, asymptotic-stability analysis, and basic trajectory-extrema analysis are complete. Do not redesign these foundations next session unless a verified inconsistency is found.
+The modal numerical infrastructure is sufficiently complete for the current project stage. FlightLab has moved into a generic modal flight-dynamics interpretation layer, beginning with normalized physical-state participation and dominant state indices. Aircraft-specific mode names and heuristics remain outside the current boundary. Do not redesign the verified numerical foundations unless a verified inconsistency is found.
 
 # Next recommended technical step
 
-Add an exact modal step-response helper using zero-order-hold simulation, without exact impulse response or aircraft-mode classification.
+Group conjugate eigenvalues into generic modal families while preserving individual-mode results, without assigning aircraft-specific mode names.

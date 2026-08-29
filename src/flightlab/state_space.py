@@ -19,6 +19,15 @@ class ModalProperties(NamedTuple):
     time_constant: float | None
 
 
+class ModalStateCharacterization(NamedTuple):
+    """Physical-state participation summary for one eigenmode."""
+
+    eigenvalue: complex
+    modal_properties: ModalProperties
+    participation_magnitudes: np.ndarray
+    dominant_state_indices: tuple[int, ...]
+
+
 class BiorthogonalModes(NamedTuple):
     """Paired modal vectors with right columns scaled against left columns."""
 
@@ -397,6 +406,46 @@ class StateSpace:
         """
         modes = self.biorthogonal_modes()
         return modes.right_eigenvectors * np.conj(modes.left_eigenvectors)
+
+    def modal_state_characterization(self):
+        """Summarize normalized physical-state participation for each mode.
+
+        Magnitudes are the absolute values of the existing participation
+        factors, normalized within each modal column to have unit sum.
+        Dominant indices include every state numerically tied for the maximum.
+        """
+        participation = self.participation_factors()
+        modal_properties = self.modal_properties()
+        characterizations = []
+
+        for index, properties in enumerate(modal_properties):
+            magnitudes = np.abs(participation[:, index])
+            magnitude_sum = np.sum(magnitudes)
+            if not np.isfinite(magnitude_sum) or magnitude_sum <= 0.0:
+                raise ValueError("modal participation magnitudes cannot be normalized")
+            normalized_magnitudes = magnitudes / magnitude_sum
+            maximum = np.max(normalized_magnitudes)
+            dominant_indices = tuple(
+                int(state_index)
+                for state_index in np.flatnonzero(
+                    np.isclose(
+                        normalized_magnitudes,
+                        maximum,
+                        rtol=1e-7,
+                        atol=1e-12,
+                    )
+                )
+            )
+            characterizations.append(
+                ModalStateCharacterization(
+                    eigenvalue=properties.eigenvalue,
+                    modal_properties=properties,
+                    participation_magnitudes=normalized_magnitudes,
+                    dominant_state_indices=dominant_indices,
+                )
+            )
+
+        return tuple(characterizations)
 
     def modal_input_influence(self):
         """Return ``W^H @ B`` with mode rows and physical-input columns.

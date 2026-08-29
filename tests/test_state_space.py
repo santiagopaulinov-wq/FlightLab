@@ -399,6 +399,121 @@ def test_participation_factors_preserve_complex_conjugate_modes():
     np.testing.assert_allclose(np.sum(participation, axis=0), np.ones(3))
 
 
+def test_modal_state_characterization_for_diagonal_system():
+    system = StateSpace(
+        np.diag([-1.0, -2.0, -3.0]),
+        np.zeros((3, 1)),
+        np.eye(3),
+        np.zeros((3, 1)),
+    )
+
+    characterizations = system.modal_state_characterization()
+    properties = system.modal_properties()
+
+    assert len(characterizations) == 3
+    np.testing.assert_array_equal(
+        [result.eigenvalue for result in characterizations], system.eigenvalues()
+    )
+    for index, result in enumerate(characterizations):
+        assert result.modal_properties == properties[index]
+        assert result.participation_magnitudes.shape == (3,)
+        assert np.all(np.isfinite(result.participation_magnitudes))
+        assert np.all(result.participation_magnitudes >= 0.0)
+        assert np.sum(result.participation_magnitudes) == pytest.approx(1.0)
+        np.testing.assert_allclose(
+            result.participation_magnitudes, np.eye(3)[:, index]
+        )
+        assert result.dominant_state_indices == (index,)
+
+
+def test_modal_state_characterization_for_coupled_system():
+    system = StateSpace(
+        [[1.0, 1.0], [-2.0, 4.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    characterizations = system.modal_state_characterization()
+    participation = np.abs(system.participation_factors())
+    expected = participation / np.sum(participation, axis=0)
+
+    assert len(characterizations) == 2
+    for index, result in enumerate(characterizations):
+        np.testing.assert_allclose(result.participation_magnitudes, expected[:, index])
+        assert np.all(result.participation_magnitudes > 0.0)
+        assert result.dominant_state_indices
+
+
+def test_modal_state_characterization_reports_tied_dominant_states():
+    system = StateSpace(
+        [[-2.0, 1.0], [1.0, -2.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    characterizations = system.modal_state_characterization()
+
+    for result in characterizations:
+        np.testing.assert_allclose(result.participation_magnitudes, [0.5, 0.5])
+        assert result.dominant_state_indices == (0, 1)
+
+
+def test_modal_state_characterization_is_invariant_to_modal_vector_scaling(
+    monkeypatch,
+):
+    system = StateSpace(
+        [[1.0, 1.0], [-2.0, 4.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+    baseline = system.modal_state_characterization()
+    modes = system.biorthogonal_modes()
+    scaling = np.array([2.0 + 1.0j, -0.5 + 0.75j])
+    scaled_modes = modes._replace(
+        right_eigenvectors=modes.right_eigenvectors * scaling[np.newaxis, :],
+        left_eigenvectors=modes.left_eigenvectors
+        / np.conj(scaling)[np.newaxis, :],
+    )
+    monkeypatch.setattr(system, "biorthogonal_modes", lambda: scaled_modes)
+
+    scaled = system.modal_state_characterization()
+
+    for baseline_result, scaled_result in zip(baseline, scaled, strict=True):
+        np.testing.assert_allclose(
+            scaled_result.participation_magnitudes,
+            baseline_result.participation_magnitudes,
+        )
+        assert scaled_result.dominant_state_indices == (
+            baseline_result.dominant_state_indices
+        )
+
+
+def test_modal_state_characterization_is_consistent_for_conjugate_pair():
+    system = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    first, second = system.modal_state_characterization()
+
+    np.testing.assert_allclose(first.eigenvalue, np.conj(second.eigenvalue))
+    np.testing.assert_allclose(
+        first.participation_magnitudes, second.participation_magnitudes
+    )
+    assert first.dominant_state_indices == second.dominant_state_indices
+    assert first.modal_properties.natural_frequency == pytest.approx(
+        second.modal_properties.natural_frequency
+    )
+    assert first.modal_properties.damping_ratio == pytest.approx(
+        second.modal_properties.damping_ratio
+    )
+
+
 def test_modal_input_influence_for_diagonal_system_preserves_input_columns():
     inputs = np.array([[1.0, 10.0], [2.0, 20.0], [3.0, 30.0]])
     system = StateSpace(
