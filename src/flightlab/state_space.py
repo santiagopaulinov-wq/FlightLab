@@ -154,6 +154,15 @@ class ModalStateSpace(NamedTuple):
             np.zeros(self.Lambda.shape[0]), u, time, method=method
         )
 
+    def step_response(self, amplitude, time, method="euler"):
+        """Simulate the modal response to a constant input from the zero state."""
+        amplitude = np.asarray(amplitude, dtype=float)
+        if amplitude.ndim != 1 or amplitude.shape != (self.G_modal.shape[1],):
+            raise ValueError("amplitude must have shape (n_inputs,)")
+        if not np.all(np.isfinite(amplitude)):
+            raise ValueError("amplitude values must be finite")
+        return self.forced_response(amplitude, time, method=method)
+
 
 class StateSpace:
     def __init__(self, A, B, C, D):
