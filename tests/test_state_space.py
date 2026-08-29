@@ -589,6 +589,64 @@ def test_modal_coordinate_transforms_reject_incompatible_shapes(
         getattr(system, method)(value)
 
 
+def test_modal_representation_has_expected_shapes_and_components():
+    system = StateSpace(
+        np.diag([-1.0, -2.0, -3.0]),
+        np.arange(6.0).reshape(3, 2),
+        np.arange(12.0).reshape(4, 3),
+        np.arange(8.0).reshape(4, 2),
+    )
+
+    representation = system.modal_representation()
+
+    assert representation.Lambda.shape == (3, 3)
+    assert representation.G_modal.shape == (3, 2)
+    assert representation.H_modal.shape == (4, 3)
+    assert representation.D.shape == (4, 2)
+    for matrix in representation:
+        assert np.all(np.isfinite(matrix))
+    np.testing.assert_array_equal(
+        representation.Lambda,
+        np.diag(np.diag(representation.Lambda)),
+    )
+    np.testing.assert_array_equal(
+        np.diag(representation.Lambda), system.eigenvalues()
+    )
+    np.testing.assert_allclose(
+        representation.G_modal, system.modal_input_influence()
+    )
+    np.testing.assert_allclose(
+        representation.H_modal, system.modal_output_influence()
+    )
+    np.testing.assert_array_equal(representation.D, system.D)
+
+
+def test_modal_representation_reconstructs_coupled_physical_system():
+    system = StateSpace(
+        [[-1.0, 2.0, 0.5], [-3.0, -1.0, 1.0], [0.25, -0.5, -4.0]],
+        [[1.0, -2.0], [0.5, 3.0], [-1.0, 0.25]],
+        [[1.0, 0.0, 2.0], [-0.5, 3.0, 1.0]],
+        [[0.1, 0.2], [0.3, 0.4]],
+    )
+
+    modes = system.biorthogonal_modes()
+    representation = system.modal_representation()
+    V = modes.right_eigenvectors
+    W_H = modes.left_eigenvectors.conj().T
+
+    assert np.iscomplexobj(representation.Lambda)
+    assert np.iscomplexobj(representation.G_modal)
+    assert np.iscomplexobj(representation.H_modal)
+    np.testing.assert_allclose(
+        system.A, V @ representation.Lambda @ W_H, atol=1e-12
+    )
+    np.testing.assert_allclose(system.B, V @ representation.G_modal, atol=1e-12)
+    np.testing.assert_allclose(
+        system.C, representation.H_modal @ W_H, atol=1e-12
+    )
+    np.testing.assert_array_equal(representation.D, system.D)
+
+
 def test_invalid_A():
     _, B, C, D = valid_matrices()
 

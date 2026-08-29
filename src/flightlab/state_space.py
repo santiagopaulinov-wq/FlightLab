@@ -27,6 +27,15 @@ class BiorthogonalModes(NamedTuple):
     left_eigenvectors: np.ndarray
 
 
+class ModalStateSpace(NamedTuple):
+    """System matrices expressed in biorthogonal modal coordinates."""
+
+    Lambda: np.ndarray
+    G_modal: np.ndarray
+    H_modal: np.ndarray
+    D: np.ndarray
+
+
 class StateSpace:
     def __init__(self, A, B, C, D):
         self.A = np.asarray(A, dtype=float)
@@ -170,6 +179,20 @@ class StateSpace:
 
         modes = self.biorthogonal_modes()
         return np.asarray(modes.right_eigenvectors @ z, dtype=complex)
+
+    def modal_representation(self):
+        """Return ``(Lambda, G_modal, H_modal, D)`` in the modal basis.
+
+        The resulting dynamics are ``z_dot = Lambda @ z + G_modal @ u`` and
+        ``y = H_modal @ z + D @ u``.
+        """
+        modes = self.biorthogonal_modes()
+        return ModalStateSpace(
+            Lambda=np.diag(modes.eigenvalues),
+            G_modal=self.modal_input_influence(),
+            H_modal=self.modal_output_influence(),
+            D=self.D,
+        )
 
     def modal_properties(self):
         """Return modal quantities in the same order as :meth:`eigenvalues`."""
