@@ -647,6 +647,90 @@ def test_modal_representation_reconstructs_coupled_physical_system():
     np.testing.assert_array_equal(representation.D, system.D)
 
 
+def test_modal_evaluation_matches_representation_with_complex_coordinates():
+    system = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        [[1.0, -2.0], [0.5, 3.0]],
+        [[1.0, 2.0], [-0.5, 3.0], [2.0, -1.0]],
+        [[0.1, 0.2], [0.3, 0.4], [-0.2, 0.5]],
+    )
+    representation = system.modal_representation()
+    z = np.array([1.0 + 2.0j, -0.5 + 0.75j])
+    u = np.array([0.25, -1.5])
+
+    derivative = representation.state_derivative(z, u)
+    output = representation.output(z, u)
+
+    assert derivative.shape == (2,)
+    assert output.shape == (3,)
+    assert np.iscomplexobj(derivative)
+    assert np.iscomplexobj(output)
+    assert np.all(np.isfinite(derivative))
+    assert np.all(np.isfinite(output))
+    np.testing.assert_allclose(
+        derivative, representation.Lambda @ z + representation.G_modal @ u
+    )
+    np.testing.assert_allclose(
+        output, representation.H_modal @ z + representation.D @ u
+    )
+
+
+def test_modal_evaluation_matches_coupled_physical_system():
+    system = StateSpace(
+        [[-1.0, 2.0, 0.5], [-3.0, -1.0, 1.0], [0.25, -0.5, -4.0]],
+        [[1.0, -2.0], [0.5, 3.0], [-1.0, 0.25]],
+        [[1.0, 0.0, 2.0], [-0.5, 3.0, 1.0]],
+        [[0.1, 0.2], [0.3, 0.4]],
+    )
+    modes = system.biorthogonal_modes()
+    representation = system.modal_representation()
+    z = np.array([1.0 + 0.5j, -0.25 + 1.5j, 2.0 - 0.75j])
+    u = np.array([0.4, -1.2])
+    x = modes.right_eigenvectors @ z
+
+    physical_derivative = system.A @ x + system.B @ u
+    modal_derivative = representation.state_derivative(z, u)
+    physical_output = system.C @ x + system.D @ u
+    modal_output = representation.output(z, u)
+
+    np.testing.assert_allclose(
+        physical_derivative,
+        modes.right_eigenvectors @ modal_derivative,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(physical_output, modal_output, atol=1e-12)
+
+
+def test_modal_evaluation_with_zero_input():
+    system = StateSpace(*valid_matrices())
+    representation = system.modal_representation()
+    z = np.array([1.0 + 0.25j, -2.0j])
+    u = np.zeros(system.n_inputs)
+
+    np.testing.assert_allclose(
+        representation.state_derivative(z, u), representation.Lambda @ z
+    )
+    np.testing.assert_allclose(
+        representation.output(z, u), representation.H_modal @ z
+    )
+
+
+@pytest.mark.parametrize(
+    ("method", "z", "u", "message"),
+    [
+        ("state_derivative", [[1.0, 2.0]], [0.0], "z must be a 1D vector"),
+        ("state_derivative", [1.0, 2.0], [[0.0]], "u must be a 1D vector"),
+        ("output", [[1.0, 2.0]], [0.0], "z must be a 1D vector"),
+        ("output", [1.0, 2.0], [[0.0]], "u must be a 1D vector"),
+    ],
+)
+def test_modal_evaluation_rejects_incompatible_shapes(method, z, u, message):
+    representation = StateSpace(*valid_matrices()).modal_representation()
+
+    with pytest.raises(ValueError, match=message):
+        getattr(representation, method)(z, u)
+
+
 def test_invalid_A():
     _, B, C, D = valid_matrices()
 

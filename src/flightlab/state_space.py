@@ -35,6 +35,34 @@ class ModalStateSpace(NamedTuple):
     H_modal: np.ndarray
     D: np.ndarray
 
+    def state_derivative(self, z, u):
+        """Evaluate ``Lambda @ z + G_modal @ u`` in modal coordinates."""
+        z = np.asarray(z)
+        u = np.asarray(u)
+        n_states = self.Lambda.shape[0]
+        n_inputs = self.G_modal.shape[1]
+
+        if z.ndim != 1 or z.shape != (n_states,):
+            raise ValueError("z must be a 1D vector with shape (n_states,)")
+        if u.ndim != 1 or u.shape != (n_inputs,):
+            raise ValueError("u must be a 1D vector with shape (n_inputs,)")
+
+        return self.Lambda @ z + self.G_modal @ u
+
+    def output(self, z, u):
+        """Evaluate ``H_modal @ z + D @ u`` in modal coordinates."""
+        z = np.asarray(z)
+        u = np.asarray(u)
+        n_states = self.Lambda.shape[0]
+        n_inputs = self.G_modal.shape[1]
+
+        if z.ndim != 1 or z.shape != (n_states,):
+            raise ValueError("z must be a 1D vector with shape (n_states,)")
+        if u.ndim != 1 or u.shape != (n_inputs,):
+            raise ValueError("u must be a 1D vector with shape (n_inputs,)")
+
+        return self.H_modal @ z + self.D @ u
+
 
 class StateSpace:
     def __init__(self, A, B, C, D):
