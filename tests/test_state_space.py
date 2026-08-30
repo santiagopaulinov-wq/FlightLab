@@ -1,7 +1,12 @@
 import numpy as np
 import pytest
 
-from flightlab.state_space import StateSpace
+from flightlab.state_space import (
+    ModalFamily,
+    ModalProperties,
+    ModalStateCharacterization,
+    StateSpace,
+)
 
 
 def valid_matrices():
@@ -514,6 +519,378 @@ def test_modal_state_characterization_is_consistent_for_conjugate_pair():
     )
 
 
+def test_modal_families_groups_one_conjugate_pair():
+    system = StateSpace(
+        [[-0.5, -2.0], [2.0, -0.5]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    (family,) = system.modal_families()
+
+    assert family.is_oscillatory is True
+    assert family.multiplicity == 2
+    np.testing.assert_allclose(family.eigenvalues[0], np.conj(family.eigenvalues[1]))
+
+
+def test_modal_families_groups_multiple_conjugate_pairs():
+    system = StateSpace(
+        [
+            [-1.0, -2.0, 0.0, 0.0],
+            [2.0, -1.0, 0.0, 0.0],
+            [0.0, 0.0, -3.0, -4.0],
+            [0.0, 0.0, 4.0, -3.0],
+        ],
+        np.zeros((4, 1)),
+        np.eye(4),
+        np.zeros((4, 1)),
+    )
+
+    families = system.modal_families()
+
+    assert len(families) == 2
+    assert all(family.is_oscillatory for family in families)
+    assert [family.multiplicity for family in families] == [2, 2]
+    assert sorted(
+        abs(family.eigenvalues[0].imag) for family in families
+    ) == pytest.approx([2.0, 4.0])
+
+
+def test_modal_families_keeps_each_real_mode_isolated():
+    system = StateSpace(
+        np.diag([-3.0, -1.0, 0.5]),
+        np.zeros((3, 1)),
+        np.eye(3),
+        np.zeros((3, 1)),
+    )
+
+    families = system.modal_families()
+
+    assert len(families) == 3
+    assert all(not family.is_oscillatory for family in families)
+    assert [family.multiplicity for family in families] == [1, 1, 1]
+    np.testing.assert_array_equal(
+        [family.eigenvalues[0] for family in families], system.eigenvalues()
+    )
+
+
+def test_modal_families_mixed_spectrum_preserves_canonical_order_and_members():
+    system = StateSpace(
+        [[-2.0, 0.0, 0.0], [0.0, -0.5, -2.0], [0.0, 2.0, -0.5]],
+        np.zeros((3, 1)),
+        np.eye(3),
+        np.zeros((3, 1)),
+    )
+    families = system.modal_families()
+
+    flattened_eigenvalues = [
+        member.eigenvalue for family in families for member in family.members
+    ]
+    assert sorted(flattened_eigenvalues, key=str) == sorted(
+        system.eigenvalues(), key=str
+    )
+    assert sorted(family.multiplicity for family in families) == [1, 2]
+    assert sorted(family.is_oscillatory for family in families) == [False, True]
+
+
+def test_modal_families_accepts_numerically_perturbed_conjugates(monkeypatch):
+    system = StateSpace([[0.0]], [[0.0]], [[1.0]], [[0.0]])
+
+    def characterization(eigenvalue):
+        properties = ModalProperties(eigenvalue, 2.0, 0.25, 1.9, 3.0, 2.0)
+        return ModalStateCharacterization(eigenvalue, properties, np.ones(1), (0,))
+
+    modes = (
+        characterization(-0.5 + 2.0j),
+        characterization(-0.50000004 - 2.0000001j),
+    )
+    monkeypatch.setattr(system, "modal_state_characterization", lambda: modes)
+
+    (family,) = system.modal_families()
+
+    assert family.members == modes
+    assert family.is_oscillatory is True
+
+
+def test_modal_families_deterministically_follow_first_member_order(monkeypatch):
+    system = StateSpace([[0.0]], [[0.0]], [[1.0]], [[0.0]])
+
+    def characterization(eigenvalue):
+        properties = ModalProperties(eigenvalue, None, None, None, None, None)
+        return ModalStateCharacterization(eigenvalue, properties, np.ones(1), (0,))
+
+    modes = tuple(
+        characterization(value)
+        for value in (-4.0, -1.0 + 3.0j, -2.0, -1.0 - 3.0j)
+    )
+    monkeypatch.setattr(system, "modal_state_characterization", lambda: modes)
+
+    families = system.modal_families()
+
+    assert [family.eigenvalues for family in families] == [
+        (-4.0,),
+        (-1.0 + 3.0j, -1.0 - 3.0j),
+        (-2.0,),
+    ]
+
+
+def test_modal_families_rejects_unmatched_complex_mode(monkeypatch):
+    system = StateSpace([[0.0]], [[0.0]], [[1.0]], [[0.0]])
+    eigenvalue = -1.0 + 2.0j
+    properties = ModalProperties(eigenvalue, 2.2, 0.4, 2.0, 3.1, 1.0)
+    mode = ModalStateCharacterization(eigenvalue, properties, np.ones(1), (0,))
+    monkeypatch.setattr(
+        system, "modal_state_characterization", lambda: (mode,)
+    )
+
+    with pytest.raises(RuntimeError, match="could not match conjugate mode"):
+        system.modal_families()
+
+
+def test_modal_family_state_participation_real_family_matches_member():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    summaries = system.modal_family_state_participation()
+
+    for summary in summaries:
+        assert summary.family.multiplicity == 1
+        np.testing.assert_array_equal(
+            summary.participation_magnitudes,
+            summary.family.members[0].participation_magnitudes,
+        )
+
+
+def test_modal_family_state_participation_averages_conjugate_members():
+    system = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    (summary,) = system.modal_family_state_participation()
+
+    expected = np.mean(
+        [
+            member.participation_magnitudes
+            for member in summary.family.members
+        ],
+        axis=0,
+    )
+    assert summary.family.is_oscillatory is True
+    np.testing.assert_allclose(summary.participation_magnitudes, expected)
+    assert np.sum(summary.participation_magnitudes) == pytest.approx(1.0)
+
+
+def test_modal_family_state_participation_preserves_family_and_state_order():
+    system = StateSpace(
+        np.diag([-3.0, -1.0, -2.0]),
+        np.zeros((3, 1)),
+        np.eye(3),
+        np.zeros((3, 1)),
+    )
+
+    summaries = system.modal_family_state_participation()
+
+    np.testing.assert_array_equal(
+        [summary.family.eigenvalues[0] for summary in summaries],
+        system.eigenvalues(),
+    )
+    np.testing.assert_array_equal(
+        [summary.participation_magnitudes for summary in summaries], np.eye(3)
+    )
+    assert [summary.dominant_state_indices for summary in summaries] == [
+        (0,),
+        (1,),
+        (2,),
+    ]
+
+
+def test_modal_family_state_participation_handles_dominant_tie():
+    system = StateSpace(
+        [[-2.0, 1.0], [1.0, -2.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    summaries = system.modal_family_state_participation()
+
+    for summary in summaries:
+        np.testing.assert_allclose(summary.participation_magnitudes, [0.5, 0.5])
+        assert summary.dominant_state_indices == (0, 1)
+
+
+def test_modal_family_state_participation_matches_participation_factors():
+    system = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+    participation = np.abs(system.participation_factors())
+    member_participation = participation / np.sum(participation, axis=0)
+
+    (summary,) = system.modal_family_state_participation()
+
+    np.testing.assert_allclose(
+        summary.participation_magnitudes,
+        np.mean(member_participation, axis=1),
+    )
+
+
+def test_modal_family_state_participation_is_finite_real_and_nonnegative():
+    system = StateSpace(
+        [[-1.0, 2.0, 0.5], [-3.0, -1.0, 1.0], [0.25, -0.5, -4.0]],
+        np.zeros((3, 1)),
+        np.eye(3),
+        np.zeros((3, 1)),
+    )
+
+    summaries = system.modal_family_state_participation()
+
+    assert len(summaries) == len(system.modal_families())
+    for summary in summaries:
+        assert summary.participation_magnitudes.shape == (system.n_states,)
+        assert np.isrealobj(summary.participation_magnitudes)
+        assert np.all(np.isfinite(summary.participation_magnitudes))
+        assert np.all(summary.participation_magnitudes >= 0.0)
+        assert np.sum(summary.participation_magnitudes) == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(
+    ("eigenvalue", "stability", "time_constant"),
+    [(-2.0, "decaying", 0.5), (4.0, "growing", -0.25)],
+)
+def test_modal_family_dynamic_summary_for_real_family(
+    eigenvalue, stability, time_constant
+):
+    system = StateSpace([[eigenvalue]], [[0.0]], [[1.0]], [[0.0]])
+
+    (summary,) = system.modal_family_dynamic_summaries()
+
+    assert summary.family.members[0].modal_properties == system.modal_properties()[0]
+    assert summary.is_oscillatory is False
+    assert summary.real_part == pytest.approx(eigenvalue)
+    assert summary.stability == stability
+    assert summary.time_constant == pytest.approx(time_constant)
+    assert summary.natural_frequency is None
+    assert summary.damping_ratio is None
+    assert summary.damped_natural_frequency is None
+    assert summary.period is None
+
+
+@pytest.mark.parametrize(
+    ("real_part", "stability", "damping_sign"),
+    [(-1.0, "decaying", 1.0), (1.0, "growing", -1.0)],
+)
+def test_modal_family_dynamic_summary_for_oscillatory_family(
+    real_part, stability, damping_sign
+):
+    system = StateSpace(
+        [[real_part, -2.0], [2.0, real_part]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    (summary,) = system.modal_family_dynamic_summaries()
+
+    expected_frequency = np.sqrt(real_part**2 + 4.0)
+    assert summary.is_oscillatory is True
+    assert summary.real_part == pytest.approx(real_part)
+    assert summary.stability == stability
+    assert summary.natural_frequency == pytest.approx(expected_frequency)
+    assert summary.damping_ratio == pytest.approx(
+        damping_sign / expected_frequency
+    )
+    assert summary.damped_natural_frequency == pytest.approx(2.0)
+    assert summary.period == pytest.approx(np.pi)
+    assert summary.time_constant == pytest.approx(-1.0 / real_part)
+
+
+@pytest.mark.parametrize("real_part", [-1e-10, 0.0, 1e-10])
+def test_modal_family_dynamic_summary_neutral_stability_tolerance(real_part):
+    system = StateSpace([[real_part]], [[0.0]], [[1.0]], [[0.0]])
+
+    (summary,) = system.modal_family_dynamic_summaries()
+
+    assert summary.stability == "neutral"
+    assert summary.real_part == pytest.approx(real_part)
+
+
+def test_modal_family_dynamic_summary_preserves_family_order():
+    system = StateSpace(
+        np.diag([-3.0, 2.0, -1.0]),
+        np.zeros((3, 1)),
+        np.eye(3),
+        np.zeros((3, 1)),
+    )
+
+    summaries = system.modal_family_dynamic_summaries()
+
+    np.testing.assert_array_equal(
+        [summary.family.eigenvalues[0] for summary in summaries],
+        system.eigenvalues(),
+    )
+    assert [summary.stability for summary in summaries] == [
+        "decaying",
+        "growing",
+        "decaying",
+    ]
+
+
+def test_modal_family_dynamic_summary_validates_conjugate_invariants(monkeypatch):
+    system = StateSpace(
+        [[-1.0, -2.0], [2.0, -1.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+    family = system.modal_families()[0]
+    inconsistent_properties = family.members[1].modal_properties._replace(
+        natural_frequency=family.members[0].modal_properties.natural_frequency + 0.1
+    )
+    inconsistent_member = family.members[1]._replace(
+        modal_properties=inconsistent_properties
+    )
+    inconsistent_family = ModalFamily(
+        (family.members[0], inconsistent_member), is_oscillatory=True
+    )
+    monkeypatch.setattr(system, "modal_families", lambda: (inconsistent_family,))
+
+    with pytest.raises(ValueError, match="inconsistent natural_frequency"):
+        system.modal_family_dynamic_summaries()
+
+
+def test_modal_family_dynamic_summary_defined_values_are_finite():
+    system = StateSpace(
+        [[-1.0, 0.0, 0.0], [0.0, -2.0, -3.0], [0.0, 3.0, -2.0]],
+        np.zeros((3, 1)),
+        np.eye(3),
+        np.zeros((3, 1)),
+    )
+
+    summaries = system.modal_family_dynamic_summaries()
+
+    for summary in summaries:
+        values = (
+            summary.real_part,
+            summary.natural_frequency,
+            summary.damping_ratio,
+            summary.damped_natural_frequency,
+            summary.period,
+            summary.time_constant,
+        )
+        assert all(value is None or np.isfinite(value) for value in values)
+
+
 def test_modal_input_influence_for_diagonal_system_preserves_input_columns():
     inputs = np.array([[1.0, 10.0], [2.0, 20.0], [3.0, 30.0]])
     system = StateSpace(
@@ -570,6 +947,134 @@ def test_modal_input_influence_preserves_complex_conjugate_modes():
     assert np.any(np.abs(influence.imag) > 0.0)
     np.testing.assert_allclose(influence, modes.left_eigenvectors.conj().T @ system.B)
     np.testing.assert_allclose(influence[0], np.conj(influence[1]))
+
+
+def test_modal_family_input_influence_real_family_matches_member_magnitude():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        [[1.0, -2.0], [3.0, 4.0]],
+        np.eye(2),
+        np.zeros((2, 2)),
+    )
+    modal_influence = system.modal_input_influence()
+
+    summaries = system.modal_family_input_influence()
+
+    for row, summary in enumerate(summaries):
+        np.testing.assert_allclose(
+            summary.influence_magnitudes, np.abs(modal_influence[row])
+        )
+
+
+def test_modal_family_input_influence_averages_conjugate_member_magnitudes():
+    system = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        [[1.0, -2.0], [3.0, 4.0]],
+        np.eye(2),
+        np.zeros((2, 2)),
+    )
+    modal_influence = system.modal_input_influence()
+
+    (summary,) = system.modal_family_input_influence()
+
+    np.testing.assert_allclose(
+        summary.influence_magnitudes,
+        np.mean(np.abs(modal_influence), axis=0),
+    )
+    assert summary.family.is_oscillatory is True
+
+
+def test_modal_family_input_influence_preserves_family_and_input_order():
+    inputs = np.array([[1.0, 10.0, 100.0], [2.0, 20.0, 200.0]])
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        inputs,
+        np.eye(2),
+        np.zeros((2, 3)),
+    )
+
+    summaries = system.modal_family_input_influence()
+
+    np.testing.assert_array_equal(
+        [summary.family.eigenvalues[0] for summary in summaries],
+        system.eigenvalues(),
+    )
+    np.testing.assert_allclose(
+        [summary.influence_magnitudes for summary in summaries], np.abs(inputs)
+    )
+    assert [summary.dominant_input_indices for summary in summaries] == [
+        (2,),
+        (2,),
+    ]
+
+
+def test_modal_family_input_influence_is_invariant_to_member_order(monkeypatch):
+    system = StateSpace(
+        [[-1.0, -2.0], [2.0, -1.0]],
+        [[1.0, 3.0], [-2.0, 4.0]],
+        np.eye(2),
+        np.zeros((2, 2)),
+    )
+    family = system.modal_families()[0]
+    baseline = system.modal_family_input_influence()[0]
+    reversed_family = ModalFamily(
+        tuple(reversed(family.members)), is_oscillatory=True
+    )
+    monkeypatch.setattr(system, "modal_families", lambda: (reversed_family,))
+
+    reordered = system.modal_family_input_influence()[0]
+
+    np.testing.assert_allclose(
+        reordered.influence_magnitudes, baseline.influence_magnitudes
+    )
+    assert reordered.dominant_input_indices == baseline.dominant_input_indices
+
+
+def test_modal_family_input_influence_returns_all_dominant_ties():
+    system = StateSpace(
+        [[-1.0]],
+        [[2.0, -2.0, 1.0]],
+        [[1.0]],
+        np.zeros((1, 3)),
+    )
+
+    (summary,) = system.modal_family_input_influence()
+
+    np.testing.assert_allclose(summary.influence_magnitudes, [2.0, 2.0, 1.0])
+    assert summary.dominant_input_indices == (0, 1)
+
+
+def test_modal_family_input_influence_all_zero_has_no_dominant_input():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.zeros((2, 3)),
+        np.eye(2),
+        np.zeros((2, 3)),
+    )
+
+    summaries = system.modal_family_input_influence()
+
+    for summary in summaries:
+        np.testing.assert_array_equal(summary.influence_magnitudes, np.zeros(3))
+        assert summary.dominant_input_indices == ()
+
+
+def test_modal_family_input_influence_is_finite_real_and_nonnegative():
+    system = StateSpace(
+        [[-1.0, 2.0, 0.5], [-3.0, -1.0, 1.0], [0.25, -0.5, -4.0]],
+        [[1.0, -2.0], [0.5, 3.0], [-1.0, 0.25]],
+        np.eye(3),
+        np.zeros((3, 2)),
+    )
+
+    summaries = system.modal_family_input_influence()
+
+    assert len(summaries) == len(system.modal_families())
+    for summary in summaries:
+        assert summary.influence_magnitudes.shape == (system.n_inputs,)
+        assert np.isrealobj(summary.influence_magnitudes)
+        assert np.all(np.isfinite(summary.influence_magnitudes))
+        assert np.all(summary.influence_magnitudes >= 0.0)
 
 
 def test_modal_output_influence_for_diagonal_system_preserves_output_rows():
@@ -631,6 +1136,267 @@ def test_modal_output_influence_preserves_complex_conjugate_modes():
     assert np.any(np.abs(influence.imag) > 0.0)
     np.testing.assert_allclose(influence, system.C @ modes.right_eigenvectors)
     np.testing.assert_allclose(influence[:, 0], np.conj(influence[:, 1]))
+
+
+def test_modal_family_output_influence_real_family_matches_member_magnitude():
+    outputs = np.array([[1.0, -2.0], [3.0, 4.0], [5.0, -6.0]])
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.zeros((2, 1)),
+        outputs,
+        np.zeros((3, 1)),
+    )
+    modal_influence = system.modal_output_influence()
+
+    summaries = system.modal_family_output_influence()
+
+    for column, summary in enumerate(summaries):
+        np.testing.assert_allclose(
+            summary.influence_magnitudes, np.abs(modal_influence[:, column])
+        )
+
+
+def test_modal_family_output_influence_averages_conjugate_member_magnitudes():
+    system = StateSpace(
+        [[-1.0, -3.0], [2.0, -1.0]],
+        np.zeros((2, 1)),
+        [[1.0, -2.0], [3.0, 4.0], [-0.5, 2.0]],
+        np.zeros((3, 1)),
+    )
+    modal_influence = system.modal_output_influence()
+
+    (summary,) = system.modal_family_output_influence()
+
+    np.testing.assert_allclose(
+        summary.influence_magnitudes,
+        np.mean(np.abs(modal_influence), axis=1),
+    )
+    assert summary.family.is_oscillatory is True
+
+
+def test_modal_family_output_influence_preserves_family_and_output_order():
+    outputs = np.array([[1.0, 2.0], [10.0, 20.0], [100.0, 200.0]])
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.zeros((2, 1)),
+        outputs,
+        np.zeros((3, 1)),
+    )
+
+    summaries = system.modal_family_output_influence()
+
+    np.testing.assert_array_equal(
+        [summary.family.eigenvalues[0] for summary in summaries],
+        system.eigenvalues(),
+    )
+    np.testing.assert_allclose(
+        [summary.influence_magnitudes for summary in summaries],
+        np.abs(outputs.T),
+    )
+    assert [summary.dominant_output_indices for summary in summaries] == [
+        (2,),
+        (2,),
+    ]
+
+
+def test_modal_family_output_influence_is_invariant_to_member_order(monkeypatch):
+    system = StateSpace(
+        [[-1.0, -2.0], [2.0, -1.0]],
+        np.zeros((2, 1)),
+        [[1.0, 3.0], [-2.0, 4.0]],
+        np.zeros((2, 1)),
+    )
+    family = system.modal_families()[0]
+    baseline = system.modal_family_output_influence()[0]
+    reversed_family = ModalFamily(
+        tuple(reversed(family.members)), is_oscillatory=True
+    )
+    monkeypatch.setattr(system, "modal_families", lambda: (reversed_family,))
+
+    reordered = system.modal_family_output_influence()[0]
+
+    np.testing.assert_allclose(
+        reordered.influence_magnitudes, baseline.influence_magnitudes
+    )
+    assert reordered.dominant_output_indices == baseline.dominant_output_indices
+
+
+def test_modal_family_output_influence_returns_all_dominant_ties():
+    system = StateSpace(
+        [[-1.0]],
+        [[0.0]],
+        [[2.0], [-2.0], [1.0]],
+        np.zeros((3, 1)),
+    )
+
+    (summary,) = system.modal_family_output_influence()
+
+    np.testing.assert_allclose(summary.influence_magnitudes, [2.0, 2.0, 1.0])
+    assert summary.dominant_output_indices == (0, 1)
+
+
+def test_modal_family_output_influence_all_zero_has_no_dominant_output():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.zeros((2, 1)),
+        np.zeros((3, 2)),
+        np.zeros((3, 1)),
+    )
+
+    summaries = system.modal_family_output_influence()
+
+    for summary in summaries:
+        np.testing.assert_array_equal(summary.influence_magnitudes, np.zeros(3))
+        assert summary.dominant_output_indices == ()
+
+
+def test_modal_family_output_influence_is_finite_real_and_nonnegative():
+    system = StateSpace(
+        [[-1.0, 2.0, 0.5], [-3.0, -1.0, 1.0], [0.25, -0.5, -4.0]],
+        np.zeros((3, 1)),
+        [[1.0, -2.0, 0.5], [0.5, 3.0, -1.0]],
+        np.zeros((2, 1)),
+    )
+
+    summaries = system.modal_family_output_influence()
+
+    assert len(summaries) == len(system.modal_families())
+    for summary in summaries:
+        assert summary.influence_magnitudes.shape == (system.n_outputs,)
+        assert np.isrealobj(summary.influence_magnitudes)
+        assert np.all(np.isfinite(summary.influence_magnitudes))
+        assert np.all(summary.influence_magnitudes >= 0.0)
+
+
+def test_modal_family_characterization_for_single_real_family():
+    system = StateSpace(
+        [[-2.0]], [[3.0, -1.0]], [[2.0], [-4.0]], np.zeros((2, 2))
+    )
+
+    (characterization,) = system.modal_family_characterizations()
+
+    assert characterization.family.multiplicity == 1
+    assert characterization.dynamics.is_oscillatory is False
+    assert characterization.dynamics.stability == "decaying"
+    assert characterization.state_participation.dominant_state_indices == (0,)
+    assert characterization.input_influence.dominant_input_indices == (0,)
+    assert characterization.output_influence.dominant_output_indices == (1,)
+
+
+def test_modal_family_characterization_for_single_oscillatory_family():
+    system = StateSpace(
+        [[-1.0, -2.0], [2.0, -1.0]],
+        [[1.0], [3.0]],
+        [[1.0, -2.0]],
+        [[0.0]],
+    )
+
+    (characterization,) = system.modal_family_characterizations()
+
+    assert characterization.family.multiplicity == 2
+    assert characterization.dynamics.is_oscillatory is True
+    assert characterization.dynamics.natural_frequency == pytest.approx(np.sqrt(5))
+    assert characterization.dynamics.stability == "decaying"
+
+
+def test_modal_family_characterizations_match_existing_component_results():
+    system = StateSpace(
+        [[-3.0, 0.0, 0.0], [0.0, -1.0, -2.0], [0.0, 2.0, -1.0]],
+        [[1.0, -2.0], [0.5, 3.0], [-1.0, 0.25]],
+        [[1.0, 0.0, 2.0], [-0.5, 3.0, 1.0]],
+        np.zeros((2, 2)),
+    )
+    expected_dynamics = system.modal_family_dynamic_summaries()
+    expected_states = system.modal_family_state_participation()
+    expected_inputs = system.modal_family_input_influence()
+    expected_outputs = system.modal_family_output_influence()
+
+    characterizations = system.modal_family_characterizations()
+
+    assert len(characterizations) == 2
+    for index, characterization in enumerate(characterizations):
+        np.testing.assert_allclose(
+            characterization.family.eigenvalues,
+            expected_dynamics[index].family.eigenvalues,
+        )
+        assert characterization.dynamics[1:] == expected_dynamics[index][1:]
+        np.testing.assert_allclose(
+            characterization.state_participation.participation_magnitudes,
+            expected_states[index].participation_magnitudes,
+        )
+        assert (
+            characterization.state_participation.dominant_state_indices
+            == expected_states[index].dominant_state_indices
+        )
+        np.testing.assert_allclose(
+            characterization.input_influence.influence_magnitudes,
+            expected_inputs[index].influence_magnitudes,
+        )
+        assert (
+            characterization.input_influence.dominant_input_indices
+            == expected_inputs[index].dominant_input_indices
+        )
+        np.testing.assert_allclose(
+            characterization.output_influence.influence_magnitudes,
+            expected_outputs[index].influence_magnitudes,
+        )
+        assert (
+            characterization.output_influence.dominant_output_indices
+            == expected_outputs[index].dominant_output_indices
+        )
+
+
+def test_modal_family_characterizations_share_one_canonical_family_object():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.eye(2),
+        np.eye(2),
+        np.zeros((2, 2)),
+    )
+
+    characterizations = system.modal_family_characterizations()
+
+    for characterization in characterizations:
+        assert characterization.dynamics.family is characterization.family
+        assert characterization.state_participation.family is characterization.family
+        assert characterization.input_influence.family is characterization.family
+        assert characterization.output_influence.family is characterization.family
+
+
+def test_modal_family_characterizations_preserve_canonical_order():
+    system = StateSpace(
+        np.diag([-3.0, 2.0, -1.0]),
+        np.zeros((3, 1)),
+        np.eye(3),
+        np.zeros((3, 1)),
+    )
+
+    characterizations = system.modal_family_characterizations()
+
+    np.testing.assert_array_equal(
+        [result.family.eigenvalues[0] for result in characterizations],
+        system.eigenvalues(),
+    )
+
+
+def test_modal_family_characterizations_reject_mismatched_family(monkeypatch):
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.eye(2),
+        np.eye(2),
+        np.zeros((2, 2)),
+    )
+    output_summaries = system.modal_family_output_influence()
+    mismatched = (
+        output_summaries[0]._replace(family=output_summaries[1].family),
+        output_summaries[1],
+    )
+    monkeypatch.setattr(
+        system, "modal_family_output_influence", lambda: mismatched
+    )
+
+    with pytest.raises(RuntimeError, match="components are inconsistent"):
+        system.modal_family_characterizations()
 
 
 def test_modal_coordinates_and_reconstructed_state_have_expected_shapes():
@@ -2083,6 +2849,76 @@ def test_rk4_step_with_nonzero_control_input():
     np.testing.assert_allclose(result, [2.5])
 
 
+def test_exact_forced_step_matches_scalar_constant_input_solution():
+    system = StateSpace([[-2.0]], [[3.0]], [[1.0]], [[0.0]])
+    state = np.array([1.25])
+    control = np.array([0.5])
+    dt = 0.4
+
+    result = system.exact_forced_step(state, control, dt)
+
+    expected = np.exp(-2.0 * dt) * state + 0.75 * (1.0 - np.exp(-2.0 * dt))
+    np.testing.assert_allclose(result, expected)
+
+
+def test_exact_forced_step_with_zero_input_matches_oscillator_solution():
+    system = StateSpace(
+        [[0.0, 1.0], [-1.0, 0.0]],
+        [[0.0], [1.0]],
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+    state = np.array([1.5, -0.25])
+    dt = 0.3
+
+    result = system.exact_forced_step(state, [0.0], dt)
+
+    expected = np.array(
+        [
+            np.cos(dt) * state[0] + np.sin(dt) * state[1],
+            -np.sin(dt) * state[0] + np.cos(dt) * state[1],
+        ]
+    )
+    np.testing.assert_allclose(result, expected)
+
+
+def test_exact_forced_step_supports_singular_A_and_multiple_inputs():
+    system = StateSpace(
+        [[0.0, 1.0], [0.0, 0.0]],
+        [[1.0, 0.0], [0.0, 2.0]],
+        np.eye(2),
+        np.zeros((2, 2)),
+    )
+    state = np.array([1.0, -0.5])
+    control = np.array([2.0, 3.0])
+    dt = 0.25
+
+    result = system.exact_forced_step(state, control, dt)
+
+    acceleration = 2.0 * control[1]
+    expected = np.array(
+        [
+            state[0] + dt * (state[1] + control[0]) + 0.5 * dt**2 * acceleration,
+            state[1] + dt * acceleration,
+        ]
+    )
+    np.testing.assert_allclose(result, expected)
+
+
+def test_exact_forced_step_is_more_accurate_than_euler():
+    system = StateSpace([[-1.0]], [[1.0]], [[1.0]], [[0.0]])
+    state = np.array([0.5])
+    control = np.array([2.0])
+    dt = 0.5
+    analytical = 2.0 + (state - 2.0) * np.exp(-dt)
+
+    exact = system.exact_forced_step(state, control, dt)
+    euler = system.euler_step(state, control, dt)
+
+    np.testing.assert_allclose(exact, analytical)
+    assert np.linalg.norm(exact - analytical) < np.linalg.norm(euler - analytical)
+
+
 @pytest.mark.parametrize(
     ("x", "u", "message"),
     [
@@ -2206,11 +3042,36 @@ def test_simulate_rk4_uses_left_sampled_time_varying_input():
     np.testing.assert_allclose(states, [[0.0], [0.5], [1.5]])
 
 
+def test_simulate_exact_uses_piecewise_constant_left_endpoint_inputs():
+    system = StateSpace([[0.0]], [[1.0]], [[2.0]], [[3.0]])
+    inputs = np.array([[1.0], [2.0], [100.0]])
+
+    states, outputs = system.simulate(
+        [0.0], inputs, [0.0, 0.5, 1.5], method="exact"
+    )
+
+    np.testing.assert_allclose(states, [[0.0], [0.5], [2.5]])
+    np.testing.assert_allclose(outputs, [[3.0], [7.0], [305.0]])
+
+
+def test_simulate_exact_matches_constant_input_analytical_trajectory():
+    system = StateSpace([[-1.0]], [[1.0]], [[1.0]], [[0.0]])
+    time = np.array([0.0, 0.1, 0.4, 1.0])
+
+    states, outputs = system.simulate([0.5], [2.0], time, method="exact")
+
+    expected = (2.0 - 1.5 * np.exp(-time))[:, np.newaxis]
+    np.testing.assert_allclose(states, expected)
+    np.testing.assert_allclose(outputs, expected)
+
+
 @pytest.mark.parametrize("method", ["bogus", "Euler", None])
 def test_simulate_rejects_unsupported_integration_method(method):
     system = StateSpace(*valid_matrices())
 
-    with pytest.raises(ValueError, match="method must be 'euler' or 'rk4'"):
+    with pytest.raises(
+        ValueError, match="method must be 'euler', 'rk4', or 'exact'"
+    ):
         system.simulate([1.0, 2.0], [3.0], [0.0, 0.1], method=method)
 
 

@@ -2,6 +2,10 @@ from dataclasses import dataclass, fields
 
 import numpy as np
 
+from flightlab.aircraft_modal import (
+    filter_aircraft_modal_family_characterizations,
+    interpret_modal_family_state_labels,
+)
 from flightlab.state_space import StateSpace
 
 
@@ -91,3 +95,34 @@ class LongitudinalModel:
         D = np.zeros((len(self.OUTPUT_ORDER), len(self.INPUT_ORDER)))
 
         return StateSpace(A, B, C, D)
+
+    def modal_family_characterizations(self):
+        """Return generic modal families interpreted with longitudinal labels."""
+        characterizations = self.to_state_space().modal_family_characterizations()
+        return interpret_modal_family_state_labels(
+            characterizations,
+            self.STATE_ORDER,
+            self.INPUT_ORDER,
+            self.OUTPUT_ORDER,
+        )
+
+    def filter_modal_family_characterizations(
+        self,
+        oscillatory=None,
+        stability=None,
+        dominant_state_labels=None,
+        dominant_input_labels=None,
+        dominant_output_labels=None,
+    ):
+        """Filter interpreted modal families by existing categorical dynamics."""
+        return filter_aircraft_modal_family_characterizations(
+            self.modal_family_characterizations(),
+            oscillatory=oscillatory,
+            stability=stability,
+            dominant_state_labels=dominant_state_labels,
+            dominant_input_labels=dominant_input_labels,
+            dominant_output_labels=dominant_output_labels,
+            state_labels=self.STATE_ORDER,
+            input_labels=self.INPUT_ORDER,
+            output_labels=self.OUTPUT_ORDER,
+        )

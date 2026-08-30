@@ -1,4 +1,7 @@
+from types import SimpleNamespace
+
 import numpy as np
+import pytest
 
 from flightlab.lateral_directional import LateralDirectionalModel
 from flightlab.state_space import StateSpace
@@ -25,6 +28,60 @@ def valid_parameters():
         "n_delta_a": 14,
         "n_delta_r": 15,
     }
+
+
+def generic_characterization(
+    dominant_indices,
+    values=None,
+    input_values=(0.6, 0.4),
+    dominant_input_indices=(0,),
+    output_values=(0.1, 0.2, 0.3, 0.4),
+    dominant_output_indices=(3,),
+):
+    if values is None:
+        values = np.full(4, 0.1)
+    return SimpleNamespace(
+        dynamics=object(),
+        state_participation=SimpleNamespace(
+            participation_magnitudes=np.asarray(values),
+            dominant_state_indices=dominant_indices,
+        ),
+        input_influence=SimpleNamespace(
+            influence_magnitudes=np.asarray(input_values),
+            dominant_input_indices=dominant_input_indices,
+        ),
+        output_influence=SimpleNamespace(
+            influence_magnitudes=np.asarray(output_values),
+            dominant_output_indices=dominant_output_indices,
+        ),
+    )
+
+
+class FakeStateSpace:
+    def __init__(self, characterizations):
+        self.characterizations = characterizations
+
+    def modal_family_characterizations(self):
+        return self.characterizations
+
+
+def filtered_characterization(
+    oscillatory,
+    stability,
+    states=(),
+    inputs=(),
+    outputs=(),
+):
+    return SimpleNamespace(
+        characterization=SimpleNamespace(
+            dynamics=SimpleNamespace(
+                is_oscillatory=oscillatory, stability=stability
+            )
+        ),
+        dominant_state_labels=states,
+        dominant_input_labels=inputs,
+        dominant_output_labels=outputs,
+    )
 
 
 def test_lateral_directional_model_builds_expected_state_space_matrices():
@@ -116,6 +173,237 @@ def test_lateral_directional_model_declares_state_input_and_output_ordering():
     assert LateralDirectionalModel.STATE_ORDER == ("v", "p", "r", "phi")
     assert LateralDirectionalModel.INPUT_ORDER == ("delta_a", "delta_r")
     assert LateralDirectionalModel.OUTPUT_ORDER == LateralDirectionalModel.STATE_ORDER
+
+
+@pytest.mark.parametrize(
+    ("index", "label"), tuple(enumerate(LateralDirectionalModel.STATE_ORDER))
+)
+def test_lateral_modal_family_characterization_maps_dominant_state(
+    monkeypatch, index, label
+):
+    generic = generic_characterization((index,))
+    monkeypatch.setattr(
+        LateralDirectionalModel,
+        "to_state_space",
+        lambda self: FakeStateSpace((generic,)),
+    )
+
+    (interpreted,) = LateralDirectionalModel(
+        **valid_parameters()
+    ).modal_family_characterizations()
+
+    assert interpreted.characterization is generic
+    assert interpreted.state_labels == ("v", "p", "r", "phi")
+    assert interpreted.dominant_state_labels == (label,)
+    assert interpreted.characterization.dynamics is generic.dynamics
+    assert interpreted.characterization.input_influence is generic.input_influence
+    assert interpreted.characterization.output_influence is generic.output_influence
+
+
+def test_lateral_modal_family_characterization_maps_tied_inputs_and_outputs(
+    monkeypatch,
+):
+    generic = generic_characterization(
+        (0,),
+        input_values=(0.7, 0.7),
+        dominant_input_indices=(0, 1),
+        output_values=(0.9, 0.2, 0.9, 0.1),
+        dominant_output_indices=(0, 2),
+    )
+    monkeypatch.setattr(
+        LateralDirectionalModel,
+        "to_state_space",
+        lambda self: FakeStateSpace((generic,)),
+    )
+
+    (interpreted,) = LateralDirectionalModel(
+        **valid_parameters()
+    ).modal_family_characterizations()
+
+    assert interpreted.input_labels == LateralDirectionalModel.INPUT_ORDER
+    assert interpreted.dominant_input_labels == ("delta_a", "delta_r")
+    assert interpreted.input_influence_by_label == (
+        ("delta_a", 0.7),
+        ("delta_r", 0.7),
+    )
+    assert interpreted.output_labels == LateralDirectionalModel.OUTPUT_ORDER
+    assert interpreted.dominant_output_labels == ("v", "r")
+    assert interpreted.output_influence_by_label == (
+        ("v", 0.9),
+        ("p", 0.2),
+        ("r", 0.9),
+        ("phi", 0.1),
+    )
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"input_values": (1.0,)}, "must match the model input dimension"),
+        ({"output_values": (1.0, 2.0)}, "must match the model output dimension"),
+        ({"dominant_input_indices": (2,)}, "dominant input index is invalid"),
+        ({"dominant_output_indices": (4,)}, "dominant output index is invalid"),
+    ],
+)
+def test_lateral_modal_family_characterization_validates_channel_mapping(
+    monkeypatch, overrides, message
+):
+    generic = generic_characterization((0,), **overrides)
+    monkeypatch.setattr(
+        LateralDirectionalModel,
+        "to_state_space",
+        lambda self: FakeStateSpace((generic,)),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        LateralDirectionalModel(**valid_parameters()).modal_family_characterizations()
+
+
+def test_lateral_modal_family_characterization_preserves_tie_and_order(monkeypatch):
+    first = generic_characterization((0, 2, 3), [0.4, 0.1, 0.4, 0.4])
+    second = generic_characterization((1,), [0.1, 0.7, 0.1, 0.1])
+    monkeypatch.setattr(
+        LateralDirectionalModel,
+        "to_state_space",
+        lambda self: FakeStateSpace((first, second)),
+    )
+
+    interpreted = LateralDirectionalModel(
+        **valid_parameters()
+    ).modal_family_characterizations()
+
+    assert [result.characterization for result in interpreted] == [first, second]
+    assert interpreted[0].dominant_state_labels == ("v", "r", "phi")
+    assert interpreted[1].dominant_state_labels == ("p",)
+    assert interpreted[0].state_participation_by_label == (
+        ("v", 0.4),
+        ("p", 0.1),
+        ("r", 0.4),
+        ("phi", 0.4),
+    )
+
+
+@pytest.mark.parametrize(
+    ("indices", "values", "message"),
+    [
+        ((4,), np.full(4, 0.25), "dominant state index is invalid"),
+        ((0,), np.full(3, 1 / 3), "must match the model state dimension"),
+    ],
+)
+def test_lateral_modal_family_characterization_validates_state_mapping(
+    monkeypatch, indices, values, message
+):
+    generic = generic_characterization(indices, values)
+    monkeypatch.setattr(
+        LateralDirectionalModel,
+        "to_state_space",
+        lambda self: FakeStateSpace((generic,)),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        LateralDirectionalModel(**valid_parameters()).modal_family_characterizations()
+
+
+def test_lateral_filters_modal_family_characterizations_without_reordering(
+    monkeypatch,
+):
+    characterizations = (
+        filtered_characterization(True, "growing"),
+        filtered_characterization(False, "decaying"),
+        filtered_characterization(True, "decaying"),
+        filtered_characterization(True, "neutral"),
+    )
+    monkeypatch.setattr(
+        LateralDirectionalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    model = LateralDirectionalModel(**valid_parameters())
+    combined = model.filter_modal_family_characterizations(
+        oscillatory=True, stability="decaying"
+    )
+    unfiltered = model.filter_modal_family_characterizations()
+
+    assert combined == (characterizations[2],)
+    assert combined[0] is characterizations[2]
+    assert unfiltered == characterizations
+    assert all(
+        actual is expected
+        for actual, expected in zip(unfiltered, characterizations, strict=True)
+    )
+
+
+@pytest.mark.parametrize("label", LateralDirectionalModel.STATE_ORDER)
+def test_lateral_filter_matches_each_dominant_state_label(monkeypatch, label):
+    characterizations = tuple(
+        filtered_characterization(False, "decaying", states=(state_label,))
+        for state_label in LateralDirectionalModel.STATE_ORDER
+    )
+    monkeypatch.setattr(
+        LateralDirectionalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LateralDirectionalModel(
+        **valid_parameters()
+    ).filter_modal_family_characterizations(dominant_state_labels=label)
+
+    expected = characterizations[LateralDirectionalModel.STATE_ORDER.index(label)]
+    assert result == (expected,)
+    assert result[0] is expected
+
+
+def test_lateral_filter_uses_any_input_output_labels_and_combines(monkeypatch):
+    characterizations = (
+        filtered_characterization(
+            True,
+            "decaying",
+            states=("v", "r"),
+            inputs=("delta_a",),
+            outputs=("v",),
+        ),
+        filtered_characterization(
+            True,
+            "decaying",
+            states=("p",),
+            inputs=("delta_r",),
+            outputs=("p", "phi"),
+        ),
+        filtered_characterization(
+            False,
+            "neutral",
+            states=("phi",),
+            inputs=(),
+            outputs=(),
+        ),
+    )
+    monkeypatch.setattr(
+        LateralDirectionalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+    model = LateralDirectionalModel(**valid_parameters())
+
+    inputs = model.filter_modal_family_characterizations(
+        dominant_input_labels=("delta_a", "delta_r")
+    )
+    outputs = model.filter_modal_family_characterizations(
+        dominant_output_labels=("r", "phi")
+    )
+    combined = model.filter_modal_family_characterizations(
+        oscillatory=True,
+        stability="decaying",
+        dominant_state_labels=("p", "r"),
+        dominant_input_labels="delta_r",
+        dominant_output_labels="phi",
+    )
+
+    assert inputs == characterizations[:2]
+    assert outputs == (characterizations[1],)
+    assert combined == (characterizations[1],)
+    assert combined[0] is characterizations[1]
 
 
 def test_lateral_directional_model_simulates_small_aileron_step():

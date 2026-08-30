@@ -1,4 +1,7 @@
+from types import SimpleNamespace
+
 import numpy as np
+import pytest
 
 from flightlab.longitudinal import LongitudinalModel
 from flightlab.state_space import StateSpace
@@ -22,6 +25,60 @@ def valid_parameters():
         "m_q": 11,
         "m_delta_e": 12,
     }
+
+
+def generic_characterization(
+    dominant_indices,
+    values=None,
+    input_values=(0.75,),
+    dominant_input_indices=(0,),
+    output_values=(0.1, 0.2, 0.3, 0.4),
+    dominant_output_indices=(3,),
+):
+    if values is None:
+        values = np.full(4, 0.1)
+    return SimpleNamespace(
+        dynamics=object(),
+        state_participation=SimpleNamespace(
+            participation_magnitudes=np.asarray(values),
+            dominant_state_indices=dominant_indices,
+        ),
+        input_influence=SimpleNamespace(
+            influence_magnitudes=np.asarray(input_values),
+            dominant_input_indices=dominant_input_indices,
+        ),
+        output_influence=SimpleNamespace(
+            influence_magnitudes=np.asarray(output_values),
+            dominant_output_indices=dominant_output_indices,
+        ),
+    )
+
+
+class FakeStateSpace:
+    def __init__(self, characterizations):
+        self.characterizations = characterizations
+
+    def modal_family_characterizations(self):
+        return self.characterizations
+
+
+def filtered_characterization(
+    oscillatory,
+    stability,
+    states=(),
+    inputs=(),
+    outputs=(),
+):
+    return SimpleNamespace(
+        characterization=SimpleNamespace(
+            dynamics=SimpleNamespace(
+                is_oscillatory=oscillatory, stability=stability
+            )
+        ),
+        dominant_state_labels=states,
+        dominant_input_labels=inputs,
+        dominant_output_labels=outputs,
+    )
 
 
 def test_longitudinal_model_builds_expected_state_space_matrices():
@@ -111,6 +168,279 @@ def test_longitudinal_model_declares_state_input_and_output_ordering():
     assert LongitudinalModel.STATE_ORDER == ("u", "w", "q", "theta")
     assert LongitudinalModel.INPUT_ORDER == ("delta_e",)
     assert LongitudinalModel.OUTPUT_ORDER == LongitudinalModel.STATE_ORDER
+
+
+@pytest.mark.parametrize(
+    ("index", "label"), tuple(enumerate(LongitudinalModel.STATE_ORDER))
+)
+def test_longitudinal_modal_family_characterization_maps_dominant_state(
+    monkeypatch, index, label
+):
+    generic = generic_characterization((index,))
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "to_state_space",
+        lambda self: FakeStateSpace((generic,)),
+    )
+
+    (interpreted,) = LongitudinalModel(**valid_parameters()).modal_family_characterizations()
+
+    assert interpreted.characterization is generic
+    assert interpreted.state_labels == ("u", "w", "q", "theta")
+    assert interpreted.dominant_state_labels == (label,)
+    assert interpreted.characterization.dynamics is generic.dynamics
+    assert interpreted.characterization.input_influence is generic.input_influence
+    assert interpreted.characterization.output_influence is generic.output_influence
+
+
+def test_longitudinal_modal_family_characterization_maps_input_and_outputs(
+    monkeypatch,
+):
+    generic = generic_characterization(
+        (0,), output_values=(0.8, 0.2, 0.8, 0.1), dominant_output_indices=(0, 2)
+    )
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "to_state_space",
+        lambda self: FakeStateSpace((generic,)),
+    )
+
+    (interpreted,) = LongitudinalModel(
+        **valid_parameters()
+    ).modal_family_characterizations()
+
+    assert interpreted.input_labels == LongitudinalModel.INPUT_ORDER
+    assert interpreted.dominant_input_labels == ("delta_e",)
+    assert interpreted.input_influence_by_label == (("delta_e", 0.75),)
+    assert interpreted.output_labels == LongitudinalModel.OUTPUT_ORDER
+    assert interpreted.dominant_output_labels == ("u", "q")
+    assert interpreted.output_influence_by_label == (
+        ("u", 0.8),
+        ("w", 0.2),
+        ("q", 0.8),
+        ("theta", 0.1),
+    )
+
+
+def test_longitudinal_modal_family_characterization_preserves_zero_channels(
+    monkeypatch,
+):
+    generic = generic_characterization(
+        (0,), dominant_input_indices=(), dominant_output_indices=()
+    )
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "to_state_space",
+        lambda self: FakeStateSpace((generic,)),
+    )
+
+    (interpreted,) = LongitudinalModel(
+        **valid_parameters()
+    ).modal_family_characterizations()
+
+    assert interpreted.dominant_input_labels == ()
+    assert interpreted.dominant_output_labels == ()
+
+
+def test_longitudinal_modal_family_characterization_preserves_tie_and_order(
+    monkeypatch,
+):
+    first = generic_characterization((0, 2, 3), [0.4, 0.1, 0.4, 0.4])
+    second = generic_characterization((1,), [0.1, 0.7, 0.1, 0.1])
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "to_state_space",
+        lambda self: FakeStateSpace((first, second)),
+    )
+
+    interpreted = LongitudinalModel(**valid_parameters()).modal_family_characterizations()
+
+    assert [result.characterization for result in interpreted] == [first, second]
+    assert interpreted[0].dominant_state_labels == ("u", "q", "theta")
+    assert interpreted[1].dominant_state_labels == ("w",)
+    assert interpreted[0].state_participation_by_label == (
+        ("u", 0.4),
+        ("w", 0.1),
+        ("q", 0.4),
+        ("theta", 0.4),
+    )
+
+
+@pytest.mark.parametrize(
+    ("indices", "values", "message"),
+    [
+        ((4,), np.full(4, 0.25), "dominant state index is invalid"),
+        ((0,), np.full(3, 1 / 3), "must match the model state dimension"),
+    ],
+)
+def test_longitudinal_modal_family_characterization_validates_state_mapping(
+    monkeypatch, indices, values, message
+):
+    generic = generic_characterization(indices, values)
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "to_state_space",
+        lambda self: FakeStateSpace((generic,)),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        LongitudinalModel(**valid_parameters()).modal_family_characterizations()
+
+
+@pytest.mark.parametrize(
+    ("filters", "expected_indices"),
+    [
+        ({"oscillatory": True}, (1, 3)),
+        ({"oscillatory": False}, (0, 2)),
+        ({"oscillatory": None}, (0, 1, 2, 3)),
+        ({"stability": "decaying"}, (0, 1)),
+        ({"stability": "growing"}, (2,)),
+        ({"stability": "neutral"}, (3,)),
+        ({"stability": None}, (0, 1, 2, 3)),
+        ({"oscillatory": True, "stability": "decaying"}, (1,)),
+        ({"oscillatory": False, "stability": "neutral"}, ()),
+    ],
+)
+def test_longitudinal_filters_modal_family_characterizations(
+    monkeypatch, filters, expected_indices
+):
+    characterizations = (
+        filtered_characterization(False, "decaying"),
+        filtered_characterization(True, "decaying"),
+        filtered_characterization(False, "growing"),
+        filtered_characterization(True, "neutral"),
+    )
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LongitudinalModel(
+        **valid_parameters()
+    ).filter_modal_family_characterizations(**filters)
+
+    assert result == tuple(characterizations[index] for index in expected_indices)
+    assert all(
+        actual is characterizations[index]
+        for actual, index in zip(result, expected_indices, strict=True)
+    )
+
+
+@pytest.mark.parametrize(
+    ("filters", "message"),
+    [
+        ({"oscillatory": "yes"}, "oscillatory must be True, False, or None"),
+        ({"stability": "stable"}, "stability must be"),
+    ],
+)
+def test_longitudinal_filter_rejects_invalid_values(monkeypatch, filters, message):
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "modal_family_characterizations",
+        lambda self: (),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        LongitudinalModel(
+            **valid_parameters()
+        ).filter_modal_family_characterizations(**filters)
+
+
+@pytest.mark.parametrize("label", LongitudinalModel.STATE_ORDER)
+def test_longitudinal_filter_matches_each_dominant_state_label(monkeypatch, label):
+    characterizations = tuple(
+        filtered_characterization(False, "decaying", states=(state_label,))
+        for state_label in LongitudinalModel.STATE_ORDER
+    )
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LongitudinalModel(
+        **valid_parameters()
+    ).filter_modal_family_characterizations(dominant_state_labels=label)
+
+    expected = characterizations[LongitudinalModel.STATE_ORDER.index(label)]
+    assert result == (expected,)
+    assert result[0] is expected
+
+
+def test_longitudinal_filter_uses_any_labels_and_and_categories(monkeypatch):
+    characterizations = (
+        filtered_characterization(
+            True,
+            "decaying",
+            states=("u",),
+            inputs=("delta_e",),
+            outputs=("theta",),
+        ),
+        filtered_characterization(
+            True,
+            "decaying",
+            states=("w", "q"),
+            inputs=("delta_e",),
+            outputs=("q",),
+        ),
+        filtered_characterization(
+            False,
+            "growing",
+            states=("theta",),
+            inputs=(),
+            outputs=(),
+        ),
+    )
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+    model = LongitudinalModel(**valid_parameters())
+
+    any_states = model.filter_modal_family_characterizations(
+        dominant_state_labels=("u", "q", "q")
+    )
+    combined = model.filter_modal_family_characterizations(
+        oscillatory=True,
+        stability="decaying",
+        dominant_state_labels=("w", "q"),
+        dominant_input_labels="delta_e",
+        dominant_output_labels="q",
+    )
+    zero_dominance = model.filter_modal_family_characterizations(
+        dominant_input_labels="delta_e", stability="growing"
+    )
+
+    assert any_states == characterizations[:2]
+    assert combined == (characterizations[1],)
+    assert combined[0] is characterizations[1]
+    assert zero_dominance == ()
+
+
+@pytest.mark.parametrize(
+    ("filters", "message"),
+    [
+        ({"dominant_state_labels": "airspeed"}, "invalid dominant state label"),
+        ({"dominant_input_labels": "elevator"}, "invalid dominant input label"),
+        ({"dominant_output_labels": "pitch rate"}, "invalid dominant output label"),
+        ({"dominant_state_labels": ()}, "state label filter must not be empty"),
+    ],
+)
+def test_longitudinal_filter_rejects_invalid_label_filters(
+    monkeypatch, filters, message
+):
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "modal_family_characterizations",
+        lambda self: (),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        LongitudinalModel(
+            **valid_parameters()
+        ).filter_modal_family_characterizations(**filters)
 
 
 def test_longitudinal_model_simulates_small_elevator_step():
