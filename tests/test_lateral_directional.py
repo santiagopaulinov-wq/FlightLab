@@ -406,6 +406,192 @@ def test_lateral_filter_uses_any_input_output_labels_and_combines(monkeypatch):
     assert combined[0] is characterizations[1]
 
 
+def test_lateral_filter_applies_exact_matching_to_each_label_category(monkeypatch):
+    characterizations = (
+        filtered_characterization(
+            True,
+            "decaying",
+            states=("v", "r"),
+            inputs=("delta_a", "delta_r"),
+            outputs=("v", "r"),
+        ),
+        filtered_characterization(
+            True,
+            "decaying",
+            states=("v", "r", "phi"),
+            inputs=("delta_a", "delta_r"),
+            outputs=("v", "r"),
+        ),
+    )
+    monkeypatch.setattr(
+        LateralDirectionalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LateralDirectionalModel(
+        **valid_parameters()
+    ).filter_modal_family_characterizations(
+        dominant_state_labels=("r", "v"),
+        dominant_input_labels=("delta_r", "delta_a"),
+        dominant_output_labels=("r", "v"),
+        dominant_label_match="EXACT",
+    )
+
+    assert result == (characterizations[0],)
+    assert result[0] is characterizations[0]
+
+
+def test_lateral_filter_overrides_match_mode_by_label_category(monkeypatch):
+    characterizations = (
+        filtered_characterization(
+            True,
+            "decaying",
+            states=("v", "r"),
+            inputs=("delta_a", "delta_r"),
+            outputs=("v", "r"),
+        ),
+        filtered_characterization(
+            True,
+            "decaying",
+            states=("v", "r", "phi"),
+            inputs=("delta_a", "delta_r"),
+            outputs=("v", "r", "phi"),
+        ),
+        filtered_characterization(
+            False,
+            "decaying",
+            states=("v", "r"),
+            inputs=("delta_a",),
+            outputs=("v", "r"),
+        ),
+    )
+    monkeypatch.setattr(
+        LateralDirectionalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LateralDirectionalModel(
+        **valid_parameters()
+    ).filter_modal_family_characterizations(
+        oscillatory=True,
+        stability="decaying",
+        dominant_state_labels=("v", "r", "r"),
+        dominant_input_labels="delta_a",
+        dominant_output_labels="v",
+        dominant_label_match="EXACT",
+        dominant_input_label_match="ALL",
+        dominant_output_label_match="ANY",
+    )
+
+    assert result == (characterizations[0],)
+    assert result[0] is characterizations[0]
+
+
+def test_lateral_filter_excludes_exact_dominant_labels_by_category(monkeypatch):
+    characterizations = (
+        filtered_characterization(
+            True,
+            "decaying",
+            states=("v", "r"),
+            inputs=("delta_a",),
+            outputs=("v",),
+        ),
+        filtered_characterization(
+            True,
+            "decaying",
+            states=("p",),
+            inputs=("delta_r",),
+            outputs=("p",),
+        ),
+        filtered_characterization(
+            True,
+            "decaying",
+            states=("phi",),
+            inputs=(),
+            outputs=(),
+        ),
+        filtered_characterization(
+            False,
+            "decaying",
+            states=("v",),
+            inputs=("delta_r",),
+            outputs=("phi",),
+        ),
+    )
+    monkeypatch.setattr(
+        LateralDirectionalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+    model = LateralDirectionalModel(**valid_parameters())
+
+    states = model.filter_modal_family_characterizations(
+        exclude_dominant_state_labels=("v", "v"),
+        exclude_dominant_label_match="EXACT",
+        exclude_dominant_state_label_match="ALL",
+    )
+    inputs = model.filter_modal_family_characterizations(
+        exclude_dominant_input_labels="delta_r",
+        exclude_dominant_label_match="EXACT",
+    )
+    outputs = model.filter_modal_family_characterizations(
+        exclude_dominant_output_labels="p",
+        exclude_dominant_label_match="ALL",
+        exclude_dominant_output_label_match="EXACT",
+    )
+
+    assert states == characterizations[1:3]
+    assert inputs == (characterizations[0], characterizations[2])
+    assert outputs == (characterizations[0], characterizations[2], characterizations[3])
+    assert all(actual is expected for actual, expected in zip(states, characterizations[1:3], strict=True))
+
+
+def test_lateral_filter_combines_exclusions_with_existing_filters(monkeypatch):
+    characterizations = (
+        filtered_characterization(
+            True,
+            "decaying",
+            states=("v", "r"),
+            inputs=("delta_a", "delta_r"),
+            outputs=("v", "r"),
+        ),
+        filtered_characterization(
+            True,
+            "decaying",
+            states=("v", "r", "phi"),
+            inputs=("delta_a", "delta_r"),
+            outputs=("v", "phi"),
+        ),
+    )
+    monkeypatch.setattr(
+        LateralDirectionalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LateralDirectionalModel(
+        **valid_parameters()
+    ).filter_modal_family_characterizations(
+        oscillatory=True,
+        stability="decaying",
+        dominant_state_labels=("v", "r"),
+        dominant_input_labels="delta_a",
+        dominant_output_labels="v",
+        dominant_label_match="EXACT",
+        dominant_state_label_match="ALL",
+        dominant_input_label_match="ALL",
+        dominant_output_label_match="ANY",
+        exclude_dominant_output_labels="r",
+        exclude_dominant_label_match="EXACT",
+        exclude_dominant_output_label_match="ANY",
+    )
+
+    assert result == (characterizations[1],)
+    assert result[0] is characterizations[1]
+
+
 def test_lateral_directional_model_simulates_small_aileron_step():
     model = LateralDirectionalModel(
         trim_speed=10.0,

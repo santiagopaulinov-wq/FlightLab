@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from flightlab.longitudinal import LongitudinalModel
+from flightlab.longitudinal import LongitudinalModeIdentification, LongitudinalModel
 from flightlab.state_space import StateSpace
 
 
@@ -78,6 +78,27 @@ def filtered_characterization(
         dominant_state_labels=states,
         dominant_input_labels=inputs,
         dominant_output_labels=outputs,
+    )
+
+
+def physical_mode_characterization(
+    frequency, period, dominant_states, participation, oscillatory=True
+):
+    return SimpleNamespace(
+        characterization=SimpleNamespace(
+            dynamics=SimpleNamespace(
+                is_oscillatory=oscillatory,
+                natural_frequency=frequency,
+                period=period,
+            ),
+            state_participation=SimpleNamespace(
+                participation_magnitudes=np.asarray(participation)
+            ),
+        ),
+        dominant_state_labels=dominant_states,
+        state_participation_by_label=tuple(
+            zip(LongitudinalModel.STATE_ORDER, participation, strict=True)
+        ),
     )
 
 
@@ -168,6 +189,54 @@ def test_longitudinal_model_declares_state_input_and_output_ordering():
     assert LongitudinalModel.STATE_ORDER == ("u", "w", "q", "theta")
     assert LongitudinalModel.INPUT_ORDER == ("delta_e",)
     assert LongitudinalModel.OUTPUT_ORDER == LongitudinalModel.STATE_ORDER
+
+
+def test_longitudinal_identifies_clear_short_period_and_phugoid_modes(monkeypatch):
+    phugoid = physical_mode_characterization(
+        0.2, 10.0 * np.pi, ("u",), (0.7, 0.05, 0.05, 0.2)
+    )
+    ambiguous = physical_mode_characterization(
+        0.8, 2.5 * np.pi, ("u", "q"), (0.4, 0.1, 0.4, 0.1)
+    )
+    short_period = physical_mode_characterization(
+        2.0, np.pi, ("q",), (0.05, 0.25, 0.65, 0.05)
+    )
+    characterizations = (phugoid, ambiguous, short_period)
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LongitudinalModel(**valid_parameters()).physical_mode_identifications()
+
+    assert all(isinstance(item, LongitudinalModeIdentification) for item in result)
+    assert tuple(item.characterization for item in result) == characterizations
+    assert tuple(item.mode_name for item in result) == (
+        "phugoid",
+        None,
+        "short_period",
+    )
+
+
+def test_longitudinal_leaves_state_ambiguous_mode_unclassified(monkeypatch):
+    characterizations = (
+        physical_mode_characterization(
+            0.2, 10.0 * np.pi, ("u",), (0.7, 0.05, 0.05, 0.2)
+        ),
+        physical_mode_characterization(
+            2.0, np.pi, ("u", "q"), (0.4, 0.1, 0.4, 0.1)
+        ),
+    )
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LongitudinalModel(**valid_parameters()).physical_mode_identifications()
+
+    assert tuple(item.mode_name for item in result) == ("phugoid", None)
 
 
 @pytest.mark.parametrize(
@@ -420,12 +489,131 @@ def test_longitudinal_filter_uses_any_labels_and_and_categories(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    ("match", "expected_indices"),
+    [
+        ("ANY", (0, 1, 2)),
+        ("ALL", (1, 2)),
+        ("EXACT", (1,)),
+    ],
+)
+def test_longitudinal_filter_configures_dominant_label_set_matching(
+    monkeypatch, match, expected_indices
+):
+    characterizations = (
+        filtered_characterization(False, "decaying", states=("u",)),
+        filtered_characterization(False, "decaying", states=("u", "q")),
+        filtered_characterization(False, "decaying", states=("u", "q", "theta")),
+        filtered_characterization(False, "decaying", states=("w",)),
+    )
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LongitudinalModel(
+        **valid_parameters()
+    ).filter_modal_family_characterizations(
+        dominant_state_labels=("q", "u", "u"),
+        dominant_label_match=match,
+    )
+
+    assert result == tuple(characterizations[index] for index in expected_indices)
+    assert all(
+        actual is characterizations[index]
+        for actual, index in zip(result, expected_indices, strict=True)
+    )
+
+
+@pytest.mark.parametrize(
+    ("match", "expected_indices"),
+    [
+        ("ANY", (3,)),
+        ("ALL", (0, 3)),
+        ("EXACT", (0, 2, 3)),
+    ],
+)
+def test_longitudinal_filter_configures_dominant_label_exclusion_set_matching(
+    monkeypatch, match, expected_indices
+):
+    characterizations = (
+        filtered_characterization(False, "decaying", states=("u",)),
+        filtered_characterization(False, "decaying", states=("u", "q")),
+        filtered_characterization(False, "decaying", states=("u", "q", "theta")),
+        filtered_characterization(False, "decaying", states=("w",)),
+    )
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LongitudinalModel(
+        **valid_parameters()
+    ).filter_modal_family_characterizations(
+        exclude_dominant_state_labels=("q", "u", "u"),
+        exclude_dominant_label_match=match,
+    )
+
+    assert result == tuple(characterizations[index] for index in expected_indices)
+    assert all(
+        actual is characterizations[index]
+        for actual, index in zip(result, expected_indices, strict=True)
+    )
+
+
+@pytest.mark.parametrize(
     ("filters", "message"),
     [
         ({"dominant_state_labels": "airspeed"}, "invalid dominant state label"),
         ({"dominant_input_labels": "elevator"}, "invalid dominant input label"),
         ({"dominant_output_labels": "pitch rate"}, "invalid dominant output label"),
         ({"dominant_state_labels": ()}, "state label filter must not be empty"),
+        ({"dominant_label_match": "all"}, "dominant_label_match must be"),
+        (
+            {"dominant_state_label_match": "all"},
+            "dominant_state_label_match must be",
+        ),
+        (
+            {"dominant_input_label_match": "all"},
+            "dominant_input_label_match must be",
+        ),
+        (
+            {"dominant_output_label_match": "all"},
+            "dominant_output_label_match must be",
+        ),
+        (
+            {"exclude_dominant_state_labels": "airspeed"},
+            "invalid excluded dominant state label",
+        ),
+        (
+            {"exclude_dominant_input_labels": "elevator"},
+            "invalid excluded dominant input label",
+        ),
+        (
+            {"exclude_dominant_output_labels": "pitch rate"},
+            "invalid excluded dominant output label",
+        ),
+        (
+            {"exclude_dominant_state_labels": ()},
+            "excluded dominant state label filter must not be empty",
+        ),
+        (
+            {"exclude_dominant_label_match": "all"},
+            "exclude_dominant_label_match must be",
+        ),
+        (
+            {"exclude_dominant_state_label_match": "all"},
+            "exclude_dominant_state_label_match must be",
+        ),
+        (
+            {"exclude_dominant_input_label_match": "all"},
+            "exclude_dominant_input_label_match must be",
+        ),
+        (
+            {"exclude_dominant_output_label_match": "all"},
+            "exclude_dominant_output_label_match must be",
+        ),
     ],
 )
 def test_longitudinal_filter_rejects_invalid_label_filters(

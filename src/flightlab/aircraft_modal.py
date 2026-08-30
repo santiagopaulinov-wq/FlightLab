@@ -124,6 +124,17 @@ def filter_aircraft_modal_family_characterizations(
     dominant_state_labels=None,
     dominant_input_labels=None,
     dominant_output_labels=None,
+    dominant_label_match="ANY",
+    dominant_state_label_match=None,
+    dominant_input_label_match=None,
+    dominant_output_label_match=None,
+    exclude_dominant_state_labels=None,
+    exclude_dominant_input_labels=None,
+    exclude_dominant_output_labels=None,
+    exclude_dominant_label_match="ANY",
+    exclude_dominant_state_label_match=None,
+    exclude_dominant_input_label_match=None,
+    exclude_dominant_output_label_match=None,
     state_labels=(),
     input_labels=(),
     output_labels=(),
@@ -136,20 +147,52 @@ def filter_aircraft_modal_family_characterizations(
         raise ValueError(
             "stability must be 'decaying', 'growing', 'neutral', or None"
         )
+    valid_label_matches = {"ANY", "ALL", "EXACT"}
+    if dominant_label_match not in valid_label_matches:
+        raise ValueError("dominant_label_match must be 'ANY', 'ALL', or 'EXACT'")
+    category_label_matches = {
+        "state": dominant_state_label_match,
+        "input": dominant_input_label_match,
+        "output": dominant_output_label_match,
+    }
+    for category, match in category_label_matches.items():
+        if match is not None and match not in valid_label_matches:
+            raise ValueError(
+                f"dominant_{category}_label_match must be 'ANY', 'ALL', "
+                "'EXACT', or None"
+            )
+        if match is None:
+            category_label_matches[category] = dominant_label_match
+    if exclude_dominant_label_match not in valid_label_matches:
+        raise ValueError(
+            "exclude_dominant_label_match must be 'ANY', 'ALL', or 'EXACT'"
+        )
+    category_exclusion_matches = {
+        "state": exclude_dominant_state_label_match,
+        "input": exclude_dominant_input_label_match,
+        "output": exclude_dominant_output_label_match,
+    }
+    for category, match in category_exclusion_matches.items():
+        if match is not None and match not in valid_label_matches:
+            raise ValueError(
+                f"exclude_dominant_{category}_label_match must be 'ANY', 'ALL', "
+                "'EXACT', or None"
+            )
+        if match is None:
+            category_exclusion_matches[category] = exclude_dominant_label_match
 
-    def normalized_label_filter(requested, valid_labels, category):
+    def normalized_label_filter(requested, valid_labels, category, exclude=False):
         if requested is None:
             return None
+        filter_name = f"{'excluded ' if exclude else ''}dominant {category} label"
         requested_labels = (requested,) if isinstance(requested, str) else tuple(requested)
         if not requested_labels:
-            raise ValueError(f"dominant {category} label filter must not be empty")
+            raise ValueError(f"{filter_name} filter must not be empty")
         invalid_labels = tuple(
             label for label in requested_labels if label not in valid_labels
         )
         if invalid_labels:
-            raise ValueError(
-                f"invalid dominant {category} label: {invalid_labels[0]!r}"
-            )
+            raise ValueError(f"invalid {filter_name}: {invalid_labels[0]!r}")
         return frozenset(requested_labels)
 
     requested_states = normalized_label_filter(
@@ -161,6 +204,25 @@ def filter_aircraft_modal_family_characterizations(
     requested_outputs = normalized_label_filter(
         dominant_output_labels, output_labels, "output"
     )
+    excluded_states = normalized_label_filter(
+        exclude_dominant_state_labels, state_labels, "state", exclude=True
+    )
+    excluded_inputs = normalized_label_filter(
+        exclude_dominant_input_labels, input_labels, "input", exclude=True
+    )
+    excluded_outputs = normalized_label_filter(
+        exclude_dominant_output_labels, output_labels, "output", exclude=True
+    )
+
+    def labels_match(requested, dominant, match):
+        if requested is None:
+            return True
+        dominant = frozenset(dominant)
+        if match == "ANY":
+            return not requested.isdisjoint(dominant)
+        if match == "ALL":
+            return requested <= dominant
+        return requested == dominant
 
     return tuple(
         characterization
@@ -174,22 +236,43 @@ def filter_aircraft_modal_family_characterizations(
             stability is None
             or characterization.characterization.dynamics.stability == stability
         )
+        and labels_match(
+            requested_states,
+            characterization.dominant_state_labels,
+            category_label_matches["state"],
+        )
+        and labels_match(
+            requested_inputs,
+            characterization.dominant_input_labels,
+            category_label_matches["input"],
+        )
+        and labels_match(
+            requested_outputs,
+            characterization.dominant_output_labels,
+            category_label_matches["output"],
+        )
         and (
-            requested_states is None
-            or not requested_states.isdisjoint(
-                characterization.dominant_state_labels
+            excluded_states is None
+            or not labels_match(
+                excluded_states,
+                characterization.dominant_state_labels,
+                category_exclusion_matches["state"],
             )
         )
         and (
-            requested_inputs is None
-            or not requested_inputs.isdisjoint(
-                characterization.dominant_input_labels
+            excluded_inputs is None
+            or not labels_match(
+                excluded_inputs,
+                characterization.dominant_input_labels,
+                category_exclusion_matches["input"],
             )
         )
         and (
-            requested_outputs is None
-            or not requested_outputs.isdisjoint(
-                characterization.dominant_output_labels
+            excluded_outputs is None
+            or not labels_match(
+                excluded_outputs,
+                characterization.dominant_output_labels,
+                category_exclusion_matches["output"],
             )
         )
     )

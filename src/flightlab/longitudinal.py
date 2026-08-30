@@ -1,12 +1,21 @@
 from dataclasses import dataclass, fields
+from typing import NamedTuple
 
 import numpy as np
 
 from flightlab.aircraft_modal import (
+    AircraftModalFamilyCharacterization,
     filter_aircraft_modal_family_characterizations,
     interpret_modal_family_state_labels,
 )
 from flightlab.state_space import StateSpace
+
+
+class LongitudinalModeIdentification(NamedTuple):
+    """Conservative physical identification of one longitudinal modal family."""
+
+    characterization: AircraftModalFamilyCharacterization
+    mode_name: str | None
 
 
 @dataclass(frozen=True)
@@ -106,6 +115,75 @@ class LongitudinalModel:
             self.OUTPUT_ORDER,
         )
 
+    def physical_mode_identifications(self):
+        """Identify clear short-period and phugoid families conservatively."""
+        characterizations = self.modal_family_characterizations()
+        eligible = []
+        for index, characterization in enumerate(characterizations):
+            dynamics = characterization.characterization.dynamics
+            frequency = dynamics.natural_frequency
+            period = dynamics.period
+            if (
+                dynamics.is_oscillatory
+                and frequency is not None
+                and period is not None
+                and np.isfinite(frequency)
+                and np.isfinite(period)
+                and frequency > 0.0
+                and period > 0.0
+            ):
+                eligible.append((index, float(frequency)))
+
+        names = [None] * len(characterizations)
+        if len(eligible) < 2:
+            return tuple(
+                LongitudinalModeIdentification(characterization, mode_name)
+                for characterization, mode_name in zip(
+                    characterizations, names, strict=True
+                )
+            )
+
+        frequencies = np.asarray([frequency for _, frequency in eligible])
+        slow_position = int(np.argmin(frequencies))
+        fast_position = int(np.argmax(frequencies))
+        slow_frequency = frequencies[slow_position]
+        fast_frequency = frequencies[fast_position]
+        unique_slow = np.count_nonzero(
+            np.isclose(frequencies, slow_frequency, rtol=1e-7, atol=1e-12)
+        ) == 1
+        unique_fast = np.count_nonzero(
+            np.isclose(frequencies, fast_frequency, rtol=1e-7, atol=1e-12)
+        ) == 1
+
+        if unique_slow and unique_fast and fast_frequency / slow_frequency >= 3.0:
+            slow_index = eligible[slow_position][0]
+            fast_index = eligible[fast_position][0]
+
+            def has_state_evidence(index, expected_labels):
+                characterization = characterizations[index]
+                dominant = set(characterization.dominant_state_labels)
+                participation = dict(characterization.state_participation_by_label)
+                expected_participation = sum(
+                    participation[label] for label in expected_labels
+                )
+                return (
+                    bool(dominant)
+                    and dominant <= expected_labels
+                    and expected_participation >= 0.6
+                )
+
+            if has_state_evidence(slow_index, {"u", "theta"}):
+                names[slow_index] = "phugoid"
+            if has_state_evidence(fast_index, {"w", "q"}):
+                names[fast_index] = "short_period"
+
+        return tuple(
+            LongitudinalModeIdentification(characterization, mode_name)
+            for characterization, mode_name in zip(
+                characterizations, names, strict=True
+            )
+        )
+
     def filter_modal_family_characterizations(
         self,
         oscillatory=None,
@@ -113,6 +191,17 @@ class LongitudinalModel:
         dominant_state_labels=None,
         dominant_input_labels=None,
         dominant_output_labels=None,
+        dominant_label_match="ANY",
+        dominant_state_label_match=None,
+        dominant_input_label_match=None,
+        dominant_output_label_match=None,
+        exclude_dominant_state_labels=None,
+        exclude_dominant_input_labels=None,
+        exclude_dominant_output_labels=None,
+        exclude_dominant_label_match="ANY",
+        exclude_dominant_state_label_match=None,
+        exclude_dominant_input_label_match=None,
+        exclude_dominant_output_label_match=None,
     ):
         """Filter interpreted modal families by existing categorical dynamics."""
         return filter_aircraft_modal_family_characterizations(
@@ -122,6 +211,17 @@ class LongitudinalModel:
             dominant_state_labels=dominant_state_labels,
             dominant_input_labels=dominant_input_labels,
             dominant_output_labels=dominant_output_labels,
+            dominant_label_match=dominant_label_match,
+            dominant_state_label_match=dominant_state_label_match,
+            dominant_input_label_match=dominant_input_label_match,
+            dominant_output_label_match=dominant_output_label_match,
+            exclude_dominant_state_labels=exclude_dominant_state_labels,
+            exclude_dominant_input_labels=exclude_dominant_input_labels,
+            exclude_dominant_output_labels=exclude_dominant_output_labels,
+            exclude_dominant_label_match=exclude_dominant_label_match,
+            exclude_dominant_state_label_match=exclude_dominant_state_label_match,
+            exclude_dominant_input_label_match=exclude_dominant_input_label_match,
+            exclude_dominant_output_label_match=exclude_dominant_output_label_match,
             state_labels=self.STATE_ORDER,
             input_labels=self.INPUT_ORDER,
             output_labels=self.OUTPUT_ORDER,

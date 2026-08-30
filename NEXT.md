@@ -7,9 +7,12 @@ physical state coordinates, in addition to its existing modal numerical
 infrastructure and generic modal flight-dynamics interpretation layer. The
 interpretation capability characterizes how physical state indices participate
 in each individual eigenmode and groups real modes and complex-conjugate pairs
-into generic modal families with family-level state-participation summaries. No
-aircraft-specific mode names or classification heuristics exist yet. Each
-family also has a generic dynamic summary derived from its canonical member
+into generic modal families with family-level state-participation summaries.
+The active development stage is now conservative longitudinal physical-mode
+identification: clear short-period and phugoid families can be named from both
+relative frequency scale and longitudinal state participation, while ambiguous
+families remain unclassified. Each family also has a generic dynamic summary
+derived from its canonical member
 properties and generic physical-input and physical-output influence summaries.
 These verified summaries are available together through one consolidated,
 immutable generic characterization per canonical family.
@@ -19,7 +22,8 @@ results, and likewise interprets dominant input and output indices using the
 models' established channel ordering.
 Both aircraft models can filter these immutable interpreted families by their
 existing oscillatory status, mathematical stability, and exact dominant
-state/input/output labels.
+state/input/output labels, with configurable global or per-category ANY, ALL,
+or EXACT set matching for both inclusions and exclusions.
 
 ## Checkpoint commit
 
@@ -28,7 +32,7 @@ state/input/output labels.
 
 ## Current verification baseline
 
-- Test count: 366 tests.
+- Test count: 390 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -165,6 +169,44 @@ state/input/output labels.
   empty dominant-label tuple simply fail a corresponding label filter. Results
   preserve canonical order and object identity; no matches remains an empty
   tuple, and empty requested label collections raise `ValueError`.
+- Dominant-label filtering accepts `dominant_label_match` as `ANY`, `ALL`, or
+  `EXACT`, with `ANY` remaining the default. The selected set semantics apply
+  independently within every supplied state, input, and output label category:
+  `ALL` requires every requested label to be dominant, while `EXACT` requires
+  equality with the complete dominant-label set. Duplicate requested labels
+  remain deduplicated, and invalid match modes raise `ValueError`.
+- `dominant_state_label_match`, `dominant_input_label_match`, and
+  `dominant_output_label_match` optionally override the global match mode for
+  their corresponding supplied label filters. Each accepts `ANY`, `ALL`,
+  `EXACT`, or `None`; `None` falls back to `dominant_label_match`. Categories
+  continue to combine with logical AND, and every surviving object retains its
+  canonical order and identity.
+- `exclude_dominant_state_labels`, `exclude_dominant_input_labels`, and
+  `exclude_dominant_output_labels` accept one exact string, a nonempty iterable
+  of exact strings, or `None`. Requested labels use the same validation and
+  set-deduplication rules as inclusion filters. A family is excluded when any
+  requested exact label occurs in the corresponding existing dominant-label
+  tuple; exclusions combine with inclusion and dynamic filters using logical
+  AND without changing inclusion match modes.
+- Exclusion filtering accepts `exclude_dominant_label_match` as `ANY`, `ALL`,
+  or `EXACT`, with `ANY` preserving the original exclusion behavior. Optional
+  `exclude_dominant_state_label_match`,
+  `exclude_dominant_input_label_match`, and
+  `exclude_dominant_output_label_match` values override that global mode for
+  their category and fall back to it when `None`. Exclusion set predicates use
+  the same exact set semantics as inclusion before negating the matched family.
+- `LongitudinalModeIdentification` and
+  `LongitudinalModel.physical_mode_identifications()` preserve each interpreted
+  characterization by identity and attach `short_period`, `phugoid`, or `None`.
+- Only oscillatory families with finite positive natural frequency and period
+  are eligible. The unique fastest and slowest eligible families must have a
+  natural-frequency ratio of at least 3. The fast family additionally requires
+  at least 60% combined `w`/`q` participation with all dominant labels confined
+  to that set; the slow family analogously requires at least 60% combined
+  `u`/`theta` participation. Missing, tied, insufficiently separated, or mixed
+  evidence remains unclassified.
+- Dominant-label filtering is intentionally paused and complete enough for the
+  current stage; all verified inclusion and exclusion APIs remain available.
 - Generic trajectory-extrema analysis and synthetic longitudinal and
   lateral-directional response tests.
 
@@ -197,8 +239,13 @@ state/input/output labels.
   fields, preserving object identity, canonical order, AND semantics, and empty
   results without adding thresholds.
 - Filter dominant aircraft labels only through exact membership in the existing
-  wrapper label tuples, preserving ANY-within/AND-across semantics, validation,
-  identity, ordering, and empty-result behavior.
+  wrapper label tuples, preserving globally or independently configured
+  ANY/ALL/EXACT inclusion and exclusion semantics, validation, identity,
+  ordering, AND-across behavior, and empty results.
+- Keep physical-mode identification in the aircraft-model layer and derive it
+  only from existing immutable modal-family dynamics and state participation.
+- Prefer `None` over a physical-mode guess whenever frequency or state evidence
+  is missing, tied, insufficiently separated, or contradictory.
 - Reuse `eigenvalues()`, `modal_properties()`, participation factors, and the
   existing characterization infrastructure.
 - Do not duplicate eigendecomposition or eigenvector-pairing logic.
@@ -216,10 +263,10 @@ state/input/output labels.
 
 ## Must not be added or changed next
 
-- Do not classify short period or phugoid modes.
 - Do not classify Dutch roll, roll subsidence, or spiral modes.
-- Do not assign any aircraft-specific mode names.
-- Do not introduce frequency, damping, or time-constant threshold heuristics.
+- Do not add other aircraft-specific mode names yet.
+- Do not expand dominant-label filtering during the physical-identification
+  stage unless identification requires it.
 - Do not add real aircraft data or controllers.
 - Do not change the verified numerical modal infrastructure, flight-dynamics
   equations, or sign conventions without a demonstrated inconsistency.
@@ -227,33 +274,30 @@ state/input/output labels.
 
 ## Exact next smallest task
 
-### Configurable dominant-label set matching
+### Longitudinal damping-evidence guard
 
-Extend the existing exact-label filters with an explicit match mode supporting
-ALL-requested-label and exact-dominant-set matching in addition to the verified
-ANY behavior. Do not interpret matched sets or assign aircraft-mode names.
+Add a conservative damping-evidence guard to longitudinal short-period and
+phugoid identification using the existing family damping ratio. Contradictory
+or insufficient damping evidence must remove a tentative name rather than force
+classification. Do not classify lateral-directional modes yet.
 
 ## Suggested implementation direction
 
-- Preserve `ANY` as the default for backward compatibility.
-- Add explicit `ALL` and `EXACT` set semantics using only existing dominant
-  label tuples.
-- Apply the chosen match mode consistently within each provided label category;
-  continue combining different categories with logical AND.
+- Use only the existing immutable `ModalFamilyDynamicSummary.damping_ratio`.
+- Choose and document a minimal conservative rule before implementation.
+- Preserve the current frequency-separation and state-participation guards.
 - Preserve canonical ordering and object identity in every filtered result.
-- Validate match-mode values and requested labels clearly.
-- Add no aircraft-mode names, classification thresholds, or heuristics.
+- Preserve all dominant-label inclusion and exclusion APIs unchanged.
+- Add no additional aircraft-mode names or unrelated heuristics.
 
 ## Focused tests to add
 
-- ANY remains unchanged; ALL requires every requested label; EXACT requires set
-  equality with the family's dominant labels.
-- State, input, and output categories work consistently and combine with the
-  existing dynamic filters.
-- Empty selections return an empty tuple.
-- Invalid labels and match modes raise clear errors.
-- No aircraft-specific modal classification appears.
-- No aircraft-specific labels or threshold-based classification appear.
+- Clear synthetic short-period and phugoid cases retain their names when damping
+  evidence agrees.
+- A frequency/state candidate with contradictory or missing damping evidence
+  remains unclassified.
+- Lateral-directional families remain free of physical-mode classification.
+- Ambiguous longitudinal families retain `None` rather than being guessed.
 
 ## Commands that must pass
 
