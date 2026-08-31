@@ -33,20 +33,26 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `369785a1eced1cf7a2f5bf335716daa080d0648b`
-- Pre-checkpoint message: `test: cover empty-channel PBH diagnostics`
-- The current checkpoint closes focused PBH diagnostic coverage by verifying
-  the stable empty-channel case without changing production behavior.
+  `aa963a25e8348311fc045b34fac28a6263fbfbdf`
+- Pre-checkpoint message: `test: close PBH diagnostic coverage`
+- The current checkpoint adds the stable continuous-time controllability
+  Gramian as the next flight-control foundation capability.
 
 ## Current verification baseline
 
-- Test count: 469 tests.
+- Test count: 474 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
 
 ## Completed continuous-time structural-analysis layer
 
+- Infinite-horizon controllability Gramian for asymptotically stable systems,
+  defined by `A Wc + Wc A.T + B B.T = 0` and returned as a real symmetric
+  matrix from a NumPy-only Kronecker-sum solve.
+- Nonstable and neutral systems raise a clear error because no finite
+  infinite-horizon Gramian is returned; stable zero-input systems return a
+  correctly shaped zero Gramian.
 - Controllability matrix, numerical rank, and full controllability.
 - Observability matrix, numerical rank, and full observability.
 - Minimal-realization check from the existing controllability and observability
@@ -463,18 +469,19 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Stable continuous-time controllability Gramian
+### Stable continuous-time observability Gramian
 
-Add the infinite-horizon continuous-time controllability Gramian for
-asymptotically stable `StateSpace` systems as the next meaningful structural
-analysis capability. Preserve all current APIs and add no dependencies.
+Add the dual infinite-horizon continuous-time observability Gramian for
+asymptotically stable `StateSpace` systems. Preserve all current APIs and add
+no dependencies.
 
 ## Suggested implementation direction
 
-- Solve `A Wc + Wc A.T + B B.T = 0` using NumPy for small general systems.
+- Solve `A.T Wo + Wo A + C.T C = 0` using NumPy for small general systems.
 - Require asymptotic stability and raise a clear error otherwise.
 - Verify symmetry, the Lyapunov residual, a diagonal analytic case, and the
-  zero-input result without changing existing PBH behavior.
+  zero-output result without changing existing PBH or controllability-Gramian
+  behavior.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.

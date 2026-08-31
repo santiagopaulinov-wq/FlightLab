@@ -64,6 +64,60 @@ def test_uncontrollable_system_has_deficient_controllability_rank():
     assert system.is_fully_controllable() is False
 
 
+def test_controllability_gramian_matches_diagonal_analytic_solution():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.diag([2.0, 4.0]),
+        np.eye(2),
+        np.zeros((2, 2)),
+    )
+
+    gramian = system.controllability_gramian()
+
+    np.testing.assert_allclose(gramian, np.diag([2.0, 4.0]))
+    assert gramian.dtype == float
+
+
+def test_controllability_gramian_is_symmetric_with_small_lyapunov_residual():
+    system = StateSpace(*valid_matrices())
+
+    gramian = system.controllability_gramian()
+    residual = system.A @ gramian + gramian @ system.A.T + system.B @ system.B.T
+
+    np.testing.assert_allclose(gramian, gramian.T, rtol=0.0, atol=1e-14)
+    np.testing.assert_allclose(residual, np.zeros((2, 2)), rtol=0.0, atol=1e-12)
+
+
+@pytest.mark.parametrize("nonstable_eigenvalue", [0.0, 1.0])
+def test_controllability_gramian_rejects_nonstable_system(nonstable_eigenvalue):
+    system = StateSpace(
+        np.diag([-1.0, nonstable_eigenvalue]),
+        np.eye(2),
+        np.eye(2),
+        np.zeros((2, 2)),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="controllability Gramian requires an asymptotically stable system",
+    ):
+        system.controllability_gramian()
+
+
+def test_controllability_gramian_is_zero_without_input_channels():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.empty((2, 0)),
+        np.eye(2),
+        np.empty((2, 0)),
+    )
+
+    gramian = system.controllability_gramian()
+
+    assert gramian.shape == (2, 2)
+    np.testing.assert_array_equal(gramian, np.zeros((2, 2)))
+
+
 def test_fully_controllable_unstable_system_is_stabilizable():
     system = StateSpace(
         [[0.0, 1.0], [2.0, 1.0]],
