@@ -32,8 +32,10 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Checkpoint commit
 
-- Message: `feat: add physical mode and structural analysis`
-- Resolve the checkpoint hash from `git rev-parse HEAD` after reading this file.
+- Pre-checkpoint commit:
+  `f5efc0cdefbe7db95a6b2d2d6f8ade28c6834264`
+- Pre-checkpoint message: `feat: diagnose nonstable PBH failures`
+- The working tree was clean before this documentation-only checkpoint.
 
 ## Current verification baseline
 
@@ -41,6 +43,19 @@ or EXACT set matching for both inclusions and exclusions.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
+
+## Completed continuous-time structural-analysis layer
+
+- Controllability matrix, numerical rank, and full controllability.
+- Observability matrix, numerical rank, and full observability.
+- Minimal-realization check from the existing controllability and observability
+  results.
+- PBH stabilizability for every eigenvalue with nonnegative real part.
+- PBH detectability for every eigenvalue with nonnegative real part.
+- Immutable `StructuralAnalysis`, containing exactly the existing controllable,
+  observable, minimal, stabilizable, and detectable booleans.
+- Immutable `NonstablePBHDiagnostic` entries returned in an immutable tuple for
+  nonstable eigenvalues that fail PBH controllability, observability, or both.
 
 ## Important existing capabilities
 
@@ -421,9 +436,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ### Complex and repeated PBH diagnostic verification
 
-Verify the existing nonstable PBH diagnostics for complex-conjugate and repeated
-eigenvalues before adding actuator or sensor selection analysis. Preserve all
-current APIs and diagnostic omission semantics.
+Add focused robustness tests verifying that
+`StateSpace.nonstable_pbh_diagnostics()` preserves deterministic eigenvalue
+ordering and multiplicity for failing unstable complex-conjugate pairs and
+repeated eigenvalues. Preserve all current APIs and diagnostic omission
+semantics.
 
 ## Suggested implementation direction
 
