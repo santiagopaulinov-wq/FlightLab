@@ -280,3 +280,30 @@ For a plant with no output channels, the valid gain has shape `(n_states, 0)`
 and there is no measurement correction. The plant is not mutated. Observer
 gain synthesis, observer pole placement, Kalman filtering, output feedback,
 and aircraft-specific design are outside this capability.
+
+## Observable single-output observer pole placement
+
+`system.place_siso_observer_poles(desired_poles)` returns a finite real
+observer gain `L` with shape `(n_states, 1)` for direct use with
+`system.luenberger_observer(L)`. It supports continuous-time systems with
+exactly one output and full observability under the existing structural
+analysis.
+
+The method follows the duality
+
+```text
+(A - L C)^T = A^T - C^T L^T
+```
+
+and applies the existing NumPy-only SISO Ackermann implementation to the dual
+pair `(A.T, C.T)`. It therefore shares the linear-solve implementation, Horner
+matrix-polynomial evaluation, and desired-pole validation without duplicating
+the placement algorithm.
+
+The requested poles must be a finite one-dimensional sequence of length
+`n_states`. Complex poles must be closed under conjugation within the existing
+`rtol=1e-7` and `atol=1e-10` tolerance so `L` is real. Requested poles are not
+required to be stable: convergence of `e_dot = (A - L C)e` is the caller's
+responsibility and requires poles with strictly negative real parts. This API
+does not perform multi-output placement, Kalman filtering, output-feedback
+synthesis, or aircraft-specific tuning, and it does not mutate the plant.

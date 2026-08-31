@@ -734,6 +734,48 @@ class StateSpace:
             augmented_system, observer_gain.copy()
         )
 
+    def place_siso_observer_poles(self, desired_poles):
+        """Return a single-output observer gain using Ackermann duality.
+
+        Under :meth:`luenberger_observer`, the estimation error
+        ``e = x - x_hat`` satisfies ``e_dot = (A - L C) e``. Since
+        ``(A - L C).T = A.T - C.T L.T``, observer pole placement is the dual
+        of state-feedback placement for the pair ``(A.T, C.T)``. This method
+        applies :meth:`place_siso_poles` to that dual system and transposes its
+        gain, preserving the existing NumPy-only Ackermann solve, Horner
+        evaluation, and desired-pole validation semantics.
+
+        The plant must have exactly one output, at least one state, and full
+        observability under :meth:`is_fully_observable`. The finite real result
+        has shape ``(n_states, 1)`` and is directly accepted by
+        :meth:`luenberger_observer`. Desired poles need not be stable;
+        estimation-error convergence requires the caller to choose poles with
+        strictly negative real parts. The plant is not mutated. Multi-output
+        placement, Kalman filtering, and output-feedback synthesis are not
+        performed.
+        """
+        if self.n_outputs != 1:
+            raise ValueError(
+                "SISO observer pole placement requires exactly one output channel"
+            )
+        if self.n_states == 0:
+            raise ValueError("SISO observer pole placement requires at least one state")
+        if not self.is_fully_observable():
+            raise ValueError(
+                "SISO observer pole placement requires an observable system"
+            )
+
+        dual_system = StateSpace(
+            self.A.T,
+            self.C.T,
+            np.empty((0, self.n_states)),
+            np.empty((0, 1)),
+        )
+        observer_gain = dual_system.place_siso_poles(desired_poles).T
+        if not np.all(np.isfinite(observer_gain)):
+            raise ValueError("SISO observer pole placement produced a nonfinite gain")
+        return observer_gain
+
     def place_siso_poles(self, desired_poles):
         """Return a SISO Ackermann gain compatible with ``u = v - K x``.
 

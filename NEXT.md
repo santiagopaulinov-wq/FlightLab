@@ -39,7 +39,8 @@ directions at explicit real angular frequencies without requiring stability.
 The controller-design foundation now includes a generic, non-mutating static
 full-state feedback interconnection and NumPy-only Ackermann pole placement for
 controllable SISO systems, plus a generic full-order Luenberger observer
-interconnection for a caller-supplied gain.
+interconnection and NumPy-only observer pole placement for fully observable
+single-output systems.
 Both aircraft models can filter these immutable interpreted families by their
 existing oscillatory status, mathematical stability, and exact dominant
 state/input/output labels, with configurable global or per-category ANY, ALL,
@@ -48,14 +49,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `afa475e622a6380240cdf0dff5a7ca24761b7548`
-- Pre-checkpoint message: `feat: add SISO pole placement`
-- The current checkpoint adds a full-order continuous-time Luenberger observer
-  interconnection for a caller-supplied gain.
+  `884747f796852c82adeb5a5eaedb9999a8aa5ae8`
+- Pre-checkpoint message: `feat: add Luenberger observer interconnection`
+- The current checkpoint adds continuous-time observer pole placement for
+  fully observable single-output systems using Ackermann duality.
 
 ## Current verification baseline
 
-- Test count: 666 tests.
+- Test count: 686 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -228,6 +229,21 @@ or EXACT set matching for both inclusions and exclusions.
 - A zero-output plant accepts `(n_states, 0)` and has no measurement
   correction. The plant is not mutated, and no observer synthesis, Kalman
   filtering, output-feedback control, or aircraft-specific behavior is added.
+- `StateSpace.place_siso_observer_poles(desired_poles)` returns a finite real
+  observer gain with shape `(n_states, 1)` that is directly compatible with
+  `luenberger_observer()` and the established `e_dot = (A - L C)e` convention.
+- Placement uses `(A - L C).T = A.T - C.T L.T` and delegates to the existing
+  NumPy-only `place_siso_poles()` implementation on the dual pair `(A.T,
+  C.T)`. Ackermann evaluation, linear solves, Horner evaluation, and pole-input
+  semantics therefore remain centralized rather than duplicated.
+- The plant must have exactly one output, at least one state, and full
+  observability under the existing structural analysis. Desired poles must be
+  finite, one-dimensional, contain exactly `n_states` values, and be
+  conjugate-closed within `rtol=1e-7` and `atol=1e-10` when complex.
+- Requested observer poles need not be stable. Estimation convergence is the
+  caller's responsibility and requires strictly negative real parts. The
+  plant is not mutated, and no multi-output placement, Kalman filtering,
+  output-feedback synthesis, or aircraft-specific tuning is added.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -647,23 +663,23 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Observable SISO observer pole placement
+### Observer-based dynamic output-feedback interconnection
 
-Add NumPy-only continuous-time observer-gain synthesis for fully observable
-single-output systems, returning a real gain directly compatible with the
-verified Luenberger observer convention.
+Combine caller-supplied state-feedback and observer gains into one generic
+dynamic output-feedback realization, establishing the separation-principle
+state and input/output conventions before adding any combined synthesis.
 
 ## Suggested implementation direction
 
-- Use Ackermann's formula through controllability/observability duality for
-  `(A.T, C.T)`, using linear solves and Horner evaluation without SciPy or an
-  explicit inverse.
-- Require exactly one output, full observability under the existing structural
-  analysis, and a finite conjugate-closed pole set of length `n_states`;
-  return real `L` with shape `(n_states, 1)`.
-- Preserve the established `e_dot = (A - L C) e` sign convention. Do not add
-  MIMO placement, output-feedback composition, LQR/LQG, Kalman filtering,
-  noise models, or aircraft tuning yet.
+- Use `u = v - K x_hat` with the existing `u = v - K x` sign convention and
+  the verified observer innovation, carefully retaining nonzero plant
+  feedthrough in the algebraic interconnection.
+- Accept caller-supplied finite real `K` and `L`; do not automatically invoke
+  either pole-placement API.
+- Document the augmented state, external command, exposed output, any
+  well-posedness assumption introduced by `D`, and separation-principle pole
+  structure. Do not add LQR/LQG, Kalman filtering, reference prefilters,
+  saturation, or aircraft tuning yet.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -672,9 +688,9 @@ verified Luenberger observer convention.
 
 ## Focused tests to add
 
-- Verify analytic observer gains, achieved error eigenvalues, real gains for
-  conjugate poles, direct compatibility with `luenberger_observer()`, and
-  output, observability, pole-count, conjugacy, and finiteness errors.
+- Verify the exact combined equations, matrix identities, state/output order,
+  pole union from `A - B K` and `A - L C`, nonzero-feedthrough behavior,
+  non-mutation, and gain validation.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 
