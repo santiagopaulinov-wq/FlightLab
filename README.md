@@ -352,3 +352,42 @@ is imposed by the interconnection.
 zero-output plants. The API does not mutate the plant or synthesize either
 gain, and it adds no reference prefilter, integral action, Kalman filtering,
 saturation, or aircraft-specific tuning.
+
+## Nominal SISO steady-state reference prefilter
+
+`system.siso_reference_prefilter(K)` computes a finite real scalar `N` for the
+existing full-state-feedback convention
+
+```text
+u = v - K x
+v = N r
+u = N r - K x
+```
+
+For the closed-loop realization
+
+```text
+A_cl = A - B K
+B_cl = B
+C_cl = C - D K
+D_cl = D
+```
+
+the API evaluates the scalar DC gain using the existing NumPy-only frequency
+response at zero frequency:
+
+```text
+G_cl(0) = -C_cl solve(A_cl, B_cl) + D_cl
+N = 1 / G_cl(0)
+```
+
+Thus the nominal constant-reference equilibrium satisfies
+`y_ss = G_cl(0) N r = r`. The calculation uses a linear solve, not an explicit
+inverse, and includes nonzero plant feedthrough through both `C_cl` and `D_cl`.
+
+The plant must have exactly one input and one output, `K` must satisfy the
+existing full-state-feedback validation, and `A_cl` must be asymptotically
+stable. Nonfinite or materially complex DC results and DC gains whose magnitude
+is no larger than `100 * machine epsilon` are rejected as unusable. This is
+nominal scaling only: it supplies no integral action, disturbance rejection,
+robust tracking, or reference dynamics, and it does not mutate the plant.

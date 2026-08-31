@@ -7,6 +7,7 @@ _CONJUGATE_ATOL = 1e-10
 _FAMILY_PROPERTY_RTOL = 1e-7
 _FAMILY_PROPERTY_ATOL = 1e-10
 _STABILITY_ATOL = 1e-10
+_PREFILTER_DC_GAIN_ATOL = 100.0 * np.finfo(float).eps
 
 
 def _shared_family_property(properties, name):
@@ -680,6 +681,60 @@ class StateSpace:
             self.C - self.D @ gain,
             self.D.copy(),
         )
+
+    def siso_reference_prefilter(self, state_feedback_gain):
+        """Return nominal constant-reference scaling for stable SISO feedback.
+
+        The conventions are ``u = v - K x`` and ``v = N r``, hence
+        ``u = N r - K x``. For the realization returned by
+        :meth:`full_state_feedback`, with ``A_cl = A - B K``, ``B_cl = B``,
+        ``C_cl = C - D K``, and ``D_cl = D``, its scalar DC gain is
+        ``G_cl(0) = -C_cl @ solve(A_cl, B_cl) + D_cl``. This method returns the
+        finite real scalar ``N = 1 / G_cl(0)``, so the nominal equilibrium
+        relation is ``y_ss = G_cl(0) N r = r``.
+
+        The plant must have exactly one input and one output. ``K`` uses the
+        same finite-real, two-dimensional validation and shape
+        ``(1, n_states)`` as :meth:`full_state_feedback`, and ``A_cl`` must be
+        asymptotically stable. DC response is evaluated through
+        :meth:`frequency_response`, which uses a linear solve and includes
+        nonzero ``D`` exactly. A nonfinite or materially complex DC result, or
+        a DC gain whose magnitude is no larger than
+        ``100 * machine epsilon``, is rejected as numerically unusable.
+
+        This is nominal constant-reference scaling only. It provides no
+        integral action, disturbance rejection, robustness guarantee, or
+        reference dynamics. The plant is not mutated.
+        """
+        if self.n_inputs != 1 or self.n_outputs != 1:
+            raise ValueError(
+                "SISO reference prefilter requires exactly one input and one output"
+            )
+
+        closed_loop = self.full_state_feedback(state_feedback_gain)
+        if not closed_loop.is_asymptotically_stable():
+            raise ValueError(
+                "SISO reference prefilter requires an asymptotically stable "
+                "state-feedback closed loop"
+            )
+
+        dc_gain = closed_loop.frequency_response(0.0)[0, 0]
+        if not np.isfinite(dc_gain):
+            raise ValueError("state-feedback closed-loop DC gain must be finite")
+        if abs(dc_gain.imag) > _CONJUGATE_ATOL + _CONJUGATE_RTOL * max(
+            1.0, abs(dc_gain.real)
+        ):
+            raise ValueError("state-feedback closed-loop DC gain must be real")
+        real_dc_gain = float(dc_gain.real)
+        if abs(real_dc_gain) <= _PREFILTER_DC_GAIN_ATOL:
+            raise ValueError(
+                "state-feedback closed-loop DC gain is zero or numerically unusable"
+            )
+
+        prefilter_gain = 1.0 / real_dc_gain
+        if not np.isfinite(prefilter_gain):
+            raise ValueError("SISO reference prefilter gain must be finite")
+        return float(prefilter_gain)
 
     def luenberger_observer(self, observer_gain):
         """Interconnect a supplied full-order continuous-time observer gain.

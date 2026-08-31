@@ -200,6 +200,144 @@ def test_full_state_feedback_accepts_only_empty_gain_for_zero_input_system():
         system.full_state_feedback(np.empty((1, 2)))
 
 
+def test_siso_reference_prefilter_matches_analytic_gain():
+    system = StateSpace([[-2.0]], [[1.0]], [[2.0]], [[0.0]])
+
+    prefilter = system.siso_reference_prefilter([[1.0]])
+
+    assert isinstance(prefilter, float)
+    assert np.isfinite(prefilter)
+    assert prefilter == pytest.approx(1.5)
+
+
+def test_siso_reference_prefilter_normalizes_closed_loop_dc_gain():
+    system = StateSpace([[-2.0]], [[1.0]], [[2.0]], [[0.0]])
+    gain = np.array([[1.0]])
+    closed_loop = system.full_state_feedback(gain)
+
+    prefilter = system.siso_reference_prefilter(gain)
+    dc_gain = closed_loop.frequency_response(0.0)[0, 0]
+
+    assert dc_gain * prefilter == pytest.approx(1.0)
+
+
+def test_siso_reference_prefilter_includes_nonzero_feedthrough_in_dc_gain():
+    system = StateSpace([[-2.0]], [[1.0]], [[3.0]], [[0.5]])
+    gain = np.array([[1.0]])
+    closed_loop = system.full_state_feedback(gain)
+    expected_dc_gain = (
+        -closed_loop.C @ np.linalg.solve(closed_loop.A, closed_loop.B)
+        + closed_loop.D
+    )[0, 0]
+
+    prefilter = system.siso_reference_prefilter(gain)
+
+    assert expected_dc_gain == pytest.approx(4.0 / 3.0)
+    assert prefilter == pytest.approx(0.75)
+    assert prefilter == pytest.approx(1.0 / expected_dc_gain)
+
+
+def test_siso_reference_prefilter_gives_nominal_constant_reference_equilibrium():
+    system = StateSpace([[-2.0]], [[1.0]], [[3.0]], [[0.5]])
+    gain = np.array([[1.0]])
+    reference = 2.5
+    prefilter = system.siso_reference_prefilter(gain)
+    closed_loop = system.full_state_feedback(gain)
+    command = np.array([prefilter * reference])
+    steady_state = -np.linalg.solve(closed_loop.A, closed_loop.B @ command)
+
+    steady_output = closed_loop.output(steady_state, command)
+
+    np.testing.assert_allclose(steady_output, [reference], rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(
+        closed_loop.state_derivative(steady_state, command), [0.0], atol=1e-12
+    )
+
+
+@pytest.mark.parametrize(
+    ("system_matrix", "gain"), [([[1.0]], [[0.0]]), ([[1.0]], [[1.0]])]
+)
+def test_siso_reference_prefilter_rejects_unstable_and_neutral_closed_loops(
+    system_matrix, gain
+):
+    system = StateSpace(system_matrix, [[1.0]], [[1.0]], [[0.0]])
+
+    with pytest.raises(ValueError, match="requires an asymptotically stable"):
+        system.siso_reference_prefilter(gain)
+
+
+def test_siso_reference_prefilter_rejects_zero_dc_gain():
+    system = StateSpace([[-1.0]], [[1.0]], [[0.0]], [[0.0]])
+
+    with pytest.raises(ValueError, match="zero or numerically unusable"):
+        system.siso_reference_prefilter([[0.0]])
+
+
+@pytest.mark.parametrize(
+    "system",
+    [
+        StateSpace([[-1.0]], [[1.0, 0.0]], [[1.0]], [[0.0, 0.0]]),
+        StateSpace([[-1.0]], [[1.0]], [[1.0], [0.0]], [[0.0], [0.0]]),
+    ],
+)
+def test_siso_reference_prefilter_rejects_non_siso_plants(system):
+    with pytest.raises(ValueError, match="requires exactly one input and one output"):
+        system.siso_reference_prefilter(np.zeros((system.n_inputs, 1)))
+
+
+@pytest.mark.parametrize("gain", [np.zeros((1, 2)), np.zeros((2, 1))])
+def test_siso_reference_prefilter_rejects_wrong_gain_shape(gain):
+    system = StateSpace([[-2.0]], [[1.0]], [[2.0]], [[0.0]])
+
+    with pytest.raises(ValueError, match="K must have shape"):
+        system.siso_reference_prefilter(gain)
+
+
+@pytest.mark.parametrize("gain", [1.0, [1.0], np.zeros((1, 1, 1))])
+def test_siso_reference_prefilter_rejects_nonmatrix_gain(gain):
+    system = StateSpace([[-2.0]], [[1.0]], [[2.0]], [[0.0]])
+
+    with pytest.raises(ValueError, match="K must be a 2D array"):
+        system.siso_reference_prefilter(gain)
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+def test_siso_reference_prefilter_rejects_nonfinite_gain(value):
+    system = StateSpace([[-2.0]], [[1.0]], [[2.0]], [[0.0]])
+
+    with pytest.raises(ValueError, match="K must contain only finite values"):
+        system.siso_reference_prefilter([[value]])
+
+
+def test_siso_reference_prefilter_rejects_complex_gain():
+    system = StateSpace([[-2.0]], [[1.0]], [[2.0]], [[0.0]])
+
+    with pytest.raises(TypeError, match="K must contain only real values"):
+        system.siso_reference_prefilter([[1.0 + 0.0j]])
+
+
+@pytest.mark.parametrize("gain", ["gain", [[object()]]])
+def test_siso_reference_prefilter_rejects_invalid_gain_type(gain):
+    system = StateSpace([[-2.0]], [[1.0]], [[2.0]], [[0.0]])
+
+    with pytest.raises(TypeError, match="K must be a real numeric 2D array"):
+        system.siso_reference_prefilter(gain)
+
+
+def test_siso_reference_prefilter_does_not_mutate_original_system():
+    system = StateSpace([[-2.0]], [[1.0]], [[3.0]], [[0.5]])
+    originals = tuple(
+        matrix.copy() for matrix in (system.A, system.B, system.C, system.D)
+    )
+
+    system.siso_reference_prefilter([[1.0]])
+
+    for matrix, original in zip(
+        (system.A, system.B, system.C, system.D), originals, strict=True
+    ):
+        np.testing.assert_array_equal(matrix, original)
+
+
 def observer_mimo_system():
     return StateSpace(
         [[0.0, 1.0], [-2.0, -3.0]],

@@ -41,7 +41,9 @@ full-state feedback interconnection and NumPy-only Ackermann pole placement for
 controllable SISO systems, plus a generic full-order Luenberger observer
 interconnection and NumPy-only observer pole placement for fully observable
 single-output systems. Caller-supplied controller and observer gains can now be
-combined in a generic observer-based dynamic output-feedback realization.
+combined in a generic observer-based dynamic output-feedback realization, and
+stable SISO full-state-feedback loops support nominal steady-state reference
+prefilter calculation.
 Both aircraft models can filter these immutable interpreted families by their
 existing oscillatory status, mathematical stability, and exact dominant
 state/input/output labels, with configurable global or per-category ANY, ALL,
@@ -50,14 +52,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `8bc30b27607a4e0271347383cabfad3e1ec07ff6`
-- Pre-checkpoint message: `feat: add observer pole placement`
-- The current checkpoint adds a generic observer-based dynamic output-feedback
-  interconnection for caller-supplied `K` and `L`.
+  `27571a8728d43f669e019d81748c3ac49c6b315c`
+- Pre-checkpoint message: `feat: add observer-based output feedback`
+- The current checkpoint adds nominal steady-state reference-prefilter
+  calculation for stable SISO full-state-feedback loops.
 
 ## Current verification baseline
 
-- Test count: 722 tests.
+- Test count: 743 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -261,6 +263,18 @@ or EXACT set matching for both inclusions and exclusions.
   `(n_states, n_outputs)`. Matching empty dimensions are valid. No structural
   or stability restriction is imposed, the plant is not mutated, and no gain
   synthesis, prefilter, integral action, Kalman filter, or saturation is added.
+- `StateSpace.siso_reference_prefilter(K)` returns a finite real scalar `N` for
+  `u = N r - K x`, using the verified full-state-feedback realization and its
+  zero-frequency response.
+- For `A_cl = A-B K`, `B_cl = B`, `C_cl = C-D K`, and `D_cl = D`, the method
+  evaluates `G_cl(0) = -C_cl solve(A_cl, B_cl) + D_cl` without an inverse and
+  returns `N = 1 / G_cl(0)`. Nonzero `D` is therefore included exactly.
+- The plant must have one input and one output, `K` retains existing validation,
+  and `A_cl` must be asymptotically stable. Nonfinite, materially complex, and
+  zero or machine-epsilon-scale DC gains are rejected clearly.
+- At nominal equilibrium, `y_ss = G_cl(0) N r = r`. This is constant-reference
+  scaling only, not integral action, disturbance rejection, robust tracking,
+  or reference-model dynamics. The plant is not mutated.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -680,22 +694,22 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### SISO steady-state reference prefilter
+### SISO output-error integral augmentation
 
-Add a narrowly scoped static reference-prefilter calculation for a stable SISO
-state-feedback loop so a constant reference maps to the requested steady-state
-output when the closed-loop DC gain is finite and nonzero.
+Add a generic continuous-time SISO design augmentation with one integral state
+driven by constant-reference output error, establishing conventions before any
+integral-gain synthesis.
 
 ## Suggested implementation direction
 
-- Use the verified full-state-feedback realization and a linear solve to
-  evaluate its DC gain without an explicit inverse.
-- Require one input, one output, an asymptotically stable closed loop, and a
-  finite nonzero DC gain; return a finite real scalar prefilter for `v = N r`.
-- Document that this is nominal constant-reference scaling, not integral
-  action or robust zero-steady-state-error control. Do not add MIMO tracking,
-  integral augmentation, LQR/LQG, Kalman filtering, saturation, or aircraft
-  tuning yet.
+- Define an integral state using an explicit sign convention such as
+  `xi_dot = r - y`, retain both plant input and scalar reference as documented
+  augmentation inputs, and include nonzero `D` exactly.
+- Return an immutable augmented design model with auditable state, input, and
+  output ordering. Do not synthesize state or integral gains yet.
+- Require SISO channels and validate dimensions without imposing stability.
+  Do not add anti-windup, saturation, MIMO tracking, LQR/LQG, Kalman filtering,
+  or aircraft tuning yet.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -704,9 +718,9 @@ output when the closed-loop DC gain is finite and nonzero.
 
 ## Focused tests to add
 
-- Verify an analytic SISO result, nonzero `D`, steady-state output scaling,
-  closed-loop stability and DC-gain errors, gain validation, and compatibility
-  with both full-state and observer-based feedback command conventions.
+- Verify the exact augmented equations and matrices, integral-error sign,
+  state/input/output ordering, nonzero feedthrough, non-mutation, and SISO
+  validation, including direct trajectory-level equation checks.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 
