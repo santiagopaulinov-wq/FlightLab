@@ -260,6 +260,20 @@ class LuenbergerObserverInterconnection(NamedTuple):
     observer_gain: np.ndarray
 
 
+class ObserverBasedOutputFeedbackInterconnection(NamedTuple):
+    """Dynamic output-feedback interconnection for supplied ``K`` and ``L``.
+
+    ``system`` has augmented state order ``[x; x_hat]``, uses ``v`` as its
+    external input, and exposes the plant output ``y``. The validated gain
+    copies record the conventions ``u = v - K x_hat`` and
+    ``x_hat_dot = A x_hat + B u + L (y - C x_hat - D u)``.
+    """
+
+    system: "StateSpace"
+    state_feedback_gain: np.ndarray
+    observer_gain: np.ndarray
+
+
 class BalancedRealization(NamedTuple):
     """Full-order balanced system and its original-coordinate transformation.
 
@@ -732,6 +746,85 @@ class StateSpace:
         )
         return LuenbergerObserverInterconnection(
             augmented_system, observer_gain.copy()
+        )
+
+    def observer_based_output_feedback(self, state_feedback_gain, observer_gain):
+        """Interconnect supplied state-feedback and observer gains.
+
+        The control and full-order observer conventions are
+        ``u = v - K x_hat`` and
+        ``x_hat_dot = A x_hat + B u + L (y - C x_hat - D u)``, where ``v`` is
+        the new external command and the plant output is ``y = C x + D u``.
+        Substitution cancels the two ``D u`` terms inside the innovation. With
+        augmented state order ``[x; x_hat]``, external input ``v``, and output
+        ``y``, the returned realization is::
+
+            A_aug = [[A,   -B K],       B_aug = [[B],
+                     [L C, A-B K-L C]]           [B]]
+            C_aug = [C, -D K]           D_aug = D
+
+        Equivalently, for ``e = x - x_hat``, the coordinates ``[x; e]`` obey
+        ``x_dot = (A - B K) x + B K e + B v`` and
+        ``e_dot = (A - L C) e``. The corresponding block-triangular dynamics
+        establish the separation principle: the augmented eigenvalue multiset
+        is the union of those of ``A - B K`` and ``A - L C``.
+
+        ``K`` and ``L`` must be finite real two-dimensional arrays with shapes
+        ``(n_inputs, n_states)`` and ``(n_states, n_outputs)`` respectively.
+        Empty input or output channel dimensions are valid with their matching
+        empty gain shapes. No controllability, observability, or stability is
+        required. The plant is not mutated, and no gain synthesis, reference
+        design, integral action, filtering, or saturation is performed.
+        """
+        raw_state_feedback_gain = np.asarray(state_feedback_gain)
+        if np.iscomplexobj(raw_state_feedback_gain):
+            raise TypeError("K must contain only real values")
+        try:
+            state_feedback_gain = np.asarray(state_feedback_gain, dtype=float)
+        except (TypeError, ValueError) as error:
+            raise TypeError("K must be a real numeric 2D array") from error
+        if state_feedback_gain.ndim != 2:
+            raise ValueError(
+                "K must be a 2D array with shape (n_inputs, n_states)"
+            )
+        if state_feedback_gain.shape != (self.n_inputs, self.n_states):
+            raise ValueError("K must have shape (n_inputs, n_states)")
+        if not np.all(np.isfinite(state_feedback_gain)):
+            raise ValueError("K must contain only finite values")
+
+        raw_observer_gain = np.asarray(observer_gain)
+        if np.iscomplexobj(raw_observer_gain):
+            raise TypeError("L must contain only real values")
+        try:
+            observer_gain = np.asarray(observer_gain, dtype=float)
+        except (TypeError, ValueError) as error:
+            raise TypeError("L must be a real numeric 2D array") from error
+        if observer_gain.ndim != 2:
+            raise ValueError(
+                "L must be a 2D array with shape (n_states, n_outputs)"
+            )
+        if observer_gain.shape != (self.n_states, self.n_outputs):
+            raise ValueError("L must have shape (n_states, n_outputs)")
+        if not np.all(np.isfinite(observer_gain)):
+            raise ValueError("L must contain only finite values")
+
+        feedback = self.B @ state_feedback_gain
+        correction = observer_gain @ self.C
+        augmented_system = StateSpace(
+            np.block(
+                [
+                    [self.A, -feedback],
+                    [correction, self.A - feedback - correction],
+                ]
+            ),
+            np.vstack((self.B, self.B)),
+            np.hstack((self.C, -self.D @ state_feedback_gain)),
+            self.D.copy(),
+        )
+        return ObserverBasedOutputFeedbackInterconnection(
+            augmented_system,
+            state_feedback_gain.copy(),
+            observer_gain.copy(),
         )
 
     def place_siso_observer_poles(self, desired_poles):

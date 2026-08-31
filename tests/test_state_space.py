@@ -11,6 +11,7 @@ from flightlab.state_space import (
     ModalProperties,
     ModalStateCharacterization,
     NonstablePBHDiagnostic,
+    ObserverBasedOutputFeedbackInterconnection,
     StateSpace,
     StructuralAnalysis,
 )
@@ -409,6 +410,304 @@ def test_luenberger_observer_rejects_incompatible_gain_type(gain):
 
     with pytest.raises(TypeError, match="L must be a real numeric 2D array"):
         system.luenberger_observer(gain)
+
+
+def test_observer_based_output_feedback_matches_exact_augmented_matrices():
+    system = observer_mimo_system()
+    state_feedback_gain = np.array([[2.0, -1.0], [0.25, 1.5]])
+    observer_gain = np.array([[2.0, -1.0, 0.5], [0.25, 1.5, -0.75]])
+    feedback = system.B @ state_feedback_gain
+    correction = observer_gain @ system.C
+
+    result = system.observer_based_output_feedback(
+        state_feedback_gain, observer_gain
+    )
+
+    assert isinstance(result, ObserverBasedOutputFeedbackInterconnection)
+    np.testing.assert_array_equal(
+        result.system.A,
+        np.block(
+            [
+                [system.A, -feedback],
+                [correction, system.A - feedback - correction],
+            ]
+        ),
+    )
+    np.testing.assert_array_equal(result.system.B, np.vstack((system.B, system.B)))
+    np.testing.assert_array_equal(
+        result.system.C,
+        np.hstack((system.C, -system.D @ state_feedback_gain)),
+    )
+    np.testing.assert_array_equal(result.system.D, system.D)
+    np.testing.assert_array_equal(result.state_feedback_gain, state_feedback_gain)
+    np.testing.assert_array_equal(result.observer_gain, observer_gain)
+
+
+def test_observer_based_output_feedback_matches_direct_equations():
+    system = observer_mimo_system()
+    state_feedback_gain = np.array([[2.0, -1.0], [0.25, 1.5]])
+    observer_gain = np.array([[2.0, -1.0, 0.5], [0.25, 1.5, -0.75]])
+    state = np.array([0.7, -0.4])
+    estimate = np.array([-0.2, 0.6])
+    command = np.array([0.3, -0.2])
+    plant_input = command - state_feedback_gain @ estimate
+    plant_output = system.output(state, plant_input)
+    expected_observer_derivative = (
+        system.A @ estimate
+        + system.B @ plant_input
+        + observer_gain
+        @ (plant_output - system.C @ estimate - system.D @ plant_input)
+    )
+
+    result = system.observer_based_output_feedback(
+        state_feedback_gain, observer_gain
+    )
+    augmented_state = np.concatenate((state, estimate))
+
+    np.testing.assert_allclose(
+        result.system.state_derivative(augmented_state, command),
+        np.concatenate(
+            (
+                system.state_derivative(state, plant_input),
+                expected_observer_derivative,
+            )
+        ),
+    )
+    np.testing.assert_allclose(
+        result.system.output(augmented_state, command), plant_output
+    )
+
+
+def test_observer_based_output_feedback_matches_x_error_coordinate_dynamics():
+    system = observer_mimo_system()
+    state_feedback_gain = np.array([[2.0, -1.0], [0.25, 1.5]])
+    observer_gain = np.array([[2.0, -1.0, 0.5], [0.25, 1.5, -0.75]])
+    state = np.array([0.7, -0.4])
+    estimate = np.array([-0.2, 0.6])
+    command = np.array([0.3, -0.2])
+    error = state - estimate
+
+    result = system.observer_based_output_feedback(
+        state_feedback_gain, observer_gain
+    )
+    augmented_derivative = result.system.state_derivative(
+        np.concatenate((state, estimate)), command
+    )
+    state_derivative = augmented_derivative[: system.n_states]
+    error_derivative = state_derivative - augmented_derivative[system.n_states :]
+
+    np.testing.assert_allclose(
+        state_derivative,
+        (system.A - system.B @ state_feedback_gain) @ state
+        + system.B @ state_feedback_gain @ error
+        + system.B @ command,
+    )
+    np.testing.assert_allclose(
+        error_derivative, (system.A - observer_gain @ system.C) @ error
+    )
+
+
+def test_observer_based_output_feedback_obeys_separation_principle():
+    system = StateSpace(*valid_matrices())
+    state_feedback_gain = np.array([[4.0, 1.0]])
+    observer_gain = np.array([[3.0], [2.0]])
+
+    result = system.observer_based_output_feedback(
+        state_feedback_gain, observer_gain
+    )
+    expected = np.concatenate(
+        (
+            np.linalg.eigvals(system.A - system.B @ state_feedback_gain),
+            np.linalg.eigvals(system.A - observer_gain @ system.C),
+        )
+    )
+
+    np.testing.assert_allclose(
+        np.sort_complex(result.system.eigenvalues()),
+        np.sort_complex(expected),
+        rtol=1e-10,
+        atol=1e-10,
+    )
+
+
+def test_observer_based_output_feedback_is_stable_for_stable_gain_poles():
+    system = StateSpace(*valid_matrices())
+    state_feedback_gain = system.place_siso_poles([-4.0, -5.0])
+    observer_gain = system.place_siso_observer_poles([-6.0, -7.0])
+
+    result = system.observer_based_output_feedback(
+        state_feedback_gain, observer_gain
+    )
+
+    assert result.system.is_asymptotically_stable() is True
+    np.testing.assert_allclose(
+        np.sort_complex(result.system.eigenvalues()), [-7.0, -6.0, -5.0, -4.0]
+    )
+
+
+@pytest.mark.parametrize(
+    ("state_feedback_gain", "observer_gain", "unstable_pole"),
+    [
+        (np.array([[-3.0]]), np.array([[1.0]]), 2.0),
+        (np.array([[1.0]]), np.array([[-3.0]]), 2.0),
+    ],
+)
+def test_observer_based_output_feedback_accepts_unstable_gains(
+    state_feedback_gain, observer_gain, unstable_pole
+):
+    system = StateSpace([[-1.0]], [[1.0]], [[1.0]], [[0.2]])
+
+    result = system.observer_based_output_feedback(
+        state_feedback_gain, observer_gain
+    )
+
+    assert result.system.is_asymptotically_stable() is False
+    assert np.any(np.isclose(result.system.eigenvalues(), unstable_pole))
+
+
+def test_observer_based_output_feedback_does_not_mutate_original_system():
+    system = observer_mimo_system()
+    originals = tuple(
+        matrix.copy() for matrix in (system.A, system.B, system.C, system.D)
+    )
+
+    result = system.observer_based_output_feedback(
+        np.ones((2, 2)), np.ones((2, 3))
+    )
+
+    assert result.system is not system
+    for matrix, original in zip(
+        (system.A, system.B, system.C, system.D), originals, strict=True
+    ):
+        np.testing.assert_array_equal(matrix, original)
+
+
+def test_observer_based_output_feedback_preserves_mimo_dimensions_and_is_immutable():
+    system = observer_mimo_system()
+
+    result = system.observer_based_output_feedback(
+        np.ones((2, 2)), np.ones((2, 3))
+    )
+
+    assert result.system.A.shape == (4, 4)
+    assert result.system.B.shape == (4, 2)
+    assert result.system.C.shape == (3, 4)
+    assert result.system.D.shape == (3, 2)
+    with pytest.raises(AttributeError):
+        result.system = system
+
+
+@pytest.mark.parametrize(("n_inputs", "n_outputs"), [(0, 2), (2, 0), (0, 0)])
+def test_observer_based_output_feedback_supports_empty_channels(
+    n_inputs, n_outputs
+):
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.empty((2, n_inputs)),
+        np.empty((n_outputs, 2)),
+        np.empty((n_outputs, n_inputs)),
+    )
+
+    result = system.observer_based_output_feedback(
+        np.empty((n_inputs, 2)), np.empty((2, n_outputs))
+    )
+
+    assert result.system.A.shape == (4, 4)
+    assert result.system.B.shape == (4, n_inputs)
+    assert result.system.C.shape == (n_outputs, 4)
+    assert result.system.D.shape == (n_outputs, n_inputs)
+
+
+@pytest.mark.parametrize(
+    "gain", [np.zeros((1, 1)), np.zeros((2, 1)), np.zeros((3, 2))]
+)
+def test_observer_based_output_feedback_rejects_wrong_k_shape(gain):
+    system = observer_mimo_system()
+
+    with pytest.raises(ValueError, match="K must have shape"):
+        system.observer_based_output_feedback(gain, np.ones((2, 3)))
+
+
+@pytest.mark.parametrize("gain", [1.0, [1.0, 2.0], np.zeros((2, 2, 1))])
+def test_observer_based_output_feedback_rejects_nonmatrix_k(gain):
+    system = observer_mimo_system()
+
+    with pytest.raises(ValueError, match="K must be a 2D array"):
+        system.observer_based_output_feedback(gain, np.ones((2, 3)))
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+def test_observer_based_output_feedback_rejects_nonfinite_k(value):
+    system = observer_mimo_system()
+    gain = np.ones((2, 2))
+    gain[0, 0] = value
+
+    with pytest.raises(ValueError, match="K must contain only finite values"):
+        system.observer_based_output_feedback(gain, np.ones((2, 3)))
+
+
+def test_observer_based_output_feedback_rejects_complex_k():
+    system = observer_mimo_system()
+
+    with pytest.raises(TypeError, match="K must contain only real values"):
+        system.observer_based_output_feedback(
+            np.ones((2, 2), dtype=complex), np.ones((2, 3))
+        )
+
+
+@pytest.mark.parametrize("gain", ["gain", [[object(), 1.0], [2.0, 3.0]]])
+def test_observer_based_output_feedback_rejects_invalid_k_type(gain):
+    system = observer_mimo_system()
+
+    with pytest.raises(TypeError, match="K must be a real numeric 2D array"):
+        system.observer_based_output_feedback(gain, np.ones((2, 3)))
+
+
+@pytest.mark.parametrize(
+    "gain", [np.zeros((1, 3)), np.zeros((2, 2)), np.zeros((3, 3))]
+)
+def test_observer_based_output_feedback_rejects_wrong_l_shape(gain):
+    system = observer_mimo_system()
+
+    with pytest.raises(ValueError, match="L must have shape"):
+        system.observer_based_output_feedback(np.ones((2, 2)), gain)
+
+
+@pytest.mark.parametrize("gain", [1.0, [1.0, 2.0], np.zeros((2, 3, 1))])
+def test_observer_based_output_feedback_rejects_nonmatrix_l(gain):
+    system = observer_mimo_system()
+
+    with pytest.raises(ValueError, match="L must be a 2D array"):
+        system.observer_based_output_feedback(np.ones((2, 2)), gain)
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+def test_observer_based_output_feedback_rejects_nonfinite_l(value):
+    system = observer_mimo_system()
+    gain = np.ones((2, 3))
+    gain[0, 0] = value
+
+    with pytest.raises(ValueError, match="L must contain only finite values"):
+        system.observer_based_output_feedback(np.ones((2, 2)), gain)
+
+
+def test_observer_based_output_feedback_rejects_complex_l():
+    system = observer_mimo_system()
+
+    with pytest.raises(TypeError, match="L must contain only real values"):
+        system.observer_based_output_feedback(
+            np.ones((2, 2)), np.ones((2, 3), dtype=complex)
+        )
+
+
+@pytest.mark.parametrize(
+    "gain", ["gain", [[object(), 1.0, 2.0], [3.0, 4.0, 5.0]]]
+)
+def test_observer_based_output_feedback_rejects_invalid_l_type(gain):
+    system = observer_mimo_system()
+
+    with pytest.raises(TypeError, match="L must be a real numeric 2D array"):
+        system.observer_based_output_feedback(np.ones((2, 2)), gain)
 
 
 def test_place_siso_observer_poles_returns_analytic_gain_for_real_poles():

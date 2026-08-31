@@ -307,3 +307,48 @@ required to be stable: convergence of `e_dot = (A - L C)e` is the caller's
 responsibility and requires poles with strictly negative real parts. This API
 does not perform multi-output placement, Kalman filtering, output-feedback
 synthesis, or aircraft-specific tuning, and it does not mutate the plant.
+
+## Observer-based dynamic output feedback
+
+`system.observer_based_output_feedback(K, L)` interconnects caller-supplied
+state-feedback and observer gains using
+
+```text
+u = v - K x_hat
+x_hat_dot = A x_hat + B u + L(y - C x_hat - D u)
+y = C x + D u
+```
+
+It returns an immutable `ObserverBasedOutputFeedbackInterconnection` containing
+the augmented `StateSpace` and validated copies of `K` and `L`. The augmented
+state order is `[x; x_hat]`, the external input is the new command `v`, and the
+exposed output is the plant output `y`. Its matrices are
+
+```text
+A_aug = [[A,    -B K],       B_aug = [[B],
+         [L C, A-B K-L C]]            [B]]
+
+C_aug = [C, -D K]            D_aug = D
+```
+
+Plant feedthrough is retained in `C_aug` and `D_aug`. There is no algebraic
+loop: `u` is determined by `v` and the observer state, and substituting
+`y = Cx + Du` makes the identical `Du` terms cancel inside the innovation.
+
+With `e = x - x_hat`, the equivalent `[x; e]` dynamics are
+
+```text
+x_dot = (A - B K)x + B K e + B v
+e_dot = (A - L C)e
+```
+
+This block-triangular form gives the separation principle: augmented poles are
+the multiset union of the controller poles from `A - BK` and observer-error
+poles from `A - LC`. No stability, controllability, or observability condition
+is imposed by the interconnection.
+
+`K` and `L` must be finite real matrices shaped `(n_inputs, n_states)` and
+`(n_states, n_outputs)`. Matching empty dimensions support zero-input and
+zero-output plants. The API does not mutate the plant or synthesize either
+gain, and it adds no reference prefilter, integral action, Kalman filtering,
+saturation, or aircraft-specific tuning.

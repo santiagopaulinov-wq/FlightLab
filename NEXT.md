@@ -40,7 +40,8 @@ The controller-design foundation now includes a generic, non-mutating static
 full-state feedback interconnection and NumPy-only Ackermann pole placement for
 controllable SISO systems, plus a generic full-order Luenberger observer
 interconnection and NumPy-only observer pole placement for fully observable
-single-output systems.
+single-output systems. Caller-supplied controller and observer gains can now be
+combined in a generic observer-based dynamic output-feedback realization.
 Both aircraft models can filter these immutable interpreted families by their
 existing oscillatory status, mathematical stability, and exact dominant
 state/input/output labels, with configurable global or per-category ANY, ALL,
@@ -49,14 +50,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `884747f796852c82adeb5a5eaedb9999a8aa5ae8`
-- Pre-checkpoint message: `feat: add Luenberger observer interconnection`
-- The current checkpoint adds continuous-time observer pole placement for
-  fully observable single-output systems using Ackermann duality.
+  `8bc30b27607a4e0271347383cabfad3e1ec07ff6`
+- Pre-checkpoint message: `feat: add observer pole placement`
+- The current checkpoint adds a generic observer-based dynamic output-feedback
+  interconnection for caller-supplied `K` and `L`.
 
 ## Current verification baseline
 
-- Test count: 686 tests.
+- Test count: 722 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -244,6 +245,22 @@ or EXACT set matching for both inclusions and exclusions.
   caller's responsibility and requires strictly negative real parts. The
   plant is not mutated, and no multi-output placement, Kalman filtering,
   output-feedback synthesis, or aircraft-specific tuning is added.
+- `StateSpace.observer_based_output_feedback(K, L)` returns an immutable
+  `ObserverBasedOutputFeedbackInterconnection` containing the augmented system
+  and validated gain copies. It uses `u = v - K x_hat`, retains `v` as the
+  external input, exposes plant output `y`, and orders states as `[x; x_hat]`.
+- The exact matrices are `A_aug = [[A, -B K], [L C, A-B K-L C]]`,
+  `B_aug = [[B], [B]]`, `C_aug = [C, -D K]`, and `D_aug = D`.
+- Feedthrough is retained in the exposed output. No algebraic loop is present:
+  `u` depends on `v` and `x_hat`, while measured `D u` cancels the observer's
+  subtracted `D u` inside the innovation.
+- In equivalent `[x; e]` coordinates with `e = x - x_hat`, dynamics are
+  `x_dot = (A-B K)x + B K e + B v` and `e_dot = (A-L C)e`. Therefore the
+  augmented eigenvalue multiset is the union of those of `A-B K` and `A-L C`.
+- Finite real gains must have shapes `(n_inputs, n_states)` and
+  `(n_states, n_outputs)`. Matching empty dimensions are valid. No structural
+  or stability restriction is imposed, the plant is not mutated, and no gain
+  synthesis, prefilter, integral action, Kalman filter, or saturation is added.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -663,23 +680,22 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Observer-based dynamic output-feedback interconnection
+### SISO steady-state reference prefilter
 
-Combine caller-supplied state-feedback and observer gains into one generic
-dynamic output-feedback realization, establishing the separation-principle
-state and input/output conventions before adding any combined synthesis.
+Add a narrowly scoped static reference-prefilter calculation for a stable SISO
+state-feedback loop so a constant reference maps to the requested steady-state
+output when the closed-loop DC gain is finite and nonzero.
 
 ## Suggested implementation direction
 
-- Use `u = v - K x_hat` with the existing `u = v - K x` sign convention and
-  the verified observer innovation, carefully retaining nonzero plant
-  feedthrough in the algebraic interconnection.
-- Accept caller-supplied finite real `K` and `L`; do not automatically invoke
-  either pole-placement API.
-- Document the augmented state, external command, exposed output, any
-  well-posedness assumption introduced by `D`, and separation-principle pole
-  structure. Do not add LQR/LQG, Kalman filtering, reference prefilters,
-  saturation, or aircraft tuning yet.
+- Use the verified full-state-feedback realization and a linear solve to
+  evaluate its DC gain without an explicit inverse.
+- Require one input, one output, an asymptotically stable closed loop, and a
+  finite nonzero DC gain; return a finite real scalar prefilter for `v = N r`.
+- Document that this is nominal constant-reference scaling, not integral
+  action or robust zero-steady-state-error control. Do not add MIMO tracking,
+  integral augmentation, LQR/LQG, Kalman filtering, saturation, or aircraft
+  tuning yet.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -688,9 +704,9 @@ state and input/output conventions before adding any combined synthesis.
 
 ## Focused tests to add
 
-- Verify the exact combined equations, matrix identities, state/output order,
-  pole union from `A - B K` and `A - L C`, nonzero-feedthrough behavior,
-  non-mutation, and gain validation.
+- Verify an analytic SISO result, nonzero `D`, steady-state output scaling,
+  closed-loop stability and DC-gain errors, gain validation, and compatibility
+  with both full-state and observer-based feedback command conventions.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 
