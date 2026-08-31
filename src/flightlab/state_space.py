@@ -1069,6 +1069,35 @@ class StateSpace:
         reduced_response = truncation.system.frequency_response(angular_frequencies)
         return original_response - reduced_response
 
+    def balanced_truncation_frequency_response_error_singular_values(
+        self, retained_order, angular_frequencies
+    ):
+        """Return singular values of sampled balanced-truncation errors.
+
+        This is a thin layer over
+        :meth:`balanced_truncation_frequency_response_error`. For
+        ``k = min(n_outputs, n_inputs)``, scalar frequency input returns real
+        nonnegative descending singular values with shape ``(k,)``; vector
+        input returns ``(n_frequencies, k)`` in caller order. Multiplicity and
+        valid zero-channel shapes are preserved.
+
+        The largest value at one frequency is the worst-case local input-output
+        gain of the reduction error at that frequency. These sampled gains are
+        not an H-infinity norm estimate and do not generally equal the global
+        ``BalancedTruncation.a_priori_error_bound``. No grid, interpolation,
+        maximization, or automatic order selection is performed. All errors
+        from the underlying sampled-error API propagate unchanged.
+        """
+        error_response = self.balanced_truncation_frequency_response_error(
+            retained_order, angular_frequencies
+        )
+        singular_value_count = min(self.n_outputs, self.n_inputs)
+        if singular_value_count == 0:
+            return np.empty(error_response.shape[:-2] + (0,), dtype=float)
+        return np.asarray(
+            np.linalg.svd(error_response, compute_uv=False), dtype=float
+        )
+
     def is_detectable(self):
         """Return whether every nonstable mode satisfies the PBH rank test.
 

@@ -27,10 +27,11 @@ convention `x = T z`, or explicitly reduced by retaining a caller-selected
 number of leading balanced coordinates. Each valid truncation reports the
 classical a priori induced H-infinity error bound from its discarded Hankel
 singular values and can be compared with the original transfer matrix at
-explicit caller-supplied frequencies. The aircraft-model layer can interpret
-dominant generic state indices using each model's established physical state
-labels without changing generic modal results, and likewise interprets
-dominant input and output indices using the models' established channel ordering.
+explicit caller-supplied frequencies through both error matrices and their
+directional gains. The aircraft-model layer can interpret dominant generic
+state indices using each model's established physical state labels without
+changing generic modal results, and likewise interprets dominant input and
+output indices using the models' established channel ordering.
 Every `StateSpace` can also evaluate its complex continuous-time transfer
 matrix, descending singular values, and corresponding input/output singular
 directions at explicit real angular frequencies without requiring stability.
@@ -42,14 +43,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `3bb52ee10ef5ad61026a357f8517c37389afe220`
-- Pre-checkpoint message: `feat: add frequency-response singular directions`
-- The current checkpoint adds explicit-frequency transfer-matrix error samples
-  for balanced truncation.
+  `1b8c1639311592cdc74697e50b63fff53562c891`
+- Pre-checkpoint message: `feat: add balanced truncation frequency errors`
+- The current checkpoint adds singular values of explicit-frequency balanced-
+  truncation transfer-matrix errors.
 
 ## Current verification baseline
 
-- Test count: 581 tests.
+- Test count: 595 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -150,6 +151,16 @@ or EXACT set matching for both inclusions and exclusions.
   maximization, norm estimation, or automatic order selection. Underlying
   frequency, pole, retained-order, stability, and minimality errors propagate
   unchanged.
+- `StateSpace.balanced_truncation_frequency_response_error_singular_values()`
+  applies NumPy SVD directly to those sampled error matrices and returns real
+  nonnegative descending directional gains with multiplicity preserved.
+- For `k = min(n_outputs, n_inputs)`, scalar shape is `(k,)`, vector shape is
+  `(n_frequencies, k)`, and empty channels preserve a zero final dimension.
+  All underlying validation and pole behavior remains unchanged.
+- The largest value at one frequency is the worst-case local input-output gain
+  of the reduction error there. It is not a global H-infinity estimate and does
+  not generally equal the a priori bound; representative samples are verified
+  not to exceed that global bound without maximizing over frequency.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -569,17 +580,17 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Singular values of sampled balanced-truncation errors
+### Singular directions of sampled balanced-truncation errors
 
-Add directional gains of the verified local error transfer matrices at the
-same explicit caller-supplied frequencies, without maximizing them.
+Add the input and output directions associated with the verified local error
+singular values at the same explicit caller-supplied frequencies.
 
 ## Suggested implementation direction
 
-- Reuse `balanced_truncation_frequency_response_error()` and apply NumPy SVD
-  with `compute_uv=False` independently at each requested frequency.
-- Preserve the established real nonnegative descending scalar/vector and empty-
-  channel shapes.
+- Reuse `balanced_truncation_frequency_response_error()` and reduced NumPy SVD.
+- Return immutable singular triplets with the same channel ordering, scalar/
+  vector shapes, empty-channel behavior, and phase/subspace ambiguity conventions
+  as the general frequency-response singular directions.
 - Do not maximize, interpolate, treat samples as an H-infinity estimate, select
   a grid, or change the global a priori error bound.
 - Preserve the established NumPy numerical rank convention and immutable tuple
@@ -590,8 +601,8 @@ same explicit caller-supplied frequencies, without maximizing them.
 
 ## Focused tests to add
 
-- Verify analytic diagonal cases, direct consistency with manual SVD of the
-  error samples, ordering, multiplicity, shapes, and inherited validation.
+- Verify error-matrix reconstruction, orthonormality, channel ordering, scalar/
+  vector and empty shapes, and inherited validation without asserting phases.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 

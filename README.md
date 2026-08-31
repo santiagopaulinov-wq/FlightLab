@@ -146,3 +146,24 @@ reconstruction errors. They are not generally equal to
 `BalancedTruncation.a_priori_error_bound` and do not estimate the global
 H-infinity error. The API selects no grid and performs no interpolation,
 maximization, norm estimation, or automatic order selection.
+
+## Singular values of balanced-truncation error samples
+
+`system.balanced_truncation_frequency_response_error_singular_values(r,
+angular_frequencies)` applies NumPy SVD to the existing sampled error matrices:
+
+```text
+singular_values(E(j omega)), where E(j omega) = G(j omega) - G_r(j omega)
+```
+
+For `k = min(n_outputs, n_inputs)`, a scalar frequency returns a real
+nonnegative descending array with shape `(k,)`; a frequency vector returns
+`(n_frequencies, k)` in caller order. Multiplicity and zero-channel shapes are
+preserved. All order, stability, minimality, frequency, and pole errors come
+unchanged from the sampled-error API.
+
+The largest value at one frequency is the worst-case local input-output gain of
+the reduction error at that frequency. These explicit samples are not an
+H-infinity estimate and do not generally equal the global
+`BalancedTruncation.a_priori_error_bound`. No grid, interpolation,
+maximization, or automatic order selection is performed.

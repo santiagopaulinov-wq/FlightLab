@@ -1440,6 +1440,235 @@ def test_balanced_truncation_frequency_error_preserves_frequency_errors(
         system.balanced_truncation_frequency_response_error(1, frequencies)
 
 
+def test_balanced_truncation_frequency_error_singular_value_matches_siso_error():
+    system = StateSpace(
+        np.diag([-1.0, -4.0]),
+        [[1.0], [0.2]],
+        [[1.0, 0.3]],
+        [[0.1]],
+    )
+    frequency = 1.5
+
+    values = system.balanced_truncation_frequency_response_error_singular_values(
+        1, frequency
+    )
+    error = system.balanced_truncation_frequency_response_error(1, frequency)
+
+    assert values.shape == (1,)
+    assert values.dtype == float
+    np.testing.assert_allclose(values, [abs(error[0, 0])])
+
+
+def test_balanced_truncation_frequency_error_singular_values_match_numpy_svd():
+    system = StateSpace(*stable_minimal_balancing_matrices())
+    frequencies = np.array([3.0, 0.0, 1.5])
+    errors = system.balanced_truncation_frequency_response_error(1, frequencies)
+
+    values = system.balanced_truncation_frequency_response_error_singular_values(
+        1, frequencies
+    )
+
+    np.testing.assert_array_equal(
+        values, np.linalg.svd(errors, compute_uv=False)
+    )
+
+
+def test_balanced_truncation_frequency_error_singular_values_order_multiplicity():
+    hankel_values = np.array([2.0, 1.0, 0.5, 0.5])
+    decay_rates = np.array([1.0, 2.0, 3.0, 3.0])
+    channel_gains = np.sqrt(2.0 * decay_rates * hankel_values)
+    system = StateSpace(
+        -np.diag(decay_rates),
+        np.diag(channel_gains),
+        np.diag(channel_gains),
+        np.zeros((4, 4)),
+    )
+
+    values = system.balanced_truncation_frequency_response_error_singular_values(
+        2, 0.0
+    )
+
+    np.testing.assert_allclose(values, [1.0, 1.0, 0.0, 0.0], atol=1e-14)
+    assert np.all(np.diff(values) <= 0.0)
+
+
+def test_balanced_truncation_frequency_error_singular_value_shapes_and_order():
+    system = StateSpace(*stable_minimal_balancing_matrices())
+    frequencies = np.array([3.0, 0.0, 1.5])
+
+    scalar_values = (
+        system.balanced_truncation_frequency_response_error_singular_values(1, 3.0)
+    )
+    vector_values = (
+        system.balanced_truncation_frequency_response_error_singular_values(
+            1, frequencies
+        )
+    )
+
+    assert scalar_values.shape == (2,)
+    assert vector_values.shape == (3, 2)
+    for index, frequency in enumerate(frequencies):
+        np.testing.assert_array_equal(
+            vector_values[index],
+            system.balanced_truncation_frequency_response_error_singular_values(
+                1, frequency
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("B", "C", "D", "reduced_B", "reduced_C", "reduced_D"),
+    [
+        (
+            np.empty((2, 0)),
+            np.eye(2),
+            np.empty((2, 0)),
+            np.empty((1, 0)),
+            np.ones((2, 1)),
+            np.empty((2, 0)),
+        ),
+        (
+            np.eye(2),
+            np.empty((0, 2)),
+            np.empty((0, 2)),
+            np.ones((1, 2)),
+            np.empty((0, 1)),
+            np.empty((0, 2)),
+        ),
+        (
+            np.empty((2, 0)),
+            np.empty((0, 2)),
+            np.empty((0, 0)),
+            np.empty((1, 0)),
+            np.empty((0, 1)),
+            np.empty((0, 0)),
+        ),
+    ],
+)
+def test_balanced_truncation_frequency_error_singular_values_empty_channels(
+    monkeypatch, B, C, D, reduced_B, reduced_C, reduced_D
+):
+    system = StateSpace(np.diag([-1.0, -2.0]), B, C, D)
+    reduced_system = StateSpace([[-1.0]], reduced_B, reduced_C, reduced_D)
+    monkeypatch.setattr(
+        system,
+        "balanced_truncation",
+        lambda retained_order: BalancedRealization(reduced_system, np.ones((2, 1))),
+    )
+
+    scalar_values = (
+        system.balanced_truncation_frequency_response_error_singular_values(1, 1.0)
+    )
+    vector_values = (
+        system.balanced_truncation_frequency_response_error_singular_values(
+            1, [0.0, 1.0, 2.0]
+        )
+    )
+
+    assert scalar_values.shape == (0,)
+    assert vector_values.shape == (3, 0)
+    assert scalar_values.dtype == float
+    assert vector_values.dtype == float
+
+
+def test_balanced_truncation_error_singular_values_inherit_feedthrough_cancellation():
+    A, B, C, _ = stable_minimal_balancing_matrices()
+    D = np.array([[4.0, -2.0], [1.5, 3.0]])
+    with_feedthrough = StateSpace(A, B, C, D)
+    without_feedthrough = StateSpace(A, B, C, np.zeros_like(D))
+    frequencies = np.array([0.0, 1.0, 4.0])
+
+    with_values = with_feedthrough.balanced_truncation_frequency_response_error_singular_values(
+        1, frequencies
+    )
+    without_values = without_feedthrough.balanced_truncation_frequency_response_error_singular_values(
+        1, frequencies
+    )
+
+    np.testing.assert_allclose(with_values, without_values, rtol=0.0, atol=1e-15)
+
+
+def test_balanced_truncation_error_singular_values_remain_below_global_bound():
+    discarded_hankel_value = 1e-3
+    system = StateSpace(
+        np.diag([-1.0, -10.0]),
+        np.diag([np.sqrt(2.0), np.sqrt(20.0 * discarded_hankel_value)]),
+        np.diag([np.sqrt(2.0), np.sqrt(20.0 * discarded_hankel_value)]),
+        np.zeros((2, 2)),
+    )
+    truncation = system.balanced_truncation(1)
+
+    values = system.balanced_truncation_frequency_response_error_singular_values(
+        1, [0.0, 1.0, 10.0]
+    )
+
+    assert np.max(values[:, 0]) <= truncation.a_priori_error_bound + 1e-14
+
+
+@pytest.mark.parametrize(
+    ("system", "retained_order", "frequency", "error_type", "message"),
+    [
+        (
+            StateSpace(*stable_minimal_balancing_matrices()),
+            0,
+            1.0,
+            ValueError,
+            "retained order",
+        ),
+        (
+            StateSpace(
+                np.diag([-1.0, 1.0]),
+                np.eye(2),
+                np.eye(2),
+                np.zeros((2, 2)),
+            ),
+            1,
+            2.0,
+            ValueError,
+            "requires an asymptotically stable system",
+        ),
+        (
+            StateSpace(
+                np.diag([-1.0, -2.0]),
+                [[1.0], [0.0]],
+                [[1.0, 1.0]],
+                [[0.0]],
+            ),
+            1,
+            2.0,
+            ValueError,
+            "requires a minimal realization",
+        ),
+        (
+            StateSpace(
+                [[0.0, -1.0], [1.0, 0.0]],
+                [[1.0], [0.0]],
+                [[1.0, 0.0]],
+                [[0.0]],
+            ),
+            1,
+            1.0,
+            ValueError,
+            "frequency response is undefined",
+        ),
+        (
+            StateSpace(*stable_minimal_balancing_matrices()),
+            1,
+            np.nan,
+            ValueError,
+            "must contain only finite values",
+        ),
+    ],
+)
+def test_balanced_truncation_error_singular_values_preserve_underlying_errors(
+    system, retained_order, frequency, error_type, message
+):
+    with pytest.raises(error_type, match=message):
+        system.balanced_truncation_frequency_response_error_singular_values(
+            retained_order, frequency
+        )
+
+
 def test_fully_observable_unstable_system_is_detectable():
     system = StateSpace(
         np.diag([-1.0, 2.0]),
