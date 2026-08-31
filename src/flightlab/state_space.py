@@ -275,6 +275,18 @@ class ObserverBasedOutputFeedbackInterconnection(NamedTuple):
     observer_gain: np.ndarray
 
 
+class SISOIntegralAugmentation(NamedTuple):
+    """SISO output-error integral design model.
+
+    ``system`` has augmented state order ``[x; xi]``, input order ``[u; r]``,
+    and output order ``[y; xi]``, where ``xi_dot = r - y``. The immutable
+    container identifies this realization as a design augmentation rather than
+    a closed-loop controller.
+    """
+
+    system: "StateSpace"
+
+
 class BalancedRealization(NamedTuple):
     """Full-order balanced system and its original-coordinate transformation.
 
@@ -735,6 +747,62 @@ class StateSpace:
         if not np.isfinite(prefilter_gain):
             raise ValueError("SISO reference prefilter gain must be finite")
         return float(prefilter_gain)
+
+    def siso_integral_augmentation(self):
+        """Return a SISO output-error integral augmentation design model.
+
+        For plant ``x_dot = A x + B u`` and ``y = C x + D u``, define one
+        scalar integral-error state by ``xi_dot = r - y``. The returned
+        immutable :class:`SISOIntegralAugmentation` contains a
+        :class:`StateSpace` with state order ``[x; xi]``, input order
+        ``[u; r]``, and output order ``[y; xi]``::
+
+            A_aug = [[A,  0],       B_aug = [[ B, 0],
+                     [-C, 0]]                [-D, 1]]
+            C_aug = [[C, 0],        D_aug = [[D, 0],
+                     [0, 1]]                 [0, 0]]
+
+        In particular, nonzero plant feedthrough appears in the integrator
+        equation as ``xi_dot = r - C x - D u``. The plant must have exactly
+        one input and one output. No stability, controllability, or
+        observability condition is imposed. This method creates an auditable
+        open design model only: it synthesizes no gains, closes no integral
+        feedback loop, and performs no anti-windup or saturation handling. The
+        original plant is not mutated.
+        """
+        if self.n_inputs != 1 or self.n_outputs != 1:
+            raise ValueError(
+                "SISO integral augmentation requires exactly one input and one output"
+            )
+
+        state_count = self.n_states
+        augmented_system = StateSpace(
+            np.block(
+                [
+                    [self.A, np.zeros((state_count, 1))],
+                    [-self.C, np.zeros((1, 1))],
+                ]
+            ),
+            np.block(
+                [
+                    [self.B, np.zeros((state_count, 1))],
+                    [-self.D, np.ones((1, 1))],
+                ]
+            ),
+            np.block(
+                [
+                    [self.C, np.zeros((1, 1))],
+                    [np.zeros((1, state_count)), np.ones((1, 1))],
+                ]
+            ),
+            np.block(
+                [
+                    [self.D, np.zeros((1, 1))],
+                    [np.zeros((1, 1)), np.zeros((1, 1))],
+                ]
+            ),
+        )
+        return SISOIntegralAugmentation(augmented_system)
 
     def luenberger_observer(self, observer_gain):
         """Interconnect a supplied full-order continuous-time observer gain.

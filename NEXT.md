@@ -43,7 +43,8 @@ interconnection and NumPy-only observer pole placement for fully observable
 single-output systems. Caller-supplied controller and observer gains can now be
 combined in a generic observer-based dynamic output-feedback realization, and
 stable SISO full-state-feedback loops support nominal steady-state reference
-prefilter calculation.
+prefilter calculation. SISO plants can also be augmented with one explicit
+output-error integral state as an open controller-design model.
 Both aircraft models can filter these immutable interpreted families by their
 existing oscillatory status, mathematical stability, and exact dominant
 state/input/output labels, with configurable global or per-category ANY, ALL,
@@ -52,14 +53,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `27571a8728d43f669e019d81748c3ac49c6b315c`
-- Pre-checkpoint message: `feat: add observer-based output feedback`
-- The current checkpoint adds nominal steady-state reference-prefilter
-  calculation for stable SISO full-state-feedback loops.
+  `d914821be581774e4cd3facaafeb911e6531ef3e`
+- Pre-checkpoint message: `feat: add SISO reference prefilter`
+- The current checkpoint adds a SISO output-error integral augmentation design
+  model with no gain synthesis or feedback closure.
 
 ## Current verification baseline
 
-- Test count: 743 tests.
+- Test count: 752 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -275,6 +276,20 @@ or EXACT set matching for both inclusions and exclusions.
 - At nominal equilibrium, `y_ss = G_cl(0) N r = r`. This is constant-reference
   scaling only, not integral action, disturbance rejection, robust tracking,
   or reference-model dynamics. The plant is not mutated.
+- `StateSpace.siso_integral_augmentation()` returns an immutable
+  `SISOIntegralAugmentation` containing an open design model with integral-error
+  convention `xi_dot = r - y`.
+- Augmented state order is `[x; xi]`, input order is `[u; r]`, and output order
+  is `[y; xi]`. Matrices are `A_aug = [[A, 0], [-C, 0]]`,
+  `B_aug = [[B, 0], [-D, 1]]`, `C_aug = [[C, 0], [0, 1]]`, and
+  `D_aug = [[D, 0], [0, 0]]`.
+- Nonzero feedthrough enters exactly through `xi_dot = r - Cx - Du`. Exactly
+  one plant input and output are required, but stability, controllability, and
+  observability are not. One zero integrator eigenvalue is added before any
+  feedback is designed.
+- The original plant is not mutated. This capability performs no gain
+  synthesis, integral feedback closure, prefilter combination, anti-windup,
+  saturation, observer design, or aircraft-specific behavior.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -694,22 +709,23 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### SISO output-error integral augmentation
+### Caller-supplied SISO integral-feedback interconnection
 
-Add a generic continuous-time SISO design augmentation with one integral state
-driven by constant-reference output error, establishing conventions before any
-integral-gain synthesis.
+Close the verified integral-error augmentation with caller-supplied state and
+integral gains, retaining scalar reference input and plant output while
+establishing the integral-control sign convention before gain synthesis.
 
 ## Suggested implementation direction
 
-- Define an integral state using an explicit sign convention such as
-  `xi_dot = r - y`, retain both plant input and scalar reference as documented
-  augmentation inputs, and include nonzero `D` exactly.
-- Return an immutable augmented design model with auditable state, input, and
-  output ordering. Do not synthesize state or integral gains yet.
-- Require SISO channels and validate dimensions without imposing stability.
-  Do not add anti-windup, saturation, MIMO tracking, LQR/LQG, Kalman filtering,
-  or aircraft tuning yet.
+- Use an explicit convention such as `u = -K x + K_i xi` together with
+  `xi_dot = r - y`, and derive all nonzero-`D` terms without algebraic
+  inversion.
+- Accept finite real caller-supplied `K` and scalar `K_i`; expose reference `r`
+  as input and plant `y` as output. Do not require the resulting loop to be
+  stable and do not synthesize either gain.
+- Preserve `[x; xi]` state order and document the complete closed-loop
+  realization. Do not add anti-windup, saturation, observers, LQR/LQG, or
+  aircraft tuning yet.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -718,9 +734,9 @@ integral-gain synthesis.
 
 ## Focused tests to add
 
-- Verify the exact augmented equations and matrices, integral-error sign,
-  state/input/output ordering, nonzero feedthrough, non-mutation, and SISO
-  validation, including direct trajectory-level equation checks.
+- Verify exact closed-loop equations and matrices, reference/output ordering,
+  nonzero feedthrough, stable and deliberately unstable gains, non-mutation,
+  and gain validation.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 

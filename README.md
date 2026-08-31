@@ -391,3 +391,35 @@ stable. Nonfinite or materially complex DC results and DC gains whose magnitude
 is no larger than `100 * machine epsilon` are rejected as unusable. This is
 nominal scaling only: it supplies no integral action, disturbance rejection,
 robust tracking, or reference dynamics, and it does not mutate the plant.
+
+## SISO output-error integral augmentation
+
+`system.siso_integral_augmentation()` returns an immutable
+`SISOIntegralAugmentation` containing an open augmented design model for
+
+```text
+x_dot = A x + B u
+y = C x + D u
+xi_dot = r - y
+```
+
+The augmented state order is `[x; xi]`, input order is `[u; r]`, and output
+order is `[y; xi]`. The complete realization is
+
+```text
+A_aug = [[ A, 0],       B_aug = [[ B, 0],
+         [-C, 0]]                [-D, 1]]
+
+C_aug = [[C, 0],        D_aug = [[D, 0],
+         [0, 1]]                 [0, 0]]
+```
+
+Nonzero plant feedthrough therefore enters the integral-error equation exactly
+as `xi_dot = r - Cx - Du`. The method requires exactly one plant input and one
+plant output but imposes no stability, controllability, or observability
+condition. It adds one open-loop integrator state and does not mutate the
+plant.
+
+This is an auditable design augmentation only. It does not synthesize gains,
+close an integral-feedback loop, combine reference prefiltering, or provide
+anti-windup, saturation, observer, or aircraft-specific behavior.

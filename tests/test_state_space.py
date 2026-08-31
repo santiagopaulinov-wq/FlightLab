@@ -12,6 +12,7 @@ from flightlab.state_space import (
     ModalStateCharacterization,
     NonstablePBHDiagnostic,
     ObserverBasedOutputFeedbackInterconnection,
+    SISOIntegralAugmentation,
     StateSpace,
     StructuralAnalysis,
 )
@@ -336,6 +337,137 @@ def test_siso_reference_prefilter_does_not_mutate_original_system():
         (system.A, system.B, system.C, system.D), originals, strict=True
     ):
         np.testing.assert_array_equal(matrix, original)
+
+
+def integral_augmentation_system():
+    return StateSpace(
+        [[0.0, 1.0], [-2.0, -3.0]],
+        [[0.5], [2.0]],
+        [[1.0, -1.0]],
+        [[0.25]],
+    )
+
+
+def test_siso_integral_augmentation_matches_exact_matrix_identities():
+    system = integral_augmentation_system()
+
+    result = system.siso_integral_augmentation()
+
+    assert isinstance(result, SISOIntegralAugmentation)
+    np.testing.assert_array_equal(
+        result.system.A,
+        np.block([[system.A, np.zeros((2, 1))], [-system.C, np.zeros((1, 1))]]),
+    )
+    np.testing.assert_array_equal(
+        result.system.B,
+        np.block([[system.B, np.zeros((2, 1))], [-system.D, np.ones((1, 1))]]),
+    )
+    np.testing.assert_array_equal(
+        result.system.C,
+        np.block(
+            [[system.C, np.zeros((1, 1))], [np.zeros((1, 2)), np.ones((1, 1))]]
+        ),
+    )
+    np.testing.assert_array_equal(
+        result.system.D,
+        np.block([[system.D, np.zeros((1, 1))], [np.zeros((1, 2))]]),
+    )
+
+
+def test_siso_integral_augmentation_matches_plant_and_error_equations():
+    system = integral_augmentation_system()
+    state = np.array([0.7, -0.4])
+    integral_state = 0.6
+    plant_input = 0.3
+    reference = -0.2
+    plant_output = system.output(state, [plant_input])[0]
+
+    result = system.siso_integral_augmentation()
+    augmented_derivative = result.system.state_derivative(
+        np.concatenate((state, [integral_state])), [plant_input, reference]
+    )
+
+    np.testing.assert_allclose(
+        augmented_derivative[: system.n_states],
+        system.A @ state + system.B[:, 0] * plant_input,
+    )
+    assert augmented_derivative[-1] == pytest.approx(reference - plant_output)
+    assert plant_output == pytest.approx(
+        (system.C @ state + system.D[:, 0] * plant_input)[0]
+    )
+
+
+def test_siso_integral_augmentation_preserves_state_input_and_output_ordering():
+    system = integral_augmentation_system()
+    state = np.array([0.7, -0.4])
+    integral_state = 0.6
+    plant_input = 0.3
+    reference = -0.2
+
+    result = system.siso_integral_augmentation()
+    augmented_state = np.concatenate((state, [integral_state]))
+    augmented_input = np.array([plant_input, reference])
+    augmented_output = result.system.output(augmented_state, augmented_input)
+
+    np.testing.assert_allclose(
+        augmented_output,
+        [system.output(state, [plant_input])[0], integral_state],
+    )
+
+
+def test_siso_integral_augmentation_has_expected_dimensions_and_is_immutable():
+    system = integral_augmentation_system()
+
+    result = system.siso_integral_augmentation()
+
+    assert result.system.n_states == system.n_states + 1
+    assert result.system.n_inputs == 2
+    assert result.system.n_outputs == 2
+    assert result.system.A.shape == (3, 3)
+    assert result.system.B.shape == (3, 2)
+    assert result.system.C.shape == (2, 3)
+    assert result.system.D.shape == (2, 2)
+    with pytest.raises(AttributeError):
+        result.system = system
+
+
+def test_siso_integral_augmentation_does_not_mutate_original_system():
+    system = integral_augmentation_system()
+    originals = tuple(
+        matrix.copy() for matrix in (system.A, system.B, system.C, system.D)
+    )
+
+    result = system.siso_integral_augmentation()
+
+    assert result.system is not system
+    for matrix, original in zip(
+        (system.A, system.B, system.C, system.D), originals, strict=True
+    ):
+        np.testing.assert_array_equal(matrix, original)
+
+
+@pytest.mark.parametrize(
+    "system",
+    [
+        StateSpace([[-1.0]], [[1.0, 0.0]], [[1.0]], [[0.0, 0.0]]),
+        StateSpace([[-1.0]], [[1.0]], [[1.0], [0.0]], [[0.0], [0.0]]),
+        StateSpace([[-1.0]], [[1.0, 0.0]], [[1.0], [0.0]], np.zeros((2, 2))),
+    ],
+)
+def test_siso_integral_augmentation_rejects_non_siso_plants(system):
+    with pytest.raises(ValueError, match="requires exactly one input and one output"):
+        system.siso_integral_augmentation()
+
+
+def test_siso_integral_augmentation_adds_one_open_loop_integrator_eigenvalue():
+    system = StateSpace([[-2.0]], [[1.0]], [[3.0]], [[0.5]])
+
+    result = system.siso_integral_augmentation()
+
+    np.testing.assert_allclose(
+        np.sort_complex(result.system.eigenvalues()), [-2.0, 0.0]
+    )
+    assert result.system.is_asymptotically_stable() is False
 
 
 def observer_mimo_system():
