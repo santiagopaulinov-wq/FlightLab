@@ -482,6 +482,36 @@ def test_nonstable_pbh_diagnostics_distinguish_all_nonstable_outcomes():
     assert all(diagnostic.eigenvalue != eigenvalues[3] for diagnostic in diagnostics)
 
 
+@pytest.mark.parametrize(
+    ("B", "C", "expected_stabilizable", "expected_detectable"),
+    [
+        ([[0.0], [1.0]], [[0.0, 1.0]], True, True),
+        ([[1.0], [0.0]], [[0.0, 1.0]], False, True),
+        ([[0.0], [1.0]], [[1.0, 0.0]], True, False),
+        ([[1.0], [0.0]], [[1.0, 0.0]], False, False),
+    ],
+)
+def test_nonstable_pbh_diagnostics_agree_with_structural_predicates(
+    B, C, expected_stabilizable, expected_detectable
+):
+    system = StateSpace(np.diag([-1.0, 2.0]), B, C, [[0.0]])
+
+    diagnostics = system.nonstable_pbh_diagnostics()
+    has_controllability_failure = any(
+        diagnostic.controllability_failed for diagnostic in diagnostics
+    )
+    has_observability_failure = any(
+        diagnostic.observability_failed for diagnostic in diagnostics
+    )
+
+    assert system.is_stabilizable() is expected_stabilizable
+    assert system.is_detectable() is expected_detectable
+    assert system.is_stabilizable() is (not has_controllability_failure)
+    assert system.is_detectable() is (not has_observability_failure)
+    if expected_stabilizable and expected_detectable:
+        assert diagnostics == ()
+
+
 def test_eigenvalues_and_asymptotic_stability_for_stable_system():
     system = StateSpace(*valid_matrices())
 

@@ -33,14 +33,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `5de14f28572b7697bcf62fe0d2f06e0d6d20daf9`
-- Pre-checkpoint message: `test: cover defective PBH diagnostics`
-- The current checkpoint adds focused mixed-outcome PBH diagnostic coverage
-  without changing production behavior.
+  `69472f2e98f0671fe2cbba9f369f78173fd87e04`
+- Pre-checkpoint message: `test: cover mixed PBH diagnostic outcomes`
+- The current checkpoint verifies aggregate PBH diagnostic consistency with
+  stabilizability and detectability without changing production behavior.
 
 ## Current verification baseline
 
-- Test count: 453 tests.
+- Test count: 457 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -67,6 +67,9 @@ or EXACT set matching for both inclusions and exclusions.
 - One explicit multistate system verifies controllability-only,
   observability-only, and combined PBH failure flags in eigenvalue order while
   a fourth nonstable mode that passes both conditions is omitted.
+- Four representative systems verify that aggregate diagnostic failure flags
+  are exactly consistent with `is_stabilizable()` and `is_detectable()`,
+  including the fully passing case with no diagnostics.
 
 ## Important existing capabilities
 
@@ -445,19 +448,18 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### PBH diagnostic and structural-check consistency verification
+### Neutral-mode PBH consistency verification
 
-Add focused tests verifying that the aggregate nonstable diagnostic flags agree
-with `StateSpace.is_stabilizable()` and `StateSpace.is_detectable()` across
-representative passing and failing systems. Preserve all current APIs and the
-established NumPy rank convention.
+Add focused tests verifying aggregate diagnostic consistency with
+`StateSpace.is_stabilizable()` and `StateSpace.is_detectable()` at the exact
+continuous-time nonstable boundary, eigenvalue zero. Preserve all current APIs
+and the established NumPy rank convention.
 
 ## Suggested implementation direction
 
-- Reuse small deterministic synthetic systems with unambiguous PBH ranks.
-- Verify stabilizability exactly matches the absence of controllability-failure
-  flags and detectability exactly matches the absence of
-  observability-failure flags.
+- Reuse a small deterministic diagonal system with one zero eigenvalue.
+- Cover passing and independently failing PBH conditions at the neutral mode,
+  preserving the existing inclusive nonstable boundary.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -466,7 +468,8 @@ established NumPy rank convention.
 
 ## Focused tests to add
 
-- Verify diagnostic aggregates remain consistent with both structural checks.
+- Verify neutral-mode diagnostic aggregates remain consistent with both
+  structural checks.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 
