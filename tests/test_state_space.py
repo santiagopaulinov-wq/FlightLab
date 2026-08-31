@@ -52,6 +52,152 @@ def test_dimensions():
     assert system.n_outputs == 1
 
 
+def test_full_state_feedback_matches_mimo_closed_loop_matrix_identities():
+    system = StateSpace(
+        [[0.0, 1.0], [-2.0, -3.0]],
+        [[1.0, 0.5], [0.0, 2.0]],
+        [[1.0, -1.0], [0.5, 2.0], [3.0, 0.0]],
+        [[0.2, -0.1], [0.0, 0.3], [0.5, 0.4]],
+    )
+    gain = np.array([[2.0, -1.0], [0.25, 1.5]])
+
+    closed_loop = system.full_state_feedback(gain)
+
+    np.testing.assert_array_equal(closed_loop.A, system.A - system.B @ gain)
+    np.testing.assert_array_equal(closed_loop.B, system.B)
+    np.testing.assert_array_equal(closed_loop.C, system.C - system.D @ gain)
+    np.testing.assert_array_equal(closed_loop.D, system.D)
+
+
+def test_full_state_feedback_matches_original_equations_for_state_and_command():
+    system = StateSpace(
+        [[0.0, 1.0], [-2.0, -3.0]],
+        [[1.0, 0.5], [0.0, 2.0]],
+        [[1.0, -1.0], [0.5, 2.0]],
+        [[0.2, -0.1], [0.0, 0.3]],
+    )
+    gain = np.array([[2.0, -1.0], [0.25, 1.5]])
+    state = np.array([0.7, -0.4])
+    command = np.array([0.3, -0.2])
+    plant_input = command - gain @ state
+    closed_loop = system.full_state_feedback(gain)
+
+    np.testing.assert_allclose(
+        closed_loop.state_derivative(state, command),
+        system.state_derivative(state, plant_input),
+    )
+    np.testing.assert_allclose(
+        closed_loop.output(state, command), system.output(state, plant_input)
+    )
+
+
+def test_full_state_feedback_moves_siso_eigenvalue_as_a_minus_bk():
+    system = StateSpace([[1.0]], [[2.0]], [[1.0]], [[0.0]])
+
+    closed_loop = system.full_state_feedback([[1.0]])
+
+    np.testing.assert_array_equal(system.eigenvalues(), [1.0])
+    np.testing.assert_array_equal(closed_loop.eigenvalues(), [-1.0])
+    assert system.is_asymptotically_stable() is False
+    assert closed_loop.is_asymptotically_stable() is True
+
+
+def test_full_state_feedback_does_not_mutate_original_system():
+    system = StateSpace(*stable_minimal_balancing_matrices())
+    original_matrices = tuple(matrix.copy() for matrix in (system.A, system.B, system.C, system.D))
+
+    closed_loop = system.full_state_feedback([[1.0, -0.5], [0.25, 0.75]])
+
+    assert closed_loop is not system
+    for matrix, original in zip(
+        (system.A, system.B, system.C, system.D), original_matrices, strict=True
+    ):
+        np.testing.assert_array_equal(matrix, original)
+
+
+def test_full_state_feedback_preserves_mimo_and_zero_output_dimensions():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.ones((2, 3)),
+        np.empty((0, 2)),
+        np.empty((0, 3)),
+    )
+
+    closed_loop = system.full_state_feedback(np.ones((3, 2)))
+
+    assert closed_loop.A.shape == (2, 2)
+    assert closed_loop.B.shape == (2, 3)
+    assert closed_loop.C.shape == (0, 2)
+    assert closed_loop.D.shape == (0, 3)
+    assert closed_loop.n_states == 2
+    assert closed_loop.n_inputs == 3
+    assert closed_loop.n_outputs == 0
+
+
+@pytest.mark.parametrize(
+    "gain",
+    [
+        np.zeros((2, 3)),
+        np.zeros((1, 1)),
+        np.zeros((3, 2)),
+    ],
+)
+def test_full_state_feedback_rejects_wrong_gain_shape(gain):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="K must have shape"):
+        system.full_state_feedback(gain)
+
+
+@pytest.mark.parametrize("gain", [1.0, [1.0, 2.0], np.zeros((1, 2, 1))])
+def test_full_state_feedback_rejects_nonmatrix_gain(gain):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="K must be a 2D array"):
+        system.full_state_feedback(gain)
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+def test_full_state_feedback_rejects_nonfinite_gain(value):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="K must contain only finite values"):
+        system.full_state_feedback([[value, 0.0]])
+
+
+def test_full_state_feedback_rejects_complex_gain_even_with_zero_imaginary_part():
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(TypeError, match="K must contain only real values"):
+        system.full_state_feedback([[1.0 + 0.0j, 2.0]])
+
+
+@pytest.mark.parametrize("gain", ["gain", [[object(), 1.0]]])
+def test_full_state_feedback_rejects_incompatible_gain_type(gain):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(TypeError, match="K must be a real numeric 2D array"):
+        system.full_state_feedback(gain)
+
+
+def test_full_state_feedback_accepts_only_empty_gain_for_zero_input_system():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.empty((2, 0)),
+        np.eye(2),
+        np.empty((2, 0)),
+    )
+
+    closed_loop = system.full_state_feedback(np.empty((0, 2)))
+
+    np.testing.assert_array_equal(closed_loop.A, system.A)
+    np.testing.assert_array_equal(closed_loop.B, system.B)
+    np.testing.assert_array_equal(closed_loop.C, system.C)
+    np.testing.assert_array_equal(closed_loop.D, system.D)
+    with pytest.raises(ValueError, match="K must have shape"):
+        system.full_state_feedback(np.empty((1, 2)))
+
+
 def test_frequency_response_matches_first_order_siso_analytic_value():
     system = StateSpace([[-2.0]], [[3.0]], [[4.0]], [[0.5]])
     frequency = 1.5

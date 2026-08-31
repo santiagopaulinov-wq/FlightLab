@@ -36,6 +36,8 @@ established channel ordering.
 Every `StateSpace` can also evaluate its complex continuous-time transfer
 matrix, descending singular values, and corresponding input/output singular
 directions at explicit real angular frequencies without requiring stability.
+The controller-design foundation now begins with a generic, non-mutating static
+full-state feedback interconnection for a caller-supplied gain.
 Both aircraft models can filter these immutable interpreted families by their
 existing oscillatory status, mathematical stability, and exact dominant
 state/input/output labels, with configurable global or per-category ANY, ALL,
@@ -44,14 +46,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `8ac98b8ec6bce1e085679ade677b5089460316b4`
-- Pre-checkpoint message: `feat: add truncation error singular values`
-- The current checkpoint adds singular directions of explicit-frequency
-  balanced-truncation transfer-matrix errors.
+  `ba37b2ec194ce5c190b331c645b63fbc73f43bde`
+- Pre-checkpoint message: `feat: add truncation error singular directions`
+- The current checkpoint adds static full-state feedback interconnection for a
+  caller-supplied gain.
 
 ## Current verification baseline
 
-- Test count: 609 tests.
+- Test count: 627 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -173,6 +175,21 @@ or EXACT set matching for both inclusions and exclusions.
   complex phase and repeated-value subspace bases may rotate. Reconstruction,
   orthonormality, phase-invariant channel ordering, and inherited errors are
   verified without adding a grid, maximization, or norm estimation.
+
+## Controller-design foundation
+
+- `StateSpace.full_state_feedback(K)` returns a new generic closed-loop
+  realization under `u = v - K x`, where `v` is the external command in the
+  plant's existing input dimension and channel order.
+- The complete interconnection is `A_cl = A - B K`, `B_cl = B`,
+  `C_cl = C - D K`, and `D_cl = D`, so nonzero plant feedthrough is handled in
+  both the output equation and direct command path.
+- Gains must be finite real two-dimensional arrays with shape
+  `(n_inputs, n_states)`. A zero-input plant accepts only `(0, n_states)`, for
+  which the zero-dimensional command and feedback leave every matrix unchanged.
+- The plant is not mutated. This capability performs interconnection only: no
+  pole placement, LQR, tuning, reference tracking, observers, saturation, or
+  aircraft-specific controller behavior is included.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -592,21 +609,20 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Static full-state feedback interconnection
+### SISO full-state pole placement
 
-Begin the controller-design foundation with a generic static full-state
-feedback interconnection for a caller-supplied gain matrix, without synthesizing
-or tuning that gain.
+Add the first narrowly scoped gain-synthesis capability: continuous-time pole
+placement for controllable single-input systems, returning a gain compatible
+with the verified full-state feedback convention.
 
 ## Suggested implementation direction
 
-- Define an explicit command convention such as `u = v - K x` and derive all
-  closed-loop `A`, `B`, `C`, and `D` matrices consistently, including nonzero
-  plant feedthrough.
-- Require a finite real gain with shape `(n_inputs, n_states)` and return a new
-  generic `StateSpace` without mutating the plant.
-- Do not add pole placement, LQR, gain tuning, observers, integral action, or
-  aircraft-specific controller rules yet.
+- Use a NumPy-only Ackermann construction based on the existing controllability
+  matrix and the convention `A_cl = A - B K`.
+- Require exactly one input, full controllability, and a finite conjugate-closed
+  desired pole set of length `n_states`; return a real gain of shape `(1, n)`.
+- Reject repeated/ill-conditioned cases clearly where numerical assumptions
+  fail. Do not add MIMO placement, LQR, observers, or aircraft tuning yet.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -615,9 +631,9 @@ or tuning that gain.
 
 ## Focused tests to add
 
-- Verify the algebraic matrix identities, state derivative and output equations,
-  dimensions, zero-input-channel behavior, immutability of the original plant,
-  and gain validation.
+- Verify analytic first- and second-order systems, achieved eigenvalues under
+  `full_state_feedback()`, real gains for conjugate poles, and input,
+  controllability, pole-count, conjugacy, finiteness, and conditioning errors.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 

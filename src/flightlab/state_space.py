@@ -614,6 +614,45 @@ class StateSpace:
         """Return the eigenvalues of the continuous-time system matrix."""
         return np.linalg.eigvals(self.A)
 
+    def full_state_feedback(self, gain):
+        """Return the static full-state feedback interconnection ``u = v - K x``.
+
+        ``K`` must be a finite real two-dimensional array with shape
+        ``(n_inputs, n_states)``. Here ``v`` is the new external closed-loop
+        input and has the same dimension and channel order as the plant input
+        ``u``. Substitution into ``x_dot = A x + B u`` and
+        ``y = C x + D u`` gives ``A_cl = A - B K``, ``B_cl = B``,
+        ``C_cl = C - D K``, and ``D_cl = D``.
+
+        The returned :class:`StateSpace` is new and the plant is not mutated.
+        For a plant with no input channels, the only valid gain has shape
+        ``(0, n_states)``; the resulting zero-dimensional ``v`` leaves all
+        plant matrices unchanged. This method interconnects a supplied gain
+        only and performs no controller synthesis, tuning, or reference design.
+        """
+        raw_gain = np.asarray(gain)
+        if np.iscomplexobj(raw_gain):
+            raise TypeError("K must contain only real values")
+        try:
+            gain = np.asarray(gain, dtype=float)
+        except (TypeError, ValueError) as error:
+            raise TypeError("K must be a real numeric 2D array") from error
+        if gain.ndim != 2:
+            raise ValueError(
+                "K must be a 2D array with shape (n_inputs, n_states)"
+            )
+        if gain.shape != (self.n_inputs, self.n_states):
+            raise ValueError("K must have shape (n_inputs, n_states)")
+        if not np.all(np.isfinite(gain)):
+            raise ValueError("K must contain only finite values")
+
+        return StateSpace(
+            self.A - self.B @ gain,
+            self.B.copy(),
+            self.C - self.D @ gain,
+            self.D.copy(),
+        )
+
     def frequency_response(self, angular_frequencies):
         """Evaluate ``G(j omega)`` at explicit angular frequencies in rad/s.
 

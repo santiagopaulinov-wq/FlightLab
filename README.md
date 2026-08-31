@@ -188,3 +188,29 @@ Paired directions have arbitrary unit-magnitude complex phase, and bases within
 repeated-singular-value subspaces may rotate. No phase normalization is
 imposed. The API inherits all sampled-error validation and adds no grid,
 interpolation, maximization, H-infinity estimation, or order selection.
+
+## Static full-state feedback interconnection
+
+`system.full_state_feedback(K)` returns a new `StateSpace` using the convention
+
+```text
+u = v - K x
+```
+
+where `x` is the plant state and `v` is the new external closed-loop input with
+the same dimension and channel order as the plant input `u`. Substitution into
+the plant equations gives
+
+```text
+A_cl = A - B K
+B_cl = B
+C_cl = C - D K
+D_cl = D
+```
+
+The `C_cl` term therefore includes plant feedthrough correctly. `K` must be a
+finite real matrix with shape `(n_inputs, n_states)`. With no plant input
+channels, the only valid gain shape is `(0, n_states)` and the zero-dimensional
+command leaves all matrices unchanged. The original plant is never mutated.
+This API interconnects a caller-supplied gain only; it performs no pole
+placement, LQR, tuning, reference tracking, observer design, or saturation.
