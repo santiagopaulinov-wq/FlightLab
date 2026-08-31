@@ -33,14 +33,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `d1acf10168bc91db606caeb7d9c025596b73f2d7`
-- Pre-checkpoint message: `test: verify neutral PBH consistency`
-- The current checkpoint verifies PBH predicate and diagnostic consistency for
-  a purely imaginary pair without changing production behavior.
+  `9c1d13dc5c0e2af77716f22b8aa6f5db41beed62`
+- Pre-checkpoint message: `test: verify imaginary PBH consistency`
+- The current checkpoint verifies PBH predicates and diagnostics for empty
+  input and output channel dimensions without changing production behavior.
 
 ## Current verification baseline
 
-- Test count: 465 tests.
+- Test count: 468 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -76,6 +76,9 @@ or EXACT set matching for both inclusions and exclusions.
 - A purely imaginary conjugate pair is verified across the same four outcomes,
   with separate ordered diagnostics for both members when either PBH condition
   fails and no diagnostics when both pass.
+- Valid zero-input, zero-output, and jointly empty-channel systems are verified
+  to report exact PBH failure flags for ordered nonstable modes while omitting
+  stable modes.
 
 ## Important existing capabilities
 
@@ -454,19 +457,19 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Empty-channel PBH diagnostic verification
+### Stable empty-channel PBH verification
 
-Add focused tests verifying nonstable PBH diagnostics for valid state-space
-systems with zero input channels, zero output channels, or both. Preserve all
-current APIs, matrix-shape conventions, and the established NumPy rank
-convention.
+Add one focused test verifying that an asymptotically stable system remains
+stabilizable and detectable with zero input and output channels and returns no
+nonstable PBH diagnostics. Preserve all current APIs and matrix-shape
+conventions.
 
 ## Suggested implementation direction
 
-- Use small deterministic systems with `B` shaped `(n, 0)` and/or `C` shaped
-  `(0, n)`, with matching `D` dimensions.
-- Verify exact controllability and observability failure flags for a nonstable
-  mode while preserving diagnostic order and predicate consistency.
+- Use a small deterministic diagonal system with only stable eigenvalues,
+  `B` shaped `(n, 0)`, `C` shaped `(0, n)`, and `D` shaped `(0, 0)`.
+- Verify the empty diagnostic tuple and both structural predicates without
+  changing full controllability or observability semantics.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -475,8 +478,7 @@ convention.
 
 ## Focused tests to add
 
-- Verify empty input and output channel dimensions produce the expected PBH
-  diagnostics and structural predicates.
+- Verify stable empty-channel systems remain stabilizable and detectable.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 

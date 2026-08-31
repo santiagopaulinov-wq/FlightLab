@@ -587,6 +587,36 @@ def test_purely_imaginary_pbh_diagnostics_agree_with_structural_predicates(
     )
 
 
+@pytest.mark.parametrize(
+    ("B", "C", "D", "controllability_failed", "observability_failed"),
+    [
+        (np.empty((3, 0)), np.eye(3), np.empty((3, 0)), True, False),
+        (np.eye(3), np.empty((0, 3)), np.empty((0, 3)), False, True),
+        (np.empty((3, 0)), np.empty((0, 3)), np.empty((0, 0)), True, True),
+    ],
+)
+def test_empty_channels_report_ordered_nonstable_pbh_failures(
+    B, C, D, controllability_failed, observability_failed
+):
+    system = StateSpace(np.diag([-1.0, 0.0, 2.0]), B, C, D)
+
+    eigenvalues = system.eigenvalues()
+    diagnostics = system.nonstable_pbh_diagnostics()
+
+    assert system.B.shape == B.shape
+    assert system.C.shape == C.shape
+    assert system.D.shape == D.shape
+    np.testing.assert_array_equal(eigenvalues, [-1.0, 0.0, 2.0])
+    assert diagnostics == tuple(
+        NonstablePBHDiagnostic(
+            eigenvalue, controllability_failed, observability_failed
+        )
+        for eigenvalue in eigenvalues[1:]
+    )
+    assert system.is_stabilizable() is (not controllability_failed)
+    assert system.is_detectable() is (not observability_failed)
+
+
 def test_eigenvalues_and_asymptotic_stability_for_stable_system():
     system = StateSpace(*valid_matrices())
 
