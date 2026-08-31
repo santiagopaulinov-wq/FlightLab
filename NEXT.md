@@ -32,11 +32,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Checkpoint commit
 
-- Pre-checkpoint commit:
-  `8ff66c41ccbbbb70b79ef2b03431add53138e609`
-- Pre-checkpoint message: `feat: add observability Gramian`
-- The current checkpoint adds stable-system continuous-time Hankel singular
-  values derived from the verified Gramian pair.
+- Completed implementation commit:
+  `2461934676db145c360b91875c265af3f9e376d8`
+- Completed implementation message: `feat: add Hankel singular values`
+- This stopping checkpoint records the verified Gramian and stable-system
+  Hankel singular value foundation.
 
 ## Current verification baseline
 
