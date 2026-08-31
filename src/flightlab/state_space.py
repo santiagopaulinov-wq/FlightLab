@@ -238,6 +238,14 @@ class StructuralAnalysis(NamedTuple):
     detectable: bool
 
 
+class NonstablePBHDiagnostic(NamedTuple):
+    """PBH failures for one nonstable continuous-time eigenvalue."""
+
+    eigenvalue: complex
+    controllability_failed: bool
+    observability_failed: bool
+
+
 class ModalStateSpace(NamedTuple):
     """System matrices expressed in biorthogonal modal coordinates."""
 
@@ -620,6 +628,39 @@ class StateSpace:
             stabilizable=self.is_stabilizable(),
             detectable=self.is_detectable(),
         )
+
+    def nonstable_pbh_diagnostics(self):
+        """Return PBH failures for nonstable modes in eigenvalue order.
+
+        Nonstable modes that pass both PBH conditions are omitted. Rank uses
+        NumPy's default SVD-based tolerance, matching the structural checks.
+        """
+        diagnostics = []
+        identity = np.eye(self.n_states)
+        for eigenvalue in self.eigenvalues():
+            if eigenvalue.real < 0.0:
+                continue
+            controllability_matrix = np.hstack(
+                (eigenvalue * identity - self.A, self.B)
+            )
+            observability_matrix = np.vstack(
+                (eigenvalue * identity - self.A, self.C)
+            )
+            controllability_failed = bool(
+                np.linalg.matrix_rank(controllability_matrix) < self.n_states
+            )
+            observability_failed = bool(
+                np.linalg.matrix_rank(observability_matrix) < self.n_states
+            )
+            if controllability_failed or observability_failed:
+                diagnostics.append(
+                    NonstablePBHDiagnostic(
+                        eigenvalue=eigenvalue,
+                        controllability_failed=controllability_failed,
+                        observability_failed=observability_failed,
+                    )
+                )
+        return tuple(diagnostics)
 
     def right_eigenvectors(self):
         """Return normalized right eigenvectors as columns.

@@ -229,6 +229,9 @@ def test_longitudinal_model_builds_expected_state_space_matrices():
     assert structural_analysis.minimal is system.is_minimal_realization()
     assert structural_analysis.stabilizable is system.is_stabilizable()
     assert structural_analysis.detectable is system.is_detectable()
+    pbh_diagnostics = system.nonstable_pbh_diagnostics()
+    assert isinstance(pbh_diagnostics, tuple)
+    assert all(diagnostic.eigenvalue.real >= 0.0 for diagnostic in pbh_diagnostics)
     assert system.rk4_step(np.zeros(4), np.zeros(1), 0.01).shape == (4,)
 
 

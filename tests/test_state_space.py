@@ -5,6 +5,7 @@ from flightlab.state_space import (
     ModalFamily,
     ModalProperties,
     ModalStateCharacterization,
+    NonstablePBHDiagnostic,
     StateSpace,
     StructuralAnalysis,
 )
@@ -300,6 +301,104 @@ def test_structural_analysis_is_immutable():
 
     with pytest.raises(AttributeError):
         analysis.minimal = False
+
+
+def test_nonstable_pbh_diagnostic_reports_controllability_failure_only():
+    system = StateSpace(
+        np.diag([-1.0, 2.0]),
+        [[1.0], [0.0]],
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    assert system.nonstable_pbh_diagnostics() == (
+        NonstablePBHDiagnostic(2.0, True, False),
+    )
+
+
+def test_nonstable_pbh_diagnostic_reports_observability_failure_only():
+    system = StateSpace(
+        np.diag([-1.0, 2.0]),
+        np.eye(2),
+        [[1.0, 0.0]],
+        np.zeros((1, 2)),
+    )
+
+    assert system.nonstable_pbh_diagnostics() == (
+        NonstablePBHDiagnostic(2.0, False, True),
+    )
+
+
+def test_nonstable_pbh_diagnostic_reports_both_failures():
+    system = StateSpace(
+        np.diag([-1.0, 2.0]),
+        [[1.0], [0.0]],
+        [[1.0, 0.0]],
+        [[0.0]],
+    )
+
+    assert system.nonstable_pbh_diagnostics() == (
+        NonstablePBHDiagnostic(2.0, True, True),
+    )
+
+
+def test_nonstable_pbh_diagnostic_includes_neutral_failure():
+    system = StateSpace(
+        np.diag([-1.0, 0.0]),
+        [[1.0], [0.0]],
+        [[1.0, 0.0]],
+        [[0.0]],
+    )
+
+    assert system.nonstable_pbh_diagnostics() == (
+        NonstablePBHDiagnostic(0.0, True, True),
+    )
+
+
+def test_nonstable_pbh_diagnostics_omit_stable_failures():
+    system = StateSpace(
+        np.diag([-2.0, 1.0]),
+        [[0.0], [1.0]],
+        [[0.0, 1.0]],
+        [[0.0]],
+    )
+
+    assert system.is_fully_controllable() is False
+    assert system.is_fully_observable() is False
+    assert system.nonstable_pbh_diagnostics() == ()
+
+
+def test_nonstable_pbh_diagnostics_omit_nonstable_modes_that_pass():
+    system = StateSpace(
+        np.diag([-1.0, 2.0]),
+        np.eye(2),
+        np.eye(2),
+        np.zeros((2, 2)),
+    )
+
+    assert system.is_stabilizable() is True
+    assert system.is_detectable() is True
+    assert system.nonstable_pbh_diagnostics() == ()
+
+
+def test_nonstable_pbh_diagnostics_are_immutable_and_deterministic():
+    system = StateSpace(
+        np.diag([2.0, 0.0, -1.0]),
+        np.zeros((3, 1)),
+        np.zeros((1, 3)),
+        [[0.0]],
+    )
+
+    diagnostics = system.nonstable_pbh_diagnostics()
+
+    assert diagnostics == (
+        NonstablePBHDiagnostic(2.0, True, True),
+        NonstablePBHDiagnostic(0.0, True, True),
+    )
+    with pytest.raises(AttributeError):
+        diagnostics[0].controllability_failed = False
+    with pytest.raises(TypeError):
+        diagnostics[0] = diagnostics[1]
 
 
 def test_eigenvalues_and_asymptotic_stability_for_stable_system():

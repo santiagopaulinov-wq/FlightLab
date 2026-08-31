@@ -15,7 +15,8 @@ Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
 detectability, with all five results available through one immutable structural
-summary. Each modal family also has a generic dynamic summary derived from
+summary and nonstable PBH failures available as immutable mode diagnostics.
+Each modal family also has a generic dynamic summary derived from
 its canonical member
 properties and generic physical-input and physical-output influence summaries.
 These verified summaries are available together through one consolidated,
@@ -36,7 +37,7 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current verification baseline
 
-- Test count: 442 tests.
+- Test count: 449 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -338,6 +339,15 @@ or EXACT set matching for both inclusions and exclusions.
   detectable-but-unobservable, and neither-stabilizable-nor-detectable systems
   are verified field by field. Both aircraft model conversions expose the same
   generic summary and remain consistent with their individual checks.
+- `NonstablePBHDiagnostic` identifies one nonstable eigenvalue and whether it
+  fails PBH controllability, PBH observability, or both.
+  `StateSpace.nonstable_pbh_diagnostics()` returns only failing modes as an
+  immutable tuple in existing eigenvalue order, using the same NumPy default
+  SVD rank tolerance as stabilizability and detectability.
+- Unstable one-sided and two-sided failures, neutral failures, omission of
+  stable failures, omission of passing nonstable modes, deterministic order,
+  immutability, and both aircraft model conversions are verified. Existing
+  structural booleans and `StructuralAnalysis` remain unchanged.
 - Dominant-label filtering is intentionally paused and complete enough for the
   current stage; all verified inclusion and exclusion APIs remain available.
 - Generic trajectory-extrema analysis and synthetic longitudinal and
@@ -409,27 +419,28 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Nonstable PBH failure diagnostics
+### Complex and repeated PBH diagnostic verification
 
-Add a small generic diagnostic that identifies which nonstable eigenvalues fail
-the existing PBH controllability or observability conditions. Preserve all
-current structural booleans and do not add controller or observer synthesis.
+Verify the existing nonstable PBH diagnostics for complex-conjugate and repeated
+eigenvalues before adding actuator or sensor selection analysis. Preserve all
+current APIs and diagnostic omission semantics.
 
 ## Suggested implementation direction
 
-- Report only eigenvalues with nonnegative real part that fail the corresponding
-  PBH full-state-rank test.
-- Preserve canonical eigenvalue order and the established NumPy numerical rank
-  convention.
-- Keep the diagnostic immutable and generic.
+- Use deterministic synthetic systems with unstable complex-conjugate modes and
+  repeated nonstable eigenvalues.
+- Verify every failing eigenvalue occurrence remains in existing eigenvalue
+  order, including multiplicity.
+- Preserve the established NumPy numerical rank convention and immutable tuple
+  results.
 - Preserve all existing state-space and modal results unchanged.
 - Preserve all dominant-label inclusion and exclusion APIs unchanged.
 - Preserve longitudinal identification and evidence APIs unchanged.
 
 ## Focused tests to add
 
-- Verify empty diagnostics for stabilizable and detectable systems.
-- Verify unstable and neutral uncontrollable or unobservable modes are reported.
+- Verify a failing unstable complex pair produces two ordered entries.
+- Verify repeated failing eigenvalues preserve their multiplicity.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 
