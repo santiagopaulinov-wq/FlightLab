@@ -235,6 +235,12 @@ def test_lateral_directional_model_builds_expected_state_space_matrices():
     assert system.is_minimal_realization() is (
         system.is_fully_controllable() and system.is_fully_observable()
     )
+    structural_analysis = system.structural_analysis()
+    assert structural_analysis.controllable is system.is_fully_controllable()
+    assert structural_analysis.observable is system.is_fully_observable()
+    assert structural_analysis.minimal is system.is_minimal_realization()
+    assert structural_analysis.stabilizable is system.is_stabilizable()
+    assert structural_analysis.detectable is system.is_detectable()
     assert system.rk4_step(np.zeros(4), np.zeros(2), 0.01).shape == (4,)
 
 

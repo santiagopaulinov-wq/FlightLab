@@ -14,7 +14,8 @@ is now general continuous-time controllability and observability analysis.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
-detectability. Each modal family also has a generic dynamic summary derived from
+detectability, with all five results available through one immutable structural
+summary. Each modal family also has a generic dynamic summary derived from
 its canonical member
 properties and generic physical-input and physical-output influence summaries.
 These verified summaries are available together through one consolidated,
@@ -35,7 +36,7 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current verification baseline
 
-- Test count: 437 tests.
+- Test count: 442 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -329,6 +330,14 @@ or EXACT set matching for both inclusions and exclusions.
   unobservable, and mixed multi-state realizations are verified. Both aircraft
   model conversions remain compatible and detectable through their existing
   full-state outputs.
+- `StructuralAnalysis` is a public immutable five-boolean result containing
+  exactly controllable, observable, minimal, stabilizable, and detectable.
+  `StateSpace.structural_analysis()` delegates each field to its corresponding
+  existing public check without introducing rank data or new mathematics.
+- Fully minimal, stabilizable-but-uncontrollable,
+  detectable-but-unobservable, and neither-stabilizable-nor-detectable systems
+  are verified field by field. Both aircraft model conversions expose the same
+  generic summary and remain consistent with their individual checks.
 - Dominant-label filtering is intentionally paused and complete enough for the
   current stage; all verified inclusion and exclusion APIs remain available.
 - Generic trajectory-extrema analysis and synthetic longitudinal and
@@ -400,26 +409,27 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Structural-analysis summary
+### Nonstable PBH failure diagnostics
 
-Add a small immutable summary that consolidates the existing controllability
-rank, observability rank, full controllability, full observability, minimality,
-stabilizability, and detectability results without adding new control theory or
-recomputing unrelated modal data.
+Add a small generic diagnostic that identifies which nonstable eigenvalues fail
+the existing PBH controllability or observability conditions. Preserve all
+current structural booleans and do not add controller or observer synthesis.
 
 ## Suggested implementation direction
 
-- Compose the summary from the existing verified `StateSpace` methods.
-- Keep it generic and immutable, with explicit state dimension and rank fields.
-- Preserve the established NumPy numerical rank convention.
+- Report only eigenvalues with nonnegative real part that fail the corresponding
+  PBH full-state-rank test.
+- Preserve canonical eigenvalue order and the established NumPy numerical rank
+  convention.
+- Keep the diagnostic immutable and generic.
 - Preserve all existing state-space and modal results unchanged.
 - Preserve all dominant-label inclusion and exclusion APIs unchanged.
 - Preserve longitudinal identification and evidence APIs unchanged.
 
 ## Focused tests to add
 
-- Verify representative controllable/observable and deficient realizations.
-- Verify the summary agrees exactly with each existing source method.
+- Verify empty diagnostics for stabilizable and detectable systems.
+- Verify unstable and neutral uncontrollable or unobservable modes are reported.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 

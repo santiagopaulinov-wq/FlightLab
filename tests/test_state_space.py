@@ -6,6 +6,7 @@ from flightlab.state_space import (
     ModalProperties,
     ModalStateCharacterization,
     StateSpace,
+    StructuralAnalysis,
 )
 
 
@@ -249,6 +250,56 @@ def test_minimal_realization_requires_controllability_and_observability(
     assert system.is_fully_controllable() is controllable
     assert system.is_fully_observable() is observable
     assert system.is_minimal_realization() is expected
+
+
+@pytest.mark.parametrize(
+    ("A", "B", "C", "expected"),
+    [
+        (
+            [[0.0, 1.0], [-2.0, -3.0]],
+            [[0.0], [1.0]],
+            [[1.0, 0.0]],
+            StructuralAnalysis(True, True, True, True, True),
+        ),
+        (
+            np.diag([-1.0, -2.0]),
+            [[1.0], [0.0]],
+            np.eye(2),
+            StructuralAnalysis(False, True, False, True, True),
+        ),
+        (
+            np.diag([-1.0, -2.0]),
+            np.eye(2),
+            [[1.0, 0.0]],
+            StructuralAnalysis(True, False, False, True, True),
+        ),
+        (
+            np.diag([-1.0, 1.0]),
+            [[1.0], [0.0]],
+            [[1.0, 0.0]],
+            StructuralAnalysis(False, False, False, False, False),
+        ),
+    ],
+)
+def test_structural_analysis_agrees_with_existing_checks(A, B, C, expected):
+    system = StateSpace(A, B, C, np.zeros((len(C), np.asarray(B).shape[1])))
+
+    analysis = system.structural_analysis()
+
+    assert isinstance(analysis, StructuralAnalysis)
+    assert analysis == expected
+    assert analysis.controllable is system.is_fully_controllable()
+    assert analysis.observable is system.is_fully_observable()
+    assert analysis.minimal is system.is_minimal_realization()
+    assert analysis.stabilizable is system.is_stabilizable()
+    assert analysis.detectable is system.is_detectable()
+
+
+def test_structural_analysis_is_immutable():
+    analysis = StateSpace(*valid_matrices()).structural_analysis()
+
+    with pytest.raises(AttributeError):
+        analysis.minimal = False
 
 
 def test_eigenvalues_and_asymptotic_stability_for_stable_system():

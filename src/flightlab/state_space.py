@@ -228,6 +228,16 @@ class BiorthogonalModes(NamedTuple):
     left_eigenvectors: np.ndarray
 
 
+class StructuralAnalysis(NamedTuple):
+    """Immutable structural properties of a continuous-time realization."""
+
+    controllable: bool
+    observable: bool
+    minimal: bool
+    stabilizable: bool
+    detectable: bool
+
+
 class ModalStateSpace(NamedTuple):
     """System matrices expressed in biorthogonal modal coordinates."""
 
@@ -600,6 +610,16 @@ class StateSpace:
     def is_minimal_realization(self):
         """Return whether the realization is controllable and observable."""
         return self.is_fully_controllable() and self.is_fully_observable()
+
+    def structural_analysis(self):
+        """Return one immutable summary of the existing structural checks."""
+        return StructuralAnalysis(
+            controllable=self.is_fully_controllable(),
+            observable=self.is_fully_observable(),
+            minimal=self.is_minimal_realization(),
+            stabilizable=self.is_stabilizable(),
+            detectable=self.is_detectable(),
+        )
 
     def right_eigenvectors(self):
         """Return normalized right eigenvectors as columns.
