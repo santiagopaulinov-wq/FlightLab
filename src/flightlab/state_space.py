@@ -1043,6 +1043,32 @@ class StateSpace:
             a_priori_error_bound,
         )
 
+    def balanced_truncation_frequency_response_error(
+        self, retained_order, angular_frequencies
+    ):
+        """Return explicit-frequency transfer errors for balanced truncation.
+
+        For the caller-supplied order ``r``, this returns
+        ``G(j omega) - G_r(j omega)`` using the original system and the reduced
+        system returned by :meth:`balanced_truncation`. Angular frequencies are
+        in rad/s and use :meth:`frequency_response` validation, ordering, pole
+        behavior, and shapes: scalar input returns ``(n_outputs, n_inputs)``;
+        vector input returns
+        ``(n_frequencies, n_outputs, n_inputs)``. Empty channel axes are
+        preserved whenever the underlying truncation context is valid.
+
+        These are local input-output transfer-matrix samples only. They are not
+        state-reconstruction errors, are not equal in general to
+        ``BalancedTruncation.a_priori_error_bound``, and do not estimate the
+        global H-infinity error. No grid, interpolation, maximization, or order
+        selection is performed. Errors from the two underlying APIs propagate
+        unchanged.
+        """
+        original_response = self.frequency_response(angular_frequencies)
+        truncation = self.balanced_truncation(retained_order)
+        reduced_response = truncation.system.frequency_response(angular_frequencies)
+        return original_response - reduced_response
+
     def is_detectable(self):
         """Return whether every nonstable mode satisfies the PBH rank test.
 

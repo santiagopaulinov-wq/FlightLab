@@ -26,10 +26,11 @@ coordinates, with no state truncation, through a real transformation using the
 convention `x = T z`, or explicitly reduced by retaining a caller-selected
 number of leading balanced coordinates. Each valid truncation reports the
 classical a priori induced H-infinity error bound from its discarded Hankel
-singular values. The aircraft-model layer can interpret dominant generic state
-indices using each model's established physical state labels without changing
-generic modal results, and likewise interprets dominant input and output
-indices using the models' established channel ordering.
+singular values and can be compared with the original transfer matrix at
+explicit caller-supplied frequencies. The aircraft-model layer can interpret
+dominant generic state indices using each model's established physical state
+labels without changing generic modal results, and likewise interprets
+dominant input and output indices using the models' established channel ordering.
 Every `StateSpace` can also evaluate its complex continuous-time transfer
 matrix, descending singular values, and corresponding input/output singular
 directions at explicit real angular frequencies without requiring stability.
@@ -41,14 +42,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `adff669972f41d3b8b6cf5158345c723655e59c6`
-- Pre-checkpoint message: `feat: add frequency-response singular values`
-- The current checkpoint adds left and right transfer-matrix singular
-  directions at explicit angular frequencies.
+  `3bb52ee10ef5ad61026a357f8517c37389afe220`
+- Pre-checkpoint message: `feat: add frequency-response singular directions`
+- The current checkpoint adds explicit-frequency transfer-matrix error samples
+  for balanced truncation.
 
 ## Current verification baseline
 
-- Test count: 563 tests.
+- Test count: 581 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -136,6 +137,19 @@ or EXACT set matching for both inclusions and exclusions.
   order. No phase normalization is imposed: paired directions have arbitrary
   unit-magnitude complex phase, and repeated-value subspaces may rotate. Tests
   therefore verify reconstruction and orthonormality rather than raw phases.
+- `StateSpace.balanced_truncation_frequency_response_error(r, frequencies)`
+  returns `G(j omega) - G_r(j omega)` using the original system and the exact
+  reduced realization produced by `balanced_truncation(r)`.
+- Scalar and vector results preserve the existing complex frequency-response
+  shapes and caller ordering, including empty channel axes where an underlying
+  valid truncation is available. Direct feedthrough cancels because both
+  systems retain the same `D`.
+- Samples are local input-output transfer errors only: not state-reconstruction
+  errors, equalities to the a priori bound, or estimates of the global
+  H-infinity error. The API selects no grid and performs no interpolation,
+  maximization, norm estimation, or automatic order selection. Underlying
+  frequency, pole, retained-order, stability, and minimality errors propagate
+  unchanged.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -555,18 +569,17 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Explicit balanced-truncation frequency-error samples
+### Singular values of sampled balanced-truncation errors
 
-Add a caller-frequency diagnostic comparing an original `StateSpace` with its
-explicit-order balanced truncation, while keeping samples distinct from the
-existing global a priori H-infinity bound.
+Add directional gains of the verified local error transfer matrices at the
+same explicit caller-supplied frequencies, without maximizing them.
 
 ## Suggested implementation direction
 
-- Reuse `balanced_truncation(r)` and evaluate both the original and returned
-  reduced system through `frequency_response()` at the caller's frequencies.
-- Report `G(j omega) - G_r(j omega)` and its singular values with the verified
-  scalar/vector and empty-channel conventions.
+- Reuse `balanced_truncation_frequency_response_error()` and apply NumPy SVD
+  with `compute_uv=False` independently at each requested frequency.
+- Preserve the established real nonnegative descending scalar/vector and empty-
+  channel shapes.
 - Do not maximize, interpolate, treat samples as an H-infinity estimate, select
   a grid, or change the global a priori error bound.
 - Preserve the established NumPy numerical rank convention and immutable tuple
@@ -577,9 +590,8 @@ existing global a priori H-infinity bound.
 
 ## Focused tests to add
 
-- Verify analytic diagonal cases, direct equality with separate full/reduced
-  evaluations, shape conventions, and clear separation between sampled local
-  gains and the existing global bound.
+- Verify analytic diagonal cases, direct consistency with manual SVD of the
+  error samples, ordering, multiplicity, shapes, and inherited validation.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 

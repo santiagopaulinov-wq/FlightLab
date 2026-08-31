@@ -124,3 +124,25 @@ Singular directions are not unique. Each paired direction may differ by an
 arbitrary unit-magnitude complex phase, and bases within repeated-singular-value
 subspaces may rotate. No phase normalization is imposed. The API selects no
 grid and performs no maximization or H-infinity estimation.
+
+## Balanced-truncation frequency-error samples
+
+`system.balanced_truncation_frequency_response_error(r, angular_frequencies)`
+returns local transfer-matrix samples
+
+```text
+E(j omega) = G(j omega) - G_r(j omega)
+```
+
+where `G_r` is the realization returned by `system.balanced_truncation(r)`.
+Frequencies use the existing rad/s validation and ordering. Scalar input returns
+complex shape `(n_outputs, n_inputs)`; a vector returns
+`(n_frequencies, n_outputs, n_inputs)`. The direct-feedthrough term cancels
+because balanced truncation preserves `D`. Empty channel axes are preserved
+whenever the underlying stable-minimal truncation context is valid.
+
+These are caller-requested input-output frequency samples, not state-
+reconstruction errors. They are not generally equal to
+`BalancedTruncation.a_priori_error_bound` and do not estimate the global
+H-infinity error. The API selects no grid and performs no interpolation,
+maximization, norm estimation, or automatic order selection.
