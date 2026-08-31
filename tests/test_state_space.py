@@ -37,6 +37,82 @@ def test_dimensions():
     assert system.n_outputs == 1
 
 
+def test_fully_controllable_system_has_full_controllability_rank():
+    system = StateSpace(*valid_matrices())
+
+    matrix = system.controllability_matrix()
+
+    np.testing.assert_array_equal(matrix, [[0.0, 1.0], [1.0, -3.0]])
+    assert system.controllability_rank() == 2
+    assert system.is_fully_controllable() is True
+
+
+def test_uncontrollable_system_has_deficient_controllability_rank():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        [[1.0], [0.0]],
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    matrix = system.controllability_matrix()
+
+    np.testing.assert_array_equal(matrix, [[1.0, -1.0], [0.0, 0.0]])
+    assert system.controllability_rank() == 1
+    assert system.is_fully_controllable() is False
+
+
+def test_fully_observable_system_has_full_observability_rank():
+    system = StateSpace(*valid_matrices())
+
+    matrix = system.observability_matrix()
+
+    np.testing.assert_array_equal(matrix, [[1.0, 0.0], [0.0, 1.0]])
+    assert system.observability_rank() == 2
+    assert system.is_fully_observable() is True
+
+
+def test_unobservable_system_has_deficient_observability_rank():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.eye(2),
+        [[1.0, 0.0]],
+        np.zeros((1, 2)),
+    )
+
+    matrix = system.observability_matrix()
+
+    np.testing.assert_array_equal(matrix, [[1.0, 0.0], [-1.0, 0.0]])
+    assert system.observability_rank() == 1
+    assert system.is_fully_observable() is False
+
+
+@pytest.mark.parametrize(
+    ("controllable", "observable", "expected"),
+    [
+        (True, True, True),
+        (False, True, False),
+        (True, False, False),
+        (False, False, False),
+    ],
+)
+def test_minimal_realization_requires_controllability_and_observability(
+    controllable, observable, expected
+):
+    B = [[1.0], [1.0]] if controllable else [[1.0], [0.0]]
+    C = [[1.0, 1.0]] if observable else [[1.0, 0.0]]
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        B,
+        C,
+        np.zeros((1, 1)),
+    )
+
+    assert system.is_fully_controllable() is controllable
+    assert system.is_fully_observable() is observable
+    assert system.is_minimal_realization() is expected
+
+
 def test_eigenvalues_and_asymptotic_stability_for_stable_system():
     system = StateSpace(*valid_matrices())
 

@@ -3,7 +3,11 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from flightlab.longitudinal import LongitudinalModeIdentification, LongitudinalModel
+from flightlab.longitudinal import (
+    LongitudinalModeEvidence,
+    LongitudinalModeIdentification,
+    LongitudinalModel,
+)
 from flightlab.state_space import StateSpace
 
 
@@ -82,7 +86,12 @@ def filtered_characterization(
 
 
 def physical_mode_characterization(
-    frequency, period, dominant_states, participation, oscillatory=True
+    frequency,
+    period,
+    dominant_states,
+    participation,
+    damping_ratio,
+    oscillatory=True,
 ):
     return SimpleNamespace(
         characterization=SimpleNamespace(
@@ -90,6 +99,7 @@ def physical_mode_characterization(
                 is_oscillatory=oscillatory,
                 natural_frequency=frequency,
                 period=period,
+                damping_ratio=damping_ratio,
             ),
             state_participation=SimpleNamespace(
                 participation_magnitudes=np.asarray(participation)
@@ -99,6 +109,26 @@ def physical_mode_characterization(
         state_participation_by_label=tuple(
             zip(LongitudinalModel.STATE_ORDER, participation, strict=True)
         ),
+    )
+
+
+def synthetic_physical_mode_model(m_q=-3.585):
+    return LongitudinalModel(
+        trim_speed=10.0,
+        trim_pitch=0.0,
+        gravity=9.81,
+        x_u=-0.202,
+        x_w=0.413,
+        x_q=-0.148,
+        x_delta_e=0.0,
+        z_u=-0.437,
+        z_w=-3.773,
+        z_q=-0.235,
+        z_delta_e=0.0,
+        m_u=0.32,
+        m_w=-0.909,
+        m_q=m_q,
+        m_delta_e=0.0,
     )
 
 
@@ -182,6 +212,15 @@ def test_longitudinal_model_builds_expected_state_space_matrices():
             eigenvalue * scaled_left.conj().T,
         )
     assert isinstance(system.is_asymptotically_stable(), bool)
+    assert system.controllability_matrix().shape == (4, 4)
+    assert system.observability_matrix().shape == (16, 4)
+    assert system.is_fully_controllable() is (
+        system.controllability_rank() == system.n_states
+    )
+    assert system.is_fully_observable() is True
+    assert system.is_minimal_realization() is (
+        system.is_fully_controllable() and system.is_fully_observable()
+    )
     assert system.rk4_step(np.zeros(4), np.zeros(1), 0.01).shape == (4,)
 
 
@@ -193,13 +232,13 @@ def test_longitudinal_model_declares_state_input_and_output_ordering():
 
 def test_longitudinal_identifies_clear_short_period_and_phugoid_modes(monkeypatch):
     phugoid = physical_mode_characterization(
-        0.2, 10.0 * np.pi, ("u",), (0.7, 0.05, 0.05, 0.2)
+        0.2, 10.0 * np.pi, ("u",), (0.7, 0.05, 0.05, 0.2), 0.1
     )
     ambiguous = physical_mode_characterization(
-        0.8, 2.5 * np.pi, ("u", "q"), (0.4, 0.1, 0.4, 0.1)
+        0.8, 2.5 * np.pi, ("u", "q"), (0.4, 0.1, 0.4, 0.1), 0.2
     )
     short_period = physical_mode_characterization(
-        2.0, np.pi, ("q",), (0.05, 0.25, 0.65, 0.05)
+        2.0, np.pi, ("q",), (0.05, 0.25, 0.65, 0.05), 0.5
     )
     characterizations = (phugoid, ambiguous, short_period)
     monkeypatch.setattr(
@@ -217,15 +256,36 @@ def test_longitudinal_identifies_clear_short_period_and_phugoid_modes(monkeypatc
         None,
         "short_period",
     )
+    phugoid_evidence = result[0].evidence
+    short_period_evidence = result[2].evidence
+    assert isinstance(phugoid_evidence, LongitudinalModeEvidence)
+    assert phugoid_evidence.is_oscillatory is True
+    assert phugoid_evidence.frequency_period_eligible is True
+    assert phugoid_evidence.frequency_role == "slowest"
+    assert phugoid_evidence.frequency_separation_sufficient is True
+    assert phugoid_evidence.expected_state_participation == pytest.approx(0.9)
+    assert phugoid_evidence.dominant_state_consistent is True
+    assert phugoid_evidence.damping_ratio == pytest.approx(0.1)
+    assert phugoid_evidence.damping_ratio_valid is True
+    assert phugoid_evidence.damping_order_consistent is True
+    assert isinstance(short_period_evidence, LongitudinalModeEvidence)
+    assert short_period_evidence.frequency_role == "fastest"
+    assert short_period_evidence.expected_state_participation == pytest.approx(0.9)
+    assert short_period_evidence.dominant_state_consistent is True
+    assert short_period_evidence.damping_ratio == pytest.approx(0.5)
+    assert short_period_evidence.damping_order_consistent is True
+
+    with pytest.raises(AttributeError):
+        short_period_evidence.frequency_role = "slowest"
 
 
 def test_longitudinal_leaves_state_ambiguous_mode_unclassified(monkeypatch):
     characterizations = (
         physical_mode_characterization(
-            0.2, 10.0 * np.pi, ("u",), (0.7, 0.05, 0.05, 0.2)
+            0.2, 10.0 * np.pi, ("u",), (0.7, 0.05, 0.05, 0.2), 0.1
         ),
         physical_mode_characterization(
-            2.0, np.pi, ("u", "q"), (0.4, 0.1, 0.4, 0.1)
+            2.0, np.pi, ("u", "q"), (0.4, 0.1, 0.4, 0.1), 0.5
         ),
     )
     monkeypatch.setattr(
@@ -237,6 +297,201 @@ def test_longitudinal_leaves_state_ambiguous_mode_unclassified(monkeypatch):
     result = LongitudinalModel(**valid_parameters()).physical_mode_identifications()
 
     assert tuple(item.mode_name for item in result) == ("phugoid", None)
+
+
+def test_longitudinal_rejects_contradictory_damping_evidence(monkeypatch):
+    characterizations = (
+        physical_mode_characterization(
+            0.2, 10.0 * np.pi, ("u",), (0.7, 0.05, 0.05, 0.2), 0.4
+        ),
+        physical_mode_characterization(
+            2.0, np.pi, ("q",), (0.05, 0.25, 0.65, 0.05), 0.1
+        ),
+    )
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LongitudinalModel(**valid_parameters()).physical_mode_identifications()
+
+    assert tuple(item.mode_name for item in result) == (None, None)
+    assert all(item.evidence.damping_ratio_valid for item in result)
+    assert all(item.evidence.damping_order_consistent is False for item in result)
+    assert result[0].evidence.expected_state_participation == pytest.approx(0.9)
+    assert result[1].evidence.expected_state_participation == pytest.approx(0.9)
+
+
+def test_longitudinal_identifies_physical_modes_through_real_pipeline():
+    model = synthetic_physical_mode_model()
+    system = model.to_state_space()
+
+    eigenvalues = system.eigenvalues()
+    modal_properties = system.modal_properties()
+    identifications = model.physical_mode_identifications()
+
+    np.testing.assert_allclose(
+        [properties.eigenvalue for properties in modal_properties], eigenvalues
+    )
+    np.testing.assert_allclose(
+        [
+            member.eigenvalue
+            for identification in identifications
+            for member in identification.characterization.characterization.family.members
+        ],
+        eigenvalues,
+    )
+    assert tuple(item.mode_name for item in identifications) == (
+        "short_period",
+        "phugoid",
+    )
+
+    for identification in identifications:
+        characterization = identification.characterization
+        dynamics = characterization.characterization.dynamics
+        evidence = identification.evidence
+        participation = dict(characterization.state_participation_by_label)
+        expected_labels = (
+            {"w", "q"}
+            if identification.mode_name == "short_period"
+            else {"u", "theta"}
+        )
+
+        assert evidence.natural_frequency == pytest.approx(
+            dynamics.natural_frequency
+        )
+        assert evidence.period == pytest.approx(dynamics.period)
+        assert evidence.damping_ratio == pytest.approx(dynamics.damping_ratio)
+        assert evidence.expected_state_participation == pytest.approx(
+            sum(participation[label] for label in expected_labels)
+        )
+        assert evidence.frequency_period_eligible is True
+        assert evidence.frequency_separation_sufficient is True
+        assert evidence.dominant_state_consistent is True
+        assert evidence.damping_ratio_valid is True
+        assert evidence.damping_order_consistent is True
+
+
+def test_longitudinal_real_pipeline_rejects_contradictory_synthetic_mode():
+    model = synthetic_physical_mode_model(m_q=-1.0)
+
+    identifications = model.physical_mode_identifications()
+
+    assert tuple(item.mode_name for item in identifications) == (None, None)
+    assert {item.evidence.frequency_role for item in identifications} == {
+        "fastest",
+        "slowest",
+    }
+    assert all(
+        item.evidence.frequency_separation_sufficient is True
+        for item in identifications
+    )
+    assert all(
+        item.evidence.dominant_state_consistent is True
+        for item in identifications
+    )
+    assert all(
+        item.evidence.damping_order_consistent is False
+        for item in identifications
+    )
+
+
+@pytest.mark.parametrize(
+    ("frequency_ratio", "expected_names", "separation_sufficient"),
+    [
+        (2.999, (None, None), False),
+        (3.0, ("phugoid", "short_period"), True),
+        (3.001, ("phugoid", "short_period"), True),
+    ],
+)
+def test_longitudinal_frequency_separation_boundary(
+    monkeypatch, frequency_ratio, expected_names, separation_sufficient
+):
+    characterizations = (
+        physical_mode_characterization(
+            1.0, 2.0 * np.pi, ("u",), (0.45, 0.1, 0.1, 0.35), 0.1
+        ),
+        physical_mode_characterization(
+            frequency_ratio,
+            2.0 * np.pi / frequency_ratio,
+            ("w",),
+            (0.1, 0.45, 0.35, 0.1),
+            0.5,
+        ),
+    )
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LongitudinalModel(**valid_parameters()).physical_mode_identifications()
+
+    assert tuple(item.mode_name for item in result) == expected_names
+    assert all(
+        item.evidence.frequency_separation_sufficient is separation_sufficient
+        for item in result
+    )
+
+
+@pytest.mark.parametrize("mode_name", ["phugoid", "short_period"])
+@pytest.mark.parametrize(
+    ("expected_participation", "classified"),
+    [(0.599, False), (0.6, True), (0.601, True)],
+)
+def test_longitudinal_expected_state_participation_boundary(
+    monkeypatch, mode_name, expected_participation, classified
+):
+    phugoid_participation = (0.45, 0.1, 0.1, 0.35)
+    short_period_participation = (0.1, 0.45, 0.35, 0.1)
+    if mode_name == "phugoid":
+        phugoid_participation = (
+            0.31,
+            0.201,
+            0.2,
+            expected_participation - 0.31,
+        )
+    else:
+        short_period_participation = (
+            0.201,
+            0.31,
+            expected_participation - 0.31,
+            0.2,
+        )
+    characterizations = (
+        physical_mode_characterization(
+            1.0, 2.0 * np.pi, ("u",), phugoid_participation, 0.1
+        ),
+        physical_mode_characterization(
+            3.0,
+            2.0 * np.pi / 3.0,
+            ("w",),
+            short_period_participation,
+            0.5,
+        ),
+    )
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LongitudinalModel(**valid_parameters()).physical_mode_identifications()
+    result_by_role = {item.evidence.frequency_role: item for item in result}
+    role = "slowest" if mode_name == "phugoid" else "fastest"
+    other_role = "fastest" if role == "slowest" else "slowest"
+    other_name = "short_period" if mode_name == "phugoid" else "phugoid"
+    candidate = result_by_role[role]
+
+    assert candidate.mode_name == (mode_name if classified else None)
+    assert result_by_role[other_role].mode_name == other_name
+    assert candidate.evidence.expected_state_participation == pytest.approx(
+        expected_participation, abs=1e-12
+    )
+    assert candidate.evidence.dominant_state_consistent is True
+    assert candidate.evidence.frequency_separation_sufficient is True
+    assert candidate.evidence.damping_order_consistent is True
 
 
 @pytest.mark.parametrize(

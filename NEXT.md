@@ -8,11 +8,13 @@ infrastructure and generic modal flight-dynamics interpretation layer. The
 interpretation capability characterizes how physical state indices participate
 in each individual eigenmode and groups real modes and complex-conjugate pairs
 into generic modal families with family-level state-participation summaries.
-The active development stage is now conservative longitudinal physical-mode
-identification: clear short-period and phugoid families can be named from both
-relative frequency scale and longitudinal state participation, while ambiguous
-families remain unclassified. Each family also has a generic dynamic summary
-derived from its canonical member
+Longitudinal and lateral-directional physical-mode identification v1 are both
+complete at their verified conservative baselines. The active development stage
+is now general continuous-time controllability and observability analysis.
+Every `StateSpace` can construct the standard controllability and observability
+matrices, report their numerical ranks, and test full-state controllability and
+observability. Each modal family also has a generic dynamic summary derived from
+its canonical member
 properties and generic physical-input and physical-output influence summaries.
 These verified summaries are available together through one consolidated,
 immutable generic characterization per canonical family.
@@ -27,12 +29,12 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Checkpoint commit
 
-- Message: `feat: consolidate aircraft modal characterization`
+- Message: `feat: add physical mode and structural analysis`
 - Resolve the checkpoint hash from `git rev-parse HEAD` after reading this file.
 
 ## Current verification baseline
 
-- Test count: 390 tests.
+- Test count: 414 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -197,7 +199,8 @@ or EXACT set matching for both inclusions and exclusions.
   the same exact set semantics as inclusion before negating the matched family.
 - `LongitudinalModeIdentification` and
   `LongitudinalModel.physical_mode_identifications()` preserve each interpreted
-  characterization by identity and attach `short_period`, `phugoid`, or `None`.
+  characterization by identity and attach `short_period`, `phugoid`, or `None`,
+  plus immutable decision evidence.
 - Only oscillatory families with finite positive natural frequency and period
   are eligible. The unique fastest and slowest eligible families must have a
   natural-frequency ratio of at least 3. The fast family additionally requires
@@ -205,6 +208,101 @@ or EXACT set matching for both inclusions and exclusions.
   to that set; the slow family analogously requires at least 60% combined
   `u`/`theta` participation. Missing, tied, insufficiently separated, or mixed
   evidence remains unclassified.
+- The tentative fastest/slowest pair must also have finite, strictly positive,
+  subcritical damping ratios, with phugoid damping below short-period damping
+  and both below 1. Numerically equal, reversed, missing, nonfinite, neutral,
+  growing, or
+  non-oscillatory damping evidence leaves both physical names unassigned. This
+  relative guard adds no aircraft-specific damping threshold.
+- `LongitudinalModeEvidence` reports each family's oscillatory status, raw
+  natural frequency, period, and damping ratio, frequency/period eligibility,
+  unique fastest/slowest role, shared separation result, expected-state grouped
+  participation, dominant-state consistency, damping validity, and pairwise
+  damping-order consistency. Nullable fields distinguish facts that were not
+  applicable or evaluated; no replacement evidence is invented.
+- Evidence is computed in the existing classification pass and stored on the
+  backward-compatible `LongitudinalModeIdentification` result. It is immutable,
+  preserves the underlying characterization by identity, and does not change
+  any classification threshold or outcome.
+- Deterministic synthetic `LongitudinalModel` coefficients verify the complete
+  production pipeline from state-space construction and eigendecomposition
+  through modal properties, family state participation, dominant aircraft
+  labels, physical identification, and decision evidence without monkeypatching
+  characterization data.
+- The clear synthetic system produces a fast `w`/`q` short-period family near
+  `4.77 rad/s` and a slow `u`/`theta` phugoid family near `0.832 rad/s`, with
+  consistent damping and participation evidence. A fixed derivative variant
+  preserves clear frequency/state structure but produces contradictory damping
+  evidence, and both families remain unclassified.
+- Longitudinal classification boundary tests verify that the natural-frequency
+  separation guard is inclusive at exactly 3×: ratios `2.999`, `3.0`, and
+  `3.001` respectively reject, classify, and classify both otherwise-clear
+  candidates.
+- The grouped expected-state participation guard is likewise inclusive at
+  exactly 60% for both physical names: values `0.599`, `0.600`, and `0.601`
+  respectively reject, classify, and classify the affected candidate while
+  leaving the other valid candidate unchanged. Evidence reports the tested
+  values and all unchanged damping and dominant-state guards remain satisfied.
+- Longitudinal physical-mode identification v1 is intentionally complete at
+  the 402-test baseline; its APIs, rules, evidence, and verified behavior are
+  frozen while lateral-directional identification develops.
+- `LateralDirectionalModeIdentification` and
+  `LateralDirectionalModel.physical_mode_identifications()` preserve each
+  interpreted characterization by identity and attach `dutch_roll`,
+  `roll_subsidence`, `spiral`, or `None` in canonical family order, plus
+  immutable decision evidence.
+- Dutch roll requires exactly one eligible oscillatory family with decaying
+  stability, finite positive natural frequency and period, subcritical positive
+  damping, at least 60% combined `v`/`r` participation, and all dominant labels
+  confined to `v`/`r`.
+- Roll subsidence and spiral require at least two finite nonneutral real
+  families with unique fastest and slowest absolute real-part rates separated
+  by at least 3×. Roll subsidence is the fast decaying family with at least 60%
+  `p` participation and only `p` dominant. Spiral is the slow family with at
+  least 60% combined `v`/`r`/`phi` participation and no dominant `p` label;
+  either decaying or growing nonneutral spiral behavior is eligible.
+- Multiple eligible oscillatory families, tied real rates, insufficient rate
+  separation, invalid dynamics, or inconsistent state evidence remain
+  unclassified rather than guessed.
+- `LateralDirectionalModeEvidence` reports oscillatory status, stability,
+  oscillatory and real-mode eligibility, raw frequency, period, damping ratio,
+  damping validity, absolute real rate, fastest/slowest role, extreme
+  uniqueness, 3× separation, expected-state grouped participation,
+  dominant-state consistency, and candidate ambiguity. Nullable fields mark
+  evidence that is inapplicable or was not evaluated.
+- Lateral evidence is computed in the existing classification pass, is attached
+  through an optional result field for practical constructor compatibility, and
+  changes no Dutch-roll, roll-subsidence, spiral, or `None` outcome.
+- Deterministic synthetic `LateralDirectionalModel` coefficients verify the
+  complete production pipeline from state-space construction and
+  eigendecomposition through modal properties, family participation, dominant
+  aircraft labels, physical identification, and immutable evidence without
+  monkeypatching characterization data.
+- The clear synthetic lateral system produces a fast real roll-subsidence mode
+  near `-7.37`, a Dutch-roll pair near `-0.996 ± 1.872j`, and a slow real spiral
+  mode near `-0.302`, with strong corresponding `p`, `v`/`r`, and
+  `v`/`r`/`phi` evidence. Changing only the synthetic `l_p` derivative produces
+  two eligible oscillatory families, both explicitly ambiguous and unclassified.
+- Lateral-directional physical-mode identification v1 is intentionally complete
+  at the 406-test baseline. Its APIs, criteria, evidence, and end-to-end
+  behavior are frozen alongside longitudinal v1.
+- `StateSpace.controllability_matrix()` returns the standard continuous-time
+  matrix `[B, A B, ..., A^(n-1) B]` with shape `(n, n*m)`.
+  `controllability_rank()` reports its NumPy numerical matrix rank, and
+  `is_fully_controllable()` tests whether that rank equals the state dimension.
+- `StateSpace.observability_matrix()` returns the standard vertically stacked
+  matrix `[C; C A; ...; C A^(n-1)]` with shape `(n*p, n)`.
+  `observability_rank()` reports its NumPy numerical matrix rank, and
+  `is_fully_observable()` tests whether that rank equals the state dimension.
+- Full-rank and rank-deficient synthetic systems are verified. Existing
+  longitudinal and lateral-directional models use the same generic APIs without
+  changing their equations or modal results; their full-state output matrices
+  remain fully observable.
+- `StateSpace.is_minimal_realization()` returns `True` only when the existing
+  `is_fully_controllable()` and `is_fully_observable()` checks both return
+  `True`. It introduces no new rank calculation, tolerance, or reduction
+  behavior. All four controllability/observability truth-table combinations and
+  both aircraft model conversions are verified.
 - Dominant-label filtering is intentionally paused and complete enough for the
   current stage; all verified inclusion and exclusion APIs remain available.
 - Generic trajectory-extrema analysis and synthetic longitudinal and
@@ -245,7 +343,8 @@ or EXACT set matching for both inclusions and exclusions.
 - Keep physical-mode identification in the aircraft-model layer and derive it
   only from existing immutable modal-family dynamics and state participation.
 - Prefer `None` over a physical-mode guess whenever frequency or state evidence
-  is missing, tied, insufficiently separated, or contradictory.
+  or damping evidence is missing, tied, insufficiently separated, nonfinite,
+  or contradictory.
 - Reuse `eigenvalues()`, `modal_properties()`, participation factors, and the
   existing characterization infrastructure.
 - Do not duplicate eigendecomposition or eigenvector-pairing logic.
@@ -263,8 +362,9 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Do not classify Dutch roll, roll subsidence, or spiral modes.
 - Do not add other aircraft-specific mode names yet.
+- Do not change longitudinal or lateral-directional physical-mode identification
+  v1 without a demonstrated inconsistency.
 - Do not expand dominant-label filtering during the physical-identification
   stage unless identification requires it.
 - Do not add real aircraft data or controllers.
@@ -274,29 +374,29 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Longitudinal damping-evidence guard
+### Stabilizability check
 
-Add a conservative damping-evidence guard to longitudinal short-period and
-phugoid identification using the existing family damping ratio. Contradictory
-or insufficient damping evidence must remove a tentative name rather than force
-classification. Do not classify lateral-directional modes yet.
+Add a generic continuous-time stabilizability check for existing `StateSpace`
+realizations. Preserve all controllability, observability, minimality, modal,
+and physical-mode behavior. Do not add controllers yet.
 
 ## Suggested implementation direction
 
-- Use only the existing immutable `ModalFamilyDynamicSummary.damping_ratio`.
-- Choose and document a minimal conservative rule before implementation.
-- Preserve the current frequency-separation and state-participation guards.
-- Preserve canonical ordering and object identity in every filtered result.
+- Use the standard PBH rank condition on eigenvalues whose real part is
+  nonnegative.
+- Fully controllable systems must be stabilizable; uncontrollable systems are
+  stabilizable only when every uncontrollable mode is strictly stable.
+- Document and test the numerical rank convention used.
+- Preserve all existing state-space and modal results unchanged.
 - Preserve all dominant-label inclusion and exclusion APIs unchanged.
-- Add no additional aircraft-mode names or unrelated heuristics.
+- Preserve longitudinal identification and evidence APIs unchanged.
 
 ## Focused tests to add
 
-- Clear synthetic short-period and phugoid cases retain their names when damping
-  evidence agrees.
-- A frequency/state candidate with contradictory or missing damping evidence
-  remains unclassified.
-- Lateral-directional families remain free of physical-mode classification.
+- A fully controllable realization returns `True`.
+- A stable uncontrollable mode is permitted, while a marginal or unstable
+  uncontrollable mode returns `False`.
+- Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 
 ## Commands that must pass

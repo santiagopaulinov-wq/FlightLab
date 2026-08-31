@@ -16,6 +16,23 @@ class LongitudinalModeIdentification(NamedTuple):
 
     characterization: AircraftModalFamilyCharacterization
     mode_name: str | None
+    evidence: "LongitudinalModeEvidence | None" = None
+
+
+class LongitudinalModeEvidence(NamedTuple):
+    """Immutable facts used for one longitudinal physical-mode decision."""
+
+    is_oscillatory: bool
+    natural_frequency: float | None
+    period: float | None
+    frequency_period_eligible: bool
+    frequency_role: str | None
+    frequency_separation_sufficient: bool | None
+    expected_state_participation: float | None
+    dominant_state_consistent: bool | None
+    damping_ratio: float | None
+    damping_ratio_valid: bool
+    damping_order_consistent: bool | None
 
 
 @dataclass(frozen=True)
@@ -119,11 +136,13 @@ class LongitudinalModel:
         """Identify clear short-period and phugoid families conservatively."""
         characterizations = self.modal_family_characterizations()
         eligible = []
+        evidence_values = []
         for index, characterization in enumerate(characterizations):
             dynamics = characterization.characterization.dynamics
             frequency = dynamics.natural_frequency
             period = dynamics.period
-            if (
+            damping = dynamics.damping_ratio
+            frequency_period_eligible = bool(
                 dynamics.is_oscillatory
                 and frequency is not None
                 and period is not None
@@ -131,56 +150,110 @@ class LongitudinalModel:
                 and np.isfinite(period)
                 and frequency > 0.0
                 and period > 0.0
-            ):
+            )
+            damping_ratio_valid = bool(
+                damping is not None
+                and np.isfinite(damping)
+                and 0.0 < damping < 1.0
+            )
+            evidence_values.append(
+                {
+                    "is_oscillatory": dynamics.is_oscillatory,
+                    "natural_frequency": frequency,
+                    "period": period,
+                    "frequency_period_eligible": frequency_period_eligible,
+                    "frequency_role": None,
+                    "frequency_separation_sufficient": None,
+                    "expected_state_participation": None,
+                    "dominant_state_consistent": None,
+                    "damping_ratio": damping,
+                    "damping_ratio_valid": damping_ratio_valid,
+                    "damping_order_consistent": None,
+                }
+            )
+            if frequency_period_eligible:
                 eligible.append((index, float(frequency)))
 
         names = [None] * len(characterizations)
-        if len(eligible) < 2:
-            return tuple(
-                LongitudinalModeIdentification(characterization, mode_name)
-                for characterization, mode_name in zip(
-                    characterizations, names, strict=True
-                )
-            )
-
-        frequencies = np.asarray([frequency for _, frequency in eligible])
-        slow_position = int(np.argmin(frequencies))
-        fast_position = int(np.argmax(frequencies))
-        slow_frequency = frequencies[slow_position]
-        fast_frequency = frequencies[fast_position]
-        unique_slow = np.count_nonzero(
-            np.isclose(frequencies, slow_frequency, rtol=1e-7, atol=1e-12)
-        ) == 1
-        unique_fast = np.count_nonzero(
-            np.isclose(frequencies, fast_frequency, rtol=1e-7, atol=1e-12)
-        ) == 1
-
-        if unique_slow and unique_fast and fast_frequency / slow_frequency >= 3.0:
+        if len(eligible) >= 2:
+            frequencies = np.asarray([frequency for _, frequency in eligible])
+            slow_position = int(np.argmin(frequencies))
+            fast_position = int(np.argmax(frequencies))
+            slow_frequency = frequencies[slow_position]
+            fast_frequency = frequencies[fast_position]
+            unique_slow = np.count_nonzero(
+                np.isclose(frequencies, slow_frequency, rtol=1e-7, atol=1e-12)
+            ) == 1
+            unique_fast = np.count_nonzero(
+                np.isclose(frequencies, fast_frequency, rtol=1e-7, atol=1e-12)
+            ) == 1
             slow_index = eligible[slow_position][0]
             fast_index = eligible[fast_position][0]
+            separation_sufficient = bool(
+                unique_slow
+                and unique_fast
+                and fast_frequency / slow_frequency >= 3.0
+            )
+            for index, _ in eligible:
+                evidence_values[index]["frequency_separation_sufficient"] = (
+                    separation_sufficient
+                )
+            if unique_slow:
+                evidence_values[slow_index]["frequency_role"] = "slowest"
+            if unique_fast:
+                evidence_values[fast_index]["frequency_role"] = "fastest"
 
-            def has_state_evidence(index, expected_labels):
+            if separation_sufficient:
+                slow_damping = evidence_values[slow_index]["damping_ratio"]
+                fast_damping = evidence_values[fast_index]["damping_ratio"]
+                damping_evidence = (
+                    evidence_values[slow_index]["damping_ratio_valid"]
+                    and evidence_values[fast_index]["damping_ratio_valid"]
+                    and slow_damping < fast_damping
+                    and not np.isclose(
+                        slow_damping, fast_damping, rtol=1e-7, atol=1e-12
+                    )
+                )
+                damping_evidence = bool(damping_evidence)
+                evidence_values[slow_index]["damping_order_consistent"] = (
+                    damping_evidence
+                )
+                evidence_values[fast_index]["damping_order_consistent"] = (
+                    damping_evidence
+                )
+
+            def state_evidence(index, expected_labels):
                 characterization = characterizations[index]
                 dominant = set(characterization.dominant_state_labels)
                 participation = dict(characterization.state_participation_by_label)
                 expected_participation = sum(
                     participation[label] for label in expected_labels
                 )
-                return (
-                    bool(dominant)
-                    and dominant <= expected_labels
-                    and expected_participation >= 0.6
+                dominant_consistent = bool(dominant) and dominant <= expected_labels
+                evidence_values[index]["expected_state_participation"] = (
+                    expected_participation
                 )
+                evidence_values[index]["dominant_state_consistent"] = (
+                    dominant_consistent
+                )
+                return dominant_consistent and expected_participation >= 0.6
 
-            if has_state_evidence(slow_index, {"u", "theta"}):
-                names[slow_index] = "phugoid"
-            if has_state_evidence(fast_index, {"w", "q"}):
-                names[fast_index] = "short_period"
+            if separation_sufficient:
+                slow_state_evidence = state_evidence(slow_index, {"u", "theta"})
+                fast_state_evidence = state_evidence(fast_index, {"w", "q"})
+                if damping_evidence and slow_state_evidence:
+                    names[slow_index] = "phugoid"
+                if damping_evidence and fast_state_evidence:
+                    names[fast_index] = "short_period"
 
         return tuple(
-            LongitudinalModeIdentification(characterization, mode_name)
-            for characterization, mode_name in zip(
-                characterizations, names, strict=True
+            LongitudinalModeIdentification(
+                characterization,
+                mode_name,
+                LongitudinalModeEvidence(**evidence),
+            )
+            for characterization, mode_name, evidence in zip(
+                characterizations, names, evidence_values, strict=True
             )
         )
 

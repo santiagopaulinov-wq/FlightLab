@@ -3,7 +3,11 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from flightlab.lateral_directional import LateralDirectionalModel
+from flightlab.lateral_directional import (
+    LateralDirectionalModeEvidence,
+    LateralDirectionalModeIdentification,
+    LateralDirectionalModel,
+)
 from flightlab.state_space import StateSpace
 
 
@@ -81,6 +85,60 @@ def filtered_characterization(
         dominant_state_labels=states,
         dominant_input_labels=inputs,
         dominant_output_labels=outputs,
+    )
+
+
+def physical_mode_characterization(
+    *,
+    oscillatory,
+    stability,
+    real_part,
+    time_constant,
+    dominant_states,
+    participation,
+    natural_frequency=None,
+    damping_ratio=None,
+    period=None,
+):
+    return SimpleNamespace(
+        characterization=SimpleNamespace(
+            dynamics=SimpleNamespace(
+                is_oscillatory=oscillatory,
+                stability=stability,
+                real_part=real_part,
+                time_constant=time_constant,
+                natural_frequency=natural_frequency,
+                damping_ratio=damping_ratio,
+                period=period,
+            )
+        ),
+        dominant_state_labels=dominant_states,
+        state_participation_by_label=tuple(
+            zip(LateralDirectionalModel.STATE_ORDER, participation, strict=True)
+        ),
+    )
+
+
+def synthetic_physical_mode_model(l_p=-7.517):
+    return LateralDirectionalModel(
+        trim_speed=10.0,
+        trim_pitch=0.0,
+        gravity=9.81,
+        y_v=-1.132,
+        y_p=-0.978,
+        y_r=-2.067,
+        y_delta_a=0.0,
+        y_delta_r=0.0,
+        l_v=-0.271,
+        l_p=l_p,
+        l_r=-2.335,
+        l_delta_a=0.0,
+        l_delta_r=0.0,
+        n_v=0.319,
+        n_p=0.491,
+        n_r=-1.012,
+        n_delta_a=0.0,
+        n_delta_r=0.0,
     )
 
 
@@ -166,7 +224,249 @@ def test_lateral_directional_model_builds_expected_state_space_matrices():
             eigenvalue * scaled_left.conj().T,
         )
     assert isinstance(system.is_asymptotically_stable(), bool)
+    assert system.controllability_matrix().shape == (4, 8)
+    assert system.observability_matrix().shape == (16, 4)
+    assert system.is_fully_controllable() is (
+        system.controllability_rank() == system.n_states
+    )
+    assert system.is_fully_observable() is True
+    assert system.is_minimal_realization() is (
+        system.is_fully_controllable() and system.is_fully_observable()
+    )
     assert system.rk4_step(np.zeros(4), np.zeros(2), 0.01).shape == (4,)
+
+
+def test_lateral_identifies_clear_dutch_roll_roll_and_spiral_modes(monkeypatch):
+    dutch_roll = physical_mode_characterization(
+        oscillatory=True,
+        stability="decaying",
+        real_part=-0.6,
+        time_constant=5.0 / 3.0,
+        natural_frequency=2.0,
+        damping_ratio=0.3,
+        period=np.pi,
+        dominant_states=("r",),
+        participation=(0.35, 0.05, 0.55, 0.05),
+    )
+    roll = physical_mode_characterization(
+        oscillatory=False,
+        stability="decaying",
+        real_part=-3.0,
+        time_constant=1.0 / 3.0,
+        dominant_states=("p",),
+        participation=(0.05, 0.8, 0.1, 0.05),
+    )
+    spiral = physical_mode_characterization(
+        oscillatory=False,
+        stability="decaying",
+        real_part=-0.1,
+        time_constant=10.0,
+        dominant_states=("phi",),
+        participation=(0.1, 0.1, 0.1, 0.7),
+    )
+    characterizations = (dutch_roll, roll, spiral)
+    monkeypatch.setattr(
+        LateralDirectionalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LateralDirectionalModel(
+        **valid_parameters()
+    ).physical_mode_identifications()
+
+    assert all(
+        isinstance(item, LateralDirectionalModeIdentification) for item in result
+    )
+    assert tuple(item.characterization for item in result) == characterizations
+    assert tuple(item.mode_name for item in result) == (
+        "dutch_roll",
+        "roll_subsidence",
+        "spiral",
+    )
+    assert all(
+        item.characterization is expected
+        for item, expected in zip(result, characterizations, strict=True)
+    )
+    dutch_roll_evidence = result[0].evidence
+    roll_evidence = result[1].evidence
+    spiral_evidence = result[2].evidence
+    assert isinstance(dutch_roll_evidence, LateralDirectionalModeEvidence)
+    assert dutch_roll_evidence.is_oscillatory is True
+    assert dutch_roll_evidence.oscillatory_eligible is True
+    assert dutch_roll_evidence.real_mode_eligible is False
+    assert dutch_roll_evidence.natural_frequency == pytest.approx(2.0)
+    assert dutch_roll_evidence.period == pytest.approx(np.pi)
+    assert dutch_roll_evidence.damping_ratio_valid is True
+    assert dutch_roll_evidence.expected_state_participation == pytest.approx(0.9)
+    assert dutch_roll_evidence.dominant_state_consistent is True
+    assert dutch_roll_evidence.candidate_ambiguous is False
+    assert isinstance(roll_evidence, LateralDirectionalModeEvidence)
+    assert roll_evidence.is_oscillatory is False
+    assert roll_evidence.real_mode_eligible is True
+    assert roll_evidence.real_rate == pytest.approx(3.0)
+    assert roll_evidence.real_rate_role == "fastest"
+    assert roll_evidence.real_rate_extreme_unique is True
+    assert roll_evidence.real_rate_separation_sufficient is True
+    assert roll_evidence.expected_state_participation == pytest.approx(0.8)
+    assert roll_evidence.dominant_state_consistent is True
+    assert roll_evidence.candidate_ambiguous is False
+    assert isinstance(spiral_evidence, LateralDirectionalModeEvidence)
+    assert spiral_evidence.real_rate == pytest.approx(0.1)
+    assert spiral_evidence.real_rate_role == "slowest"
+    assert spiral_evidence.real_rate_extreme_unique is True
+    assert spiral_evidence.real_rate_separation_sufficient is True
+    assert spiral_evidence.expected_state_participation == pytest.approx(0.9)
+    assert spiral_evidence.dominant_state_consistent is True
+    assert spiral_evidence.candidate_ambiguous is False
+
+    with pytest.raises(AttributeError):
+        spiral_evidence.real_rate_role = "fastest"
+
+
+def test_lateral_leaves_tied_and_nonunique_candidates_unclassified(monkeypatch):
+    characterizations = (
+        physical_mode_characterization(
+            oscillatory=True,
+            stability="decaying",
+            real_part=-0.6,
+            time_constant=5.0 / 3.0,
+            natural_frequency=2.0,
+            damping_ratio=0.3,
+            period=np.pi,
+            dominant_states=("r",),
+            participation=(0.35, 0.05, 0.55, 0.05),
+        ),
+        physical_mode_characterization(
+            oscillatory=True,
+            stability="decaying",
+            real_part=-0.8,
+            time_constant=1.25,
+            natural_frequency=3.0,
+            damping_ratio=0.25,
+            period=2.0 * np.pi / 3.0,
+            dominant_states=("v",),
+            participation=(0.6, 0.05, 0.3, 0.05),
+        ),
+        physical_mode_characterization(
+            oscillatory=False,
+            stability="decaying",
+            real_part=-1.0,
+            time_constant=1.0,
+            dominant_states=("p",),
+            participation=(0.05, 0.8, 0.1, 0.05),
+        ),
+        physical_mode_characterization(
+            oscillatory=False,
+            stability="decaying",
+            real_part=-1.0,
+            time_constant=1.0,
+            dominant_states=("phi",),
+            participation=(0.1, 0.1, 0.1, 0.7),
+        ),
+    )
+    monkeypatch.setattr(
+        LateralDirectionalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LateralDirectionalModel(
+        **valid_parameters()
+    ).physical_mode_identifications()
+
+    assert tuple(item.mode_name for item in result) == (None, None, None, None)
+    assert all(
+        item.evidence.candidate_ambiguous is True for item in result
+    )
+    assert all(
+        item.evidence.oscillatory_eligible is True for item in result[:2]
+    )
+    assert all(item.evidence.real_mode_eligible is True for item in result[2:])
+    assert all(item.evidence.real_rate_role is None for item in result[2:])
+    assert all(
+        item.evidence.real_rate_extreme_unique is False for item in result[2:]
+    )
+    assert all(
+        item.evidence.real_rate_separation_sufficient is False
+        for item in result[2:]
+    )
+
+
+def test_lateral_identifies_physical_modes_through_real_pipeline():
+    model = synthetic_physical_mode_model()
+    system = model.to_state_space()
+
+    eigenvalues = system.eigenvalues()
+    modal_properties = system.modal_properties()
+    identifications = model.physical_mode_identifications()
+
+    np.testing.assert_allclose(
+        [properties.eigenvalue for properties in modal_properties], eigenvalues
+    )
+    np.testing.assert_allclose(
+        [
+            member.eigenvalue
+            for identification in identifications
+            for member in identification.characterization.characterization.family.members
+        ],
+        eigenvalues,
+    )
+    assert tuple(item.mode_name for item in identifications) == (
+        "roll_subsidence",
+        "dutch_roll",
+        "spiral",
+    )
+
+    expected_labels = {
+        "dutch_roll": {"v", "r"},
+        "roll_subsidence": {"p"},
+        "spiral": {"v", "r", "phi"},
+    }
+    for identification in identifications:
+        characterization = identification.characterization
+        dynamics = characterization.characterization.dynamics
+        evidence = identification.evidence
+        participation = dict(characterization.state_participation_by_label)
+
+        assert evidence.is_oscillatory is dynamics.is_oscillatory
+        assert evidence.stability == dynamics.stability
+        assert evidence.expected_state_participation == pytest.approx(
+            sum(
+                participation[label]
+                for label in expected_labels[identification.mode_name]
+            )
+        )
+        assert evidence.dominant_state_consistent is True
+        assert evidence.candidate_ambiguous is False
+        if identification.mode_name == "dutch_roll":
+            assert evidence.natural_frequency == pytest.approx(
+                dynamics.natural_frequency
+            )
+            assert evidence.period == pytest.approx(dynamics.period)
+            assert evidence.damping_ratio == pytest.approx(dynamics.damping_ratio)
+            assert evidence.oscillatory_eligible is True
+            assert evidence.damping_ratio_valid is True
+        else:
+            assert evidence.real_rate == pytest.approx(abs(dynamics.real_part))
+            assert evidence.real_mode_eligible is True
+            assert evidence.real_rate_extreme_unique is True
+            assert evidence.real_rate_separation_sufficient is True
+
+
+def test_lateral_real_pipeline_leaves_nonunique_oscillations_unclassified():
+    model = synthetic_physical_mode_model(l_p=-3.0)
+
+    identifications = model.physical_mode_identifications()
+
+    assert tuple(item.mode_name for item in identifications) == (None, None)
+    assert all(item.evidence.is_oscillatory is True for item in identifications)
+    assert all(
+        item.evidence.oscillatory_eligible is True for item in identifications
+    )
+    assert all(
+        item.evidence.candidate_ambiguous is True for item in identifications
+    )
 
 
 def test_lateral_directional_model_declares_state_input_and_output_ordering():

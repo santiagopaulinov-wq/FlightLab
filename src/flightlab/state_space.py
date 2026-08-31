@@ -523,6 +523,50 @@ class StateSpace:
         """Return the eigenvalues of the continuous-time system matrix."""
         return np.linalg.eigvals(self.A)
 
+    def controllability_matrix(self):
+        """Return ``[B, A B, ..., A^(n-1) B]`` for the continuous-time system."""
+        blocks = []
+        block = self.B
+        for _ in range(self.n_states):
+            blocks.append(block)
+            block = self.A @ block
+        if not blocks:
+            return np.empty((0, 0), dtype=float)
+        return np.hstack(blocks)
+
+    def controllability_rank(self):
+        """Return the numerical rank of the controllability matrix."""
+        matrix = self.controllability_matrix()
+        return 0 if matrix.size == 0 else int(np.linalg.matrix_rank(matrix))
+
+    def is_fully_controllable(self):
+        """Return whether the controllability matrix has full state rank."""
+        return self.controllability_rank() == self.n_states
+
+    def observability_matrix(self):
+        """Return ``[C; C A; ...; C A^(n-1)]`` for the continuous-time system."""
+        blocks = []
+        block = self.C
+        for _ in range(self.n_states):
+            blocks.append(block)
+            block = block @ self.A
+        if not blocks:
+            return np.empty((0, 0), dtype=float)
+        return np.vstack(blocks)
+
+    def observability_rank(self):
+        """Return the numerical rank of the observability matrix."""
+        matrix = self.observability_matrix()
+        return 0 if matrix.size == 0 else int(np.linalg.matrix_rank(matrix))
+
+    def is_fully_observable(self):
+        """Return whether the observability matrix has full state rank."""
+        return self.observability_rank() == self.n_states
+
+    def is_minimal_realization(self):
+        """Return whether the realization is controllable and observable."""
+        return self.is_fully_controllable() and self.is_fully_observable()
+
     def right_eigenvectors(self):
         """Return normalized right eigenvectors as columns.
 
