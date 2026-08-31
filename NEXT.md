@@ -21,10 +21,12 @@ its canonical member
 properties and generic physical-input and physical-output influence summaries.
 These verified summaries are available together through one consolidated,
 immutable generic characterization per canonical family.
-The aircraft-model layer can interpret dominant generic state indices using
-each model's established physical state labels without changing generic modal
-results, and likewise interprets dominant input and output indices using the
-models' established channel ordering.
+Stable minimal realizations can also be transformed into full-order balanced
+coordinates, with no state truncation, through a real transformation using the
+convention `x = T z`. The aircraft-model layer can interpret dominant generic
+state indices using each model's established physical state labels without
+changing generic modal results, and likewise interprets dominant input and
+output indices using the models' established channel ordering.
 Both aircraft models can filter these immutable interpreted families by their
 existing oscillatory status, mathematical stability, and exact dominant
 state/input/output labels, with configurable global or per-category ANY, ALL,
@@ -33,14 +35,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `7fe310e46733c198a7819dbe8b4371e5600dade7`
-- Pre-checkpoint message: `docs: checkpoint Gramian foundation`
-- The current checkpoint verifies structural consistency between Hankel
-  singular values and the existing controllability and observability ranks.
+  `d58e32857f64ea480b2ac4723b8d869e7cfafe7e`
+- Pre-checkpoint message: `test: verify Hankel structural consistency`
+- The current checkpoint adds a full-order continuous-time balanced-coordinate
+  transformation for stable minimal realizations.
 
 ## Current verification baseline
 
-- Test count: 490 tests.
+- Test count: 499 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -59,6 +61,19 @@ or EXACT set matching for both inclusions and exclusions.
 - Stable unreachable and unobservable directions are verified to produce the
   expected zero-value multiplicity, including distinct deficient directions;
   stable minimal realizations are verified to have only positive values.
+- `StateSpace.balanced_realization()` returns an immutable
+  `BalancedRealization` containing the full-order balanced `StateSpace` and the
+  real nonsingular transformation `T` for `x = T z`; original states map to
+  balanced states with `solve(T, x)`.
+- Balanced matrices follow `A_bal = T^-1 A T`, `B_bal = T^-1 B`,
+  `C_bal = C T`, and `D_bal = D`. The balanced controllability and observability
+  Gramians are equal and diagonal, with their shared descending diagonal equal
+  to the existing Hankel singular values up to floating-point roundoff.
+- Balancing uses NumPy-only Cholesky Gramian factors and an SVD of their cross
+  product. It requires asymptotic stability and the existing minimal-
+  realization check, preserves full state dimension, and performs no
+  truncation. Nonfinite, non-positive-definite, and epsilon-threshold singular
+  factorization or transformation results raise clear `ValueError`s.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -478,20 +493,20 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Stable minimal balanced-coordinate transformation
+### Stable balanced truncation with explicit retained order
 
-Add a general balanced-coordinate transformation for asymptotically stable
-minimal `StateSpace` systems, without truncating any states. Preserve all
-current APIs and add no dependencies.
+Add opt-in model reduction from the verified full-order balanced realization by
+retaining an explicitly requested number of leading balanced states. Preserve
+the existing full-order API and add no automatic order selection.
 
 ## Suggested implementation direction
 
-- Derive a real nonsingular state transformation from the verified positive
-  definite Gramian pair.
-- Return a full-order equivalent realization whose controllability and
-  observability Gramians are both diagonal and equal to the existing Hankel
-  singular values.
-- Reject nonstable or nonminimal systems clearly; do not add truncation yet.
+- Build only on the verified balanced-coordinate result and preserve its
+  descending Hankel ordering.
+- Require an integer retained order strictly between zero and the original
+  state count; keep full-order coordinate transformation separate.
+- Return the reduced realization plus the retained projection/reconstruction
+  maps, with explicit coordinate conventions and clear validation errors.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -500,8 +515,9 @@ current APIs and add no dependencies.
 
 ## Focused tests to add
 
-- Verify input-output equivalence, equal diagonal balanced Gramians, Hankel
-  singular value preservation, and clear stability/minimality rejection.
+- Verify matrix partitioning, dimensions, retained coordinate maps, stability,
+  and deterministic low-frequency/step-response approximation on explicit
+  stable systems with separated Hankel singular values.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 

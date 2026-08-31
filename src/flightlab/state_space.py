@@ -246,6 +246,19 @@ class NonstablePBHDiagnostic(NamedTuple):
     observability_failed: bool
 
 
+class BalancedRealization(NamedTuple):
+    """Full-order balanced system and its original-coordinate transformation.
+
+    ``transformation`` is the real nonsingular matrix ``T`` in ``x = T @ z``,
+    where ``x`` is the original state and ``z`` is the balanced state. Thus
+    ``z = np.linalg.solve(T, x)`` maps an original state into balanced
+    coordinates. No states are truncated.
+    """
+
+    system: "StateSpace"
+    transformation: np.ndarray
+
+
 class ModalStateSpace(NamedTuple):
     """System matrices expressed in biorthogonal modal coordinates."""
 
@@ -702,6 +715,105 @@ class StateSpace:
             np.linalg.eigvalsh(squared_values_matrix)
         )
         return np.sqrt(squared_values)[::-1]
+
+    def balanced_realization(self):
+        """Return the full-order balanced realization and transformation.
+
+        The returned :class:`BalancedRealization` uses ``x = T @ z``. Its
+        system matrices are ``solve(T, A @ T)``, ``solve(T, B)``, ``C @ T``,
+        and an unchanged ``D``. For an asymptotically stable minimal system,
+        both balanced infinite-horizon Gramians equal the diagonal matrix of
+        descending Hankel singular values up to floating-point roundoff.
+
+        Cholesky factors of the existing Gramians and an SVD of their cross
+        product are used. A ``ValueError`` is raised for a nonstable or
+        nonminimal realization, or when the Gramians, Hankel values, or
+        resulting transformation are nonfinite, not numerically positive
+        definite, or numerically singular under an epsilon-scaled threshold.
+        This method changes coordinates only and performs no model reduction.
+        """
+        if not self.is_asymptotically_stable():
+            raise ValueError(
+                "balanced realization requires an asymptotically stable system"
+            )
+        if not self.is_minimal_realization():
+            raise ValueError("balanced realization requires a minimal realization")
+
+        controllability_gramian = self.controllability_gramian()
+        observability_gramian = self.observability_gramian()
+        try:
+            controllability_factor = np.linalg.cholesky(controllability_gramian)
+            observability_factor = np.linalg.cholesky(observability_gramian)
+            left_vectors, singular_values, right_vectors_transposed = np.linalg.svd(
+                observability_factor.T @ controllability_factor
+            )
+        except np.linalg.LinAlgError as error:
+            raise ValueError(
+                "balanced realization requires numerically positive-definite "
+                "Gramian factors"
+            ) from error
+
+        if not all(
+            np.all(np.isfinite(values))
+            for values in (
+                controllability_factor,
+                observability_factor,
+                left_vectors,
+                singular_values,
+                right_vectors_transposed,
+            )
+        ):
+            raise ValueError(
+                "balanced realization Gramian factorization produced invalid values"
+            )
+
+        scale = float(np.max(singular_values, initial=0.0))
+        singular_tolerance = (
+            np.finfo(float).eps * max(1, self.n_states) * scale
+        )
+        if np.any(singular_values <= singular_tolerance):
+            raise ValueError(
+                "balanced realization Gramian factors are numerically singular"
+            )
+
+        inverse_sqrt_values = 1.0 / np.sqrt(singular_values)
+        transformation = (
+            controllability_factor
+            @ right_vectors_transposed.T
+            @ np.diag(inverse_sqrt_values)
+        )
+        inverse_transformation = (
+            np.diag(inverse_sqrt_values)
+            @ left_vectors.T
+            @ observability_factor.T
+        )
+        inverse_residual = inverse_transformation @ transformation - np.eye(
+            self.n_states
+        )
+        residual_tolerance = 100.0 * np.finfo(float).eps * max(1, self.n_states)
+        if (
+            not np.all(np.isfinite(transformation))
+            or np.linalg.matrix_rank(transformation) < self.n_states
+            or not np.allclose(
+                inverse_residual, 0.0, rtol=0.0, atol=residual_tolerance
+            )
+        ):
+            raise ValueError(
+                "balanced realization state transformation is numerically singular"
+            )
+
+        try:
+            balanced_system = StateSpace(
+                np.linalg.solve(transformation, self.A @ transformation),
+                np.linalg.solve(transformation, self.B),
+                self.C @ transformation,
+                self.D.copy(),
+            )
+        except np.linalg.LinAlgError as error:
+            raise ValueError(
+                "balanced realization state transformation is numerically singular"
+            ) from error
+        return BalancedRealization(balanced_system, transformation)
 
     def is_detectable(self):
         """Return whether every nonstable mode satisfies the PBH rank test.

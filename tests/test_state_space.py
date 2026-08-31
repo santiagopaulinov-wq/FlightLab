@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from flightlab.state_space import (
+    BalancedRealization,
     ModalFamily,
     ModalProperties,
     ModalStateCharacterization,
@@ -17,6 +18,15 @@ def valid_matrices():
         np.array([[0], [1]]),
         np.array([[1, 0]]),
         np.array([[0]]),
+    )
+
+
+def stable_minimal_balancing_matrices():
+    return (
+        np.array([[-2.0, 1.0], [-1.0, -3.0]]),
+        np.array([[1.0, 0.5], [0.25, 1.0]]),
+        np.array([[1.0, 0.2], [-0.4, 1.0]]),
+        np.array([[0.1, 0.0], [0.0, -0.2]]),
     )
 
 
@@ -420,6 +430,147 @@ def test_stable_minimal_realization_has_strictly_positive_hankel_values():
     assert system.is_minimal_realization() is True
     assert np.all(values > 0.0)
     np.testing.assert_allclose(values, [0.5, 0.25, 1.0 / 6.0])
+
+
+def test_stable_minimal_system_produces_full_order_balanced_realization():
+    system = StateSpace(*stable_minimal_balancing_matrices())
+
+    result = system.balanced_realization()
+
+    assert isinstance(result, BalancedRealization)
+    assert isinstance(result.system, StateSpace)
+    assert result.transformation.shape == (system.n_states, system.n_states)
+    assert np.linalg.matrix_rank(result.transformation) == system.n_states
+    assert all(
+        np.isrealobj(matrix)
+        for matrix in (
+            result.transformation,
+            result.system.A,
+            result.system.B,
+            result.system.C,
+            result.system.D,
+        )
+    )
+
+
+def test_balanced_realization_follows_x_equals_transformation_z_convention():
+    system = StateSpace(*stable_minimal_balancing_matrices())
+
+    balanced, transformation = system.balanced_realization()
+
+    np.testing.assert_allclose(
+        balanced.A, np.linalg.solve(transformation, system.A @ transformation)
+    )
+    np.testing.assert_allclose(
+        balanced.B, np.linalg.solve(transformation, system.B)
+    )
+    np.testing.assert_allclose(balanced.C, system.C @ transformation)
+    np.testing.assert_array_equal(balanced.D, system.D)
+
+
+def test_balanced_realization_preserves_input_output_behavior():
+    system = StateSpace(*stable_minimal_balancing_matrices())
+    balanced, transformation = system.balanced_realization()
+    original_initial_state = np.array([0.7, -0.3])
+    balanced_initial_state = np.linalg.solve(
+        transformation, original_initial_state
+    )
+    time = np.array([0.0, 0.07, 0.19, 0.34, 0.58])
+    inputs = np.array(
+        [[0.2, -0.1], [0.0, 0.3], [-0.4, 0.2], [0.1, 0.0], [0.5, -0.2]]
+    )
+
+    original_states, original_outputs = system.simulate(
+        original_initial_state, inputs, time, method="exact"
+    )
+    balanced_states, balanced_outputs = balanced.simulate(
+        balanced_initial_state, inputs, time, method="exact"
+    )
+
+    np.testing.assert_allclose(
+        balanced_states @ transformation.T,
+        original_states,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        balanced_outputs, original_outputs, rtol=1e-12, atol=1e-12
+    )
+
+
+def test_balanced_gramians_equal_diagonal_hankel_singular_values():
+    system = StateSpace(*stable_minimal_balancing_matrices())
+    balanced = system.balanced_realization().system
+    expected = np.diag(system.hankel_singular_values())
+
+    controllability_gramian = balanced.controllability_gramian()
+    observability_gramian = balanced.observability_gramian()
+
+    np.testing.assert_allclose(
+        controllability_gramian, observability_gramian, rtol=1e-12, atol=1e-12
+    )
+    np.testing.assert_allclose(
+        controllability_gramian, expected, rtol=1e-12, atol=1e-12
+    )
+    np.testing.assert_allclose(
+        balanced.hankel_singular_values(),
+        system.hankel_singular_values(),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_balanced_realization_preserves_dimensions_and_eigenvalues():
+    system = StateSpace(*stable_minimal_balancing_matrices())
+    balanced = system.balanced_realization().system
+
+    assert balanced.n_states == system.n_states
+    assert balanced.n_inputs == system.n_inputs
+    assert balanced.n_outputs == system.n_outputs
+    np.testing.assert_allclose(
+        np.sort_complex(balanced.eigenvalues()),
+        np.sort_complex(system.eigenvalues()),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_balanced_realization_rejects_nonstable_system():
+    system = StateSpace(
+        np.diag([-1.0, 0.0]), np.eye(2), np.eye(2), np.zeros((2, 2))
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="balanced realization requires an asymptotically stable system",
+    ):
+        system.balanced_realization()
+
+
+@pytest.mark.parametrize("deficiency", ["unreachable", "unobservable"])
+def test_balanced_realization_rejects_nonminimal_system(deficiency):
+    B = [[1.0], [0.0]] if deficiency == "unreachable" else [[1.0], [1.0]]
+    C = [[1.0, 1.0]] if deficiency == "unreachable" else [[1.0, 0.0]]
+    system = StateSpace(np.diag([-1.0, -2.0]), B, C, np.zeros((1, 1)))
+
+    assert system.is_minimal_realization() is False
+    with pytest.raises(
+        ValueError, match="balanced realization requires a minimal realization"
+    ):
+        system.balanced_realization()
+
+
+def test_balanced_realization_rejects_singular_gramian_factor(monkeypatch):
+    system = StateSpace(*stable_minimal_balancing_matrices())
+    monkeypatch.setattr(
+        system, "controllability_gramian", lambda: np.diag([1.0, 0.0])
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="requires numerically positive-definite Gramian factors",
+    ):
+        system.balanced_realization()
 
 
 def test_fully_observable_unstable_system_is_detectable():
