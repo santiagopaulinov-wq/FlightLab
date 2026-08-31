@@ -443,6 +443,25 @@ def test_nonstable_pbh_diagnostics_preserve_repeated_eigenvalue_multiplicity():
     np.testing.assert_array_equal(eigenvalues, [2.0, 2.0, -1.0])
 
 
+def test_nonstable_pbh_diagnostics_preserve_defective_eigenvalue_multiplicity():
+    system = StateSpace(
+        [[2.0, 1.0], [0.0, 2.0]],
+        np.zeros((2, 1)),
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    eigenvalues = system.eigenvalues()
+    diagnostics = system.nonstable_pbh_diagnostics()
+
+    np.testing.assert_array_equal(eigenvalues, [2.0, 2.0])
+    assert np.linalg.matrix_rank(system.A - eigenvalues[0] * np.eye(2)) == 1
+    assert diagnostics == tuple(
+        NonstablePBHDiagnostic(eigenvalue, True, False)
+        for eigenvalue in eigenvalues
+    )
+
+
 def test_eigenvalues_and_asymptotic_stability_for_stable_system():
     system = StateSpace(*valid_matrices())
 
