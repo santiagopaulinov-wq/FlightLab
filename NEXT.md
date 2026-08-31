@@ -33,14 +33,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `9c1d13dc5c0e2af77716f22b8aa6f5db41beed62`
-- Pre-checkpoint message: `test: verify imaginary PBH consistency`
-- The current checkpoint verifies PBH predicates and diagnostics for empty
-  input and output channel dimensions without changing production behavior.
+  `369785a1eced1cf7a2f5bf335716daa080d0648b`
+- Pre-checkpoint message: `test: cover empty-channel PBH diagnostics`
+- The current checkpoint closes focused PBH diagnostic coverage by verifying
+  the stable empty-channel case without changing production behavior.
 
 ## Current verification baseline
 
-- Test count: 468 tests.
+- Test count: 469 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -79,6 +79,12 @@ or EXACT set matching for both inclusions and exclusions.
 - Valid zero-input, zero-output, and jointly empty-channel systems are verified
   to report exact PBH failure flags for ordered nonstable modes while omitting
   stable modes.
+- An asymptotically stable system with no input or output channels is verified
+  to remain stabilizable and detectable with no diagnostics despite being
+  neither fully controllable nor fully observable.
+- Focused PBH diagnostic coverage is complete for stable, unstable, neutral,
+  repeated, defective, complex-conjugate, mixed-outcome, and empty-channel
+  cases.
 
 ## Important existing capabilities
 
@@ -457,19 +463,18 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Stable empty-channel PBH verification
+### Stable continuous-time controllability Gramian
 
-Add one focused test verifying that an asymptotically stable system remains
-stabilizable and detectable with zero input and output channels and returns no
-nonstable PBH diagnostics. Preserve all current APIs and matrix-shape
-conventions.
+Add the infinite-horizon continuous-time controllability Gramian for
+asymptotically stable `StateSpace` systems as the next meaningful structural
+analysis capability. Preserve all current APIs and add no dependencies.
 
 ## Suggested implementation direction
 
-- Use a small deterministic diagonal system with only stable eigenvalues,
-  `B` shaped `(n, 0)`, `C` shaped `(0, n)`, and `D` shaped `(0, 0)`.
-- Verify the empty diagnostic tuple and both structural predicates without
-  changing full controllability or observability semantics.
+- Solve `A Wc + Wc A.T + B B.T = 0` using NumPy for small general systems.
+- Require asymptotic stability and raise a clear error otherwise.
+- Verify symmetry, the Lyapunov residual, a diagonal analytic case, and the
+  zero-input result without changing existing PBH behavior.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -478,7 +483,8 @@ conventions.
 
 ## Focused tests to add
 
-- Verify stable empty-channel systems remain stabilizable and detectable.
+- Verify a stable diagonal analytic Gramian and a stable coupled-system
+  Lyapunov residual.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 

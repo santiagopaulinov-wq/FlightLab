@@ -617,6 +617,25 @@ def test_empty_channels_report_ordered_nonstable_pbh_failures(
     assert system.is_detectable() is (not observability_failed)
 
 
+def test_stable_empty_channel_system_has_no_nonstable_pbh_failures():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.empty((2, 0)),
+        np.empty((0, 2)),
+        np.empty((0, 0)),
+    )
+
+    assert system.B.shape == (2, 0)
+    assert system.C.shape == (0, 2)
+    assert system.D.shape == (0, 0)
+    assert system.is_asymptotically_stable() is True
+    assert system.is_fully_controllable() is False
+    assert system.is_fully_observable() is False
+    assert system.is_stabilizable() is True
+    assert system.is_detectable() is True
+    assert system.nonstable_pbh_diagnostics() == ()
+
+
 def test_eigenvalues_and_asymptotic_stability_for_stable_system():
     system = StateSpace(*valid_matrices())
 
