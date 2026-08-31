@@ -3,6 +3,7 @@ import pytest
 
 from flightlab.state_space import (
     BalancedRealization,
+    BalancedTruncation,
     ModalFamily,
     ModalProperties,
     ModalStateCharacterization,
@@ -571,6 +572,139 @@ def test_balanced_realization_rejects_singular_gramian_factor(monkeypatch):
         match="requires numerically positive-definite Gramian factors",
     ):
         system.balanced_realization()
+
+
+def test_balanced_truncation_uses_exact_leading_balanced_blocks():
+    system = StateSpace(*stable_minimal_balancing_matrices())
+    balanced = system.balanced_realization().system
+
+    result = system.balanced_truncation(1)
+
+    assert isinstance(result, BalancedTruncation)
+    assert result.retained_order == 1
+    np.testing.assert_array_equal(result.system.A, balanced.A[:1, :1])
+    np.testing.assert_array_equal(result.system.B, balanced.B[:1, :])
+    np.testing.assert_array_equal(result.system.C, balanced.C[:, :1])
+    np.testing.assert_array_equal(result.system.D, balanced.D)
+    np.testing.assert_array_equal(result.system.D, system.D)
+
+
+def test_balanced_truncation_maps_follow_documented_coordinate_convention():
+    system = StateSpace(*stable_minimal_balancing_matrices())
+    result = system.balanced_truncation(1)
+    original_state = np.array([0.7, -0.3])
+    balanced_state = np.linalg.solve(
+        result.balanced_transformation, original_state
+    )
+
+    reduced_state = result.projection @ original_state
+    reconstructed_state = result.reconstruction @ reduced_state
+    expected_reconstruction = (
+        result.balanced_transformation @ np.array([balanced_state[0], 0.0])
+    )
+
+    np.testing.assert_allclose(reduced_state, balanced_state[:1])
+    np.testing.assert_allclose(reconstructed_state, expected_reconstruction)
+    np.testing.assert_allclose(
+        result.projection @ result.reconstruction, np.eye(1)
+    )
+
+
+def test_balanced_truncation_returns_reduced_system_dimensions():
+    system = StateSpace(*stable_minimal_balancing_matrices())
+
+    result = system.balanced_truncation(1)
+
+    assert result.system.A.shape == (1, 1)
+    assert result.system.B.shape == (1, system.n_inputs)
+    assert result.system.C.shape == (system.n_outputs, 1)
+    assert result.system.D.shape == (system.n_outputs, system.n_inputs)
+    assert result.projection.shape == (1, system.n_states)
+    assert result.reconstruction.shape == (system.n_states, 1)
+
+
+def test_balanced_truncation_retains_largest_hankel_singular_values():
+    system = StateSpace(*stable_minimal_balancing_matrices())
+
+    result = system.balanced_truncation(1)
+    all_values = system.hankel_singular_values()
+
+    assert np.all(np.diff(all_values) <= 0.0)
+    np.testing.assert_array_equal(
+        result.retained_hankel_singular_values, all_values[:1]
+    )
+    np.testing.assert_allclose(
+        result.retained_hankel_singular_values,
+        np.diag(system.balanced_realization().system.controllability_gramian())[:1],
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+@pytest.mark.parametrize("retained_order", [0, -1, 2, 3])
+def test_balanced_truncation_rejects_orders_outside_reduced_range(retained_order):
+    system = StateSpace(*stable_minimal_balancing_matrices())
+
+    with pytest.raises(
+        ValueError, match="retained order must satisfy 1 <= r < n_states"
+    ):
+        system.balanced_truncation(retained_order)
+
+
+@pytest.mark.parametrize("retained_order", [1.0, "1", None, True])
+def test_balanced_truncation_rejects_noninteger_orders(retained_order):
+    system = StateSpace(*stable_minimal_balancing_matrices())
+
+    with pytest.raises(TypeError, match="retained order must be an integer"):
+        system.balanced_truncation(retained_order)
+
+
+def test_balanced_truncation_rejects_nonstable_system():
+    system = StateSpace(
+        np.diag([-1.0, 0.0]), np.eye(2), np.eye(2), np.zeros((2, 2))
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="balanced realization requires an asymptotically stable system",
+    ):
+        system.balanced_truncation(1)
+
+
+@pytest.mark.parametrize("deficiency", ["unreachable", "unobservable"])
+def test_balanced_truncation_rejects_nonminimal_system(deficiency):
+    B = [[1.0], [0.0]] if deficiency == "unreachable" else [[1.0], [1.0]]
+    C = [[1.0, 1.0]] if deficiency == "unreachable" else [[1.0, 0.0]]
+    system = StateSpace(np.diag([-1.0, -2.0]), B, C, np.zeros((1, 1)))
+
+    with pytest.raises(
+        ValueError, match="balanced realization requires a minimal realization"
+    ):
+        system.balanced_truncation(1)
+
+
+def test_balanced_truncation_is_stable_and_approximates_small_discarded_state():
+    discarded_hankel_value = 1e-3
+    system = StateSpace(
+        np.diag([-1.0, -10.0]),
+        np.diag([np.sqrt(2.0), np.sqrt(20.0 * discarded_hankel_value)]),
+        np.diag([np.sqrt(2.0), np.sqrt(20.0 * discarded_hankel_value)]),
+        np.zeros((2, 2)),
+    )
+    time = np.linspace(0.0, 5.0, 101)
+    step_input = np.ones(2)
+
+    result = system.balanced_truncation(1)
+    _, full_outputs = system.step_response(step_input, time, method="exact")
+    _, reduced_outputs = result.system.step_response(
+        step_input, time, method="exact"
+    )
+
+    assert result.system.is_asymptotically_stable() is True
+    np.testing.assert_allclose(result.retained_hankel_singular_values, [1.0])
+    assert np.max(np.abs(reduced_outputs - full_outputs)) <= (
+        2.0 * discarded_hankel_value
+    )
 
 
 def test_fully_observable_unstable_system_is_detectable():

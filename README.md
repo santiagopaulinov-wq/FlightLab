@@ -25,3 +25,28 @@ infinite-horizon Gramians and an SVD of their cross product. Nonstable and
 nonminimal systems are rejected. It also rejects nonfinite, non-positive-
 definite, or numerically singular factorization results using an explicit
 machine-epsilon-scaled singular-value threshold and inverse-consistency check.
+
+## Explicit balanced truncation
+
+`system.balanced_truncation(r)` performs opt-in model reduction by retaining
+exactly the first `r` balanced coordinates, where `r` is an integer satisfying
+`1 <= r < system.n_states`. Order `n` is deliberately excluded; use
+`balanced_realization()` when no states should be removed. No order is selected
+automatically.
+
+The returned immutable `BalancedTruncation` contains the reduced `system`, its
+`retained_order`, the full `balanced_transformation`, the leading
+`retained_hankel_singular_values`, and two state maps:
+
+```text
+x_reduced       = projection @ x_original
+x_approximately = reconstruction @ x_reduced
+```
+
+For the full-order convention `x_original = T @ z`, `projection` is the first
+`r` rows of `T^-1`, and `reconstruction` is the first `r` columns of `T`.
+Reconstruction sets discarded balanced coordinates to zero, so the reduced
+model and reconstructed state are approximations. The reduced matrices are the
+leading balanced blocks, and `D` is preserved exactly. Stability, minimality,
+and numerical-factorization requirements are inherited from
+`balanced_realization()`.

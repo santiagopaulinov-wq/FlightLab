@@ -23,10 +23,11 @@ These verified summaries are available together through one consolidated,
 immutable generic characterization per canonical family.
 Stable minimal realizations can also be transformed into full-order balanced
 coordinates, with no state truncation, through a real transformation using the
-convention `x = T z`. The aircraft-model layer can interpret dominant generic
-state indices using each model's established physical state labels without
-changing generic modal results, and likewise interprets dominant input and
-output indices using the models' established channel ordering.
+convention `x = T z`, or explicitly reduced by retaining a caller-selected
+number of leading balanced coordinates. The aircraft-model layer can interpret
+dominant generic state indices using each model's established physical state
+labels without changing generic modal results, and likewise interprets
+dominant input and output indices using the models' established channel ordering.
 Both aircraft models can filter these immutable interpreted families by their
 existing oscillatory status, mathematical stability, and exact dominant
 state/input/output labels, with configurable global or per-category ANY, ALL,
@@ -35,14 +36,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `d58e32857f64ea480b2ac4723b8d869e7cfafe7e`
-- Pre-checkpoint message: `test: verify Hankel structural consistency`
-- The current checkpoint adds a full-order continuous-time balanced-coordinate
-  transformation for stable minimal realizations.
+  `8a2293dd916e35d53a9e0cd8bb2279100da5455e`
+- Pre-checkpoint message: `feat: add balanced state-space realization`
+- The current checkpoint adds explicit retained-order balanced truncation for
+  stable minimal realizations.
 
 ## Current verification baseline
 
-- Test count: 499 tests.
+- Test count: 515 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -74,6 +75,19 @@ or EXACT set matching for both inclusions and exclusions.
   realization check, preserves full state dimension, and performs no
   truncation. Nonfinite, non-positive-definite, and epsilon-threshold singular
   factorization or transformation results raise clear `ValueError`s.
+- `StateSpace.balanced_truncation(r)` requires an explicit integer order with
+  `1 <= r < n`; order `n` is rejected in favor of `balanced_realization()`, and
+  no automatic order selection is performed.
+- The immutable `BalancedTruncation` result contains the reduced `StateSpace`,
+  retained order, original-to-reduced projection, reduced-to-original
+  reconstruction, full balanced transformation, and retained descending
+  Hankel singular values. For `x = T z`, projection is the first `r` rows of
+  `T^-1` and reconstruction is the first `r` columns of `T`.
+- Reduced matrices are exactly the leading balanced blocks and preserve `D`.
+  Reconstruction sets discarded coordinates to zero, so state reconstruction
+  and reduced input-output behavior are explicitly approximate. A stable
+  diagonal system with a separated discarded Hankel value verifies a bounded,
+  deterministic step-response discrepancy without adding an error-bound API.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -493,20 +507,20 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Stable balanced truncation with explicit retained order
+### A priori balanced-truncation error bound
 
-Add opt-in model reduction from the verified full-order balanced realization by
-retaining an explicitly requested number of leading balanced states. Preserve
-the existing full-order API and add no automatic order selection.
+Expose the classical continuous-time balanced-truncation upper bound from the
+discarded Hankel singular values for an existing explicit truncation order.
+Keep it diagnostic only and preserve caller-selected order.
 
 ## Suggested implementation direction
 
-- Build only on the verified balanced-coordinate result and preserve its
-  descending Hankel ordering.
-- Require an integer retained order strictly between zero and the original
-  state count; keep full-order coordinate transformation separate.
-- Return the reduced realization plus the retained projection/reconstruction
-  maps, with explicit coordinate conventions and clear validation errors.
+- Derive the bound only from the existing descending Hankel singular values:
+  `2 * sum(hankel_singular_values[r:])`.
+- Document precisely the induced-norm assumptions and distinguish the a priori
+  bound from sampled time-response error.
+- Reuse the truncation order validation without selecting an order or changing
+  the reduced realization.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -515,9 +529,9 @@ the existing full-order API and add no automatic order selection.
 
 ## Focused tests to add
 
-- Verify matrix partitioning, dimensions, retained coordinate maps, stability,
-  and deterministic low-frequency/step-response approximation on explicit
-  stable systems with separated Hankel singular values.
+- Verify analytic diagonal cases, monotonicity with retained order, zero
+  discarded sum only where applicable, and rejection behavior inherited from
+  balancing and truncation.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 

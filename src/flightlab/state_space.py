@@ -259,6 +259,24 @@ class BalancedRealization(NamedTuple):
     transformation: np.ndarray
 
 
+class BalancedTruncation(NamedTuple):
+    """Reduced balanced system and explicit original-state coordinate maps.
+
+    ``projection @ x`` retains the first ``retained_order`` coordinates of the
+    balanced state ``z = solve(balanced_transformation, x)``. Conversely,
+    ``reconstruction @ x_reduced`` maps a reduced state back to the original
+    state space with every discarded balanced coordinate set to zero. The
+    reconstruction is therefore approximate in general.
+    """
+
+    system: "StateSpace"
+    retained_order: int
+    projection: np.ndarray
+    reconstruction: np.ndarray
+    balanced_transformation: np.ndarray
+    retained_hankel_singular_values: np.ndarray
+
+
 class ModalStateSpace(NamedTuple):
     """System matrices expressed in biorthogonal modal coordinates."""
 
@@ -814,6 +832,57 @@ class StateSpace:
                 "balanced realization state transformation is numerically singular"
             ) from error
         return BalancedRealization(balanced_system, transformation)
+
+    def balanced_truncation(self, retained_order):
+        """Return an explicitly ordered balanced truncation of this system.
+
+        ``retained_order`` must be an integer ``r`` satisfying ``1 <= r < n``;
+        order ``n`` is intentionally rejected because
+        :meth:`balanced_realization` is the full-order API. Starting with its
+        convention ``x = T @ z``, this method retains ``z[:r]`` and returns
+        the leading blocks ``A_bal[:r, :r]``, ``B_bal[:r, :]``,
+        ``C_bal[:, :r]``, and the unchanged ``D``.
+
+        The returned projection ``P`` maps ``x`` to ``P @ x = z[:r]``. The
+        reconstruction ``R`` maps a reduced state to ``R @ z[:r]`` in the
+        original state space, setting discarded balanced coordinates to zero.
+        Consequently this is an approximate model reduction, not an equivalent
+        coordinate transformation. Stability, minimality, and numerical
+        factorization errors are inherited from :meth:`balanced_realization`.
+        No order is selected automatically.
+        """
+        if isinstance(retained_order, (bool, np.bool_)) or not isinstance(
+            retained_order, (int, np.integer)
+        ):
+            raise TypeError("retained order must be an integer")
+        retained_order = int(retained_order)
+        if not 1 <= retained_order < self.n_states:
+            raise ValueError("retained order must satisfy 1 <= r < n_states")
+
+        balanced_result = self.balanced_realization()
+        balanced_system = balanced_result.system
+        transformation = balanced_result.transformation
+        projection = np.linalg.solve(
+            transformation, np.eye(self.n_states)
+        )[:retained_order, :]
+        reconstruction = transformation[:, :retained_order].copy()
+        reduced_system = StateSpace(
+            balanced_system.A[:retained_order, :retained_order].copy(),
+            balanced_system.B[:retained_order, :].copy(),
+            balanced_system.C[:, :retained_order].copy(),
+            balanced_system.D.copy(),
+        )
+        retained_hankel_singular_values = self.hankel_singular_values()[
+            :retained_order
+        ].copy()
+        return BalancedTruncation(
+            reduced_system,
+            retained_order,
+            projection,
+            reconstruction,
+            transformation,
+            retained_hankel_singular_values,
+        )
 
     def is_detectable(self):
         """Return whether every nonstable mode satisfies the PBH rank test.
