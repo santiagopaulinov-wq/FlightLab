@@ -210,9 +210,6 @@ class LongitudinalModel:
                     evidence_values[slow_index]["damping_ratio_valid"]
                     and evidence_values[fast_index]["damping_ratio_valid"]
                     and slow_damping < fast_damping
-                    and not np.isclose(
-                        slow_damping, fast_damping, rtol=1e-7, atol=1e-12
-                    )
                 )
                 damping_evidence = bool(damping_evidence)
                 evidence_values[slow_index]["damping_order_consistent"] = (

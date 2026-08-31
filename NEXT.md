@@ -34,7 +34,7 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current verification baseline
 
-- Test count: 414 tests.
+- Test count: 423 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -238,14 +238,23 @@ or EXACT set matching for both inclusions and exclusions.
   separation guard is inclusive at exactly 3×: ratios `2.999`, `3.0`, and
   `3.001` respectively reject, classify, and classify both otherwise-clear
   candidates.
+- Longitudinal damping boundary coverage now verifies both candidate families
+  require strictly subcritical positive damping: exact `0.0` and `1.0` values
+  are rejected, while the nearest representable values just inside those
+  bounds are accepted when all other evidence is valid.
+- Damping-order boundary coverage verifies equal and reversed ratios are
+  rejected, while a phugoid ratio one representable float below the
+  short-period ratio is accepted. This closed an inconsistency where an
+  additional numerical-closeness check overrode the documented strict
+  `zeta_phugoid < zeta_short_period` rule.
 - The grouped expected-state participation guard is likewise inclusive at
   exactly 60% for both physical names: values `0.599`, `0.600`, and `0.601`
   respectively reject, classify, and classify the affected candidate while
   leaving the other valid candidate unchanged. Evidence reports the tested
   values and all unchanged damping and dominant-state guards remain satisfied.
 - Longitudinal physical-mode identification v1 is intentionally complete at
-  the 402-test baseline; its APIs, rules, evidence, and verified behavior are
-  frozen while lateral-directional identification develops.
+  the current 423-test baseline; its APIs, rules, evidence, and verified
+  behavior are frozen while generic structural analysis develops.
 - `LateralDirectionalModeIdentification` and
   `LateralDirectionalModel.physical_mode_identifications()` preserve each
   interpreted characterization by identity and attach `dutch_roll`,

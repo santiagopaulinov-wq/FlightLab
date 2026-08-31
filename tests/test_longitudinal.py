@@ -436,6 +436,129 @@ def test_longitudinal_frequency_separation_boundary(
 
 
 @pytest.mark.parametrize("mode_name", ["phugoid", "short_period"])
+@pytest.mark.parametrize("boundary_damping", [0.0, 1.0])
+def test_longitudinal_damping_eligibility_rejects_exact_boundaries(
+    monkeypatch, mode_name, boundary_damping
+):
+    phugoid_damping = boundary_damping if mode_name == "phugoid" else 0.1
+    short_period_damping = boundary_damping if mode_name == "short_period" else 0.5
+    characterizations = (
+        physical_mode_characterization(
+            1.0,
+            2.0 * np.pi,
+            ("u",),
+            (0.45, 0.1, 0.1, 0.35),
+            phugoid_damping,
+        ),
+        physical_mode_characterization(
+            3.0,
+            2.0 * np.pi / 3.0,
+            ("w",),
+            (0.1, 0.45, 0.35, 0.1),
+            short_period_damping,
+        ),
+    )
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LongitudinalModel(**valid_parameters()).physical_mode_identifications()
+    result_by_role = {item.evidence.frequency_role: item for item in result}
+    role = "slowest" if mode_name == "phugoid" else "fastest"
+
+    assert tuple(item.mode_name for item in result) == (None, None)
+    assert result_by_role[role].evidence.damping_ratio == boundary_damping
+    assert result_by_role[role].evidence.damping_ratio_valid is False
+    assert all(
+        item.evidence.damping_order_consistent is False for item in result
+    )
+
+
+@pytest.mark.parametrize(
+    ("phugoid_damping", "short_period_damping"),
+    [
+        (np.nextafter(0.0, 1.0), 0.5),
+        (0.1, np.nextafter(1.0, 0.0)),
+    ],
+)
+def test_longitudinal_damping_eligibility_accepts_values_just_inside_boundaries(
+    monkeypatch, phugoid_damping, short_period_damping
+):
+    characterizations = (
+        physical_mode_characterization(
+            1.0,
+            2.0 * np.pi,
+            ("u",),
+            (0.45, 0.1, 0.1, 0.35),
+            phugoid_damping,
+        ),
+        physical_mode_characterization(
+            3.0,
+            2.0 * np.pi / 3.0,
+            ("w",),
+            (0.1, 0.45, 0.35, 0.1),
+            short_period_damping,
+        ),
+    )
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LongitudinalModel(**valid_parameters()).physical_mode_identifications()
+
+    assert tuple(item.mode_name for item in result) == ("phugoid", "short_period")
+    assert all(item.evidence.damping_ratio_valid for item in result)
+    assert all(item.evidence.damping_order_consistent is True for item in result)
+
+
+@pytest.mark.parametrize(
+    ("phugoid_damping", "short_period_damping", "expected_names"),
+    [
+        (0.3, 0.3, (None, None)),
+        (np.nextafter(0.3, 0.0), 0.3, ("phugoid", "short_period")),
+        (np.nextafter(0.3, 1.0), 0.3, (None, None)),
+    ],
+)
+def test_longitudinal_damping_order_boundary(
+    monkeypatch, phugoid_damping, short_period_damping, expected_names
+):
+    characterizations = (
+        physical_mode_characterization(
+            1.0,
+            2.0 * np.pi,
+            ("u",),
+            (0.45, 0.1, 0.1, 0.35),
+            phugoid_damping,
+        ),
+        physical_mode_characterization(
+            3.0,
+            2.0 * np.pi / 3.0,
+            ("w",),
+            (0.1, 0.45, 0.35, 0.1),
+            short_period_damping,
+        ),
+    )
+    monkeypatch.setattr(
+        LongitudinalModel,
+        "modal_family_characterizations",
+        lambda self: characterizations,
+    )
+
+    result = LongitudinalModel(**valid_parameters()).physical_mode_identifications()
+
+    assert tuple(item.mode_name for item in result) == expected_names
+    assert all(item.evidence.damping_ratio_valid for item in result)
+    assert all(
+        item.evidence.damping_order_consistent is bool(expected_names[0])
+        for item in result
+    )
+
+
+@pytest.mark.parametrize("mode_name", ["phugoid", "short_period"])
 @pytest.mark.parametrize(
     ("expected_participation", "classified"),
     [(0.599, False), (0.6, True), (0.601, True)],
