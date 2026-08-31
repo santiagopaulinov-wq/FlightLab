@@ -219,6 +219,60 @@ def test_unobservable_system_has_deficient_observability_rank():
     assert system.is_fully_observable() is False
 
 
+def test_observability_gramian_matches_diagonal_analytic_solution():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.eye(2),
+        np.diag([2.0, 4.0]),
+        np.zeros((2, 2)),
+    )
+
+    gramian = system.observability_gramian()
+
+    np.testing.assert_allclose(gramian, np.diag([2.0, 4.0]))
+    assert gramian.dtype == float
+
+
+def test_observability_gramian_is_symmetric_with_small_lyapunov_residual():
+    system = StateSpace(*valid_matrices())
+
+    gramian = system.observability_gramian()
+    residual = system.A.T @ gramian + gramian @ system.A + system.C.T @ system.C
+
+    np.testing.assert_allclose(gramian, gramian.T, rtol=0.0, atol=1e-14)
+    np.testing.assert_allclose(residual, np.zeros((2, 2)), rtol=0.0, atol=1e-12)
+
+
+@pytest.mark.parametrize("nonstable_eigenvalue", [0.0, 1.0])
+def test_observability_gramian_rejects_nonstable_system(nonstable_eigenvalue):
+    system = StateSpace(
+        np.diag([-1.0, nonstable_eigenvalue]),
+        np.eye(2),
+        np.eye(2),
+        np.zeros((2, 2)),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="observability Gramian requires an asymptotically stable system",
+    ):
+        system.observability_gramian()
+
+
+def test_observability_gramian_is_zero_without_output_channels():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.eye(2),
+        np.empty((0, 2)),
+        np.empty((0, 2)),
+    )
+
+    gramian = system.observability_gramian()
+
+    assert gramian.shape == (2, 2)
+    np.testing.assert_array_equal(gramian, np.zeros((2, 2)))
+
+
 def test_fully_observable_unstable_system_is_detectable():
     system = StateSpace(
         np.diag([-1.0, 2.0]),

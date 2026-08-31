@@ -623,6 +623,31 @@ class StateSpace:
         """Return whether the observability matrix has full state rank."""
         return self.observability_rank() == self.n_states
 
+    def observability_gramian(self):
+        """Return the infinite-horizon continuous-time observability Gramian.
+
+        For an asymptotically stable system, the returned real symmetric matrix
+        ``Wo`` is the unique solution of
+        ``A.T @ Wo + Wo @ A + C.T @ C = 0``. Nonstable and neutral systems do
+        not have the required finite infinite-horizon Gramian and raise a
+        ``ValueError``.
+        """
+        if not self.is_asymptotically_stable():
+            raise ValueError(
+                "observability Gramian requires an asymptotically stable system"
+            )
+
+        identity = np.eye(self.n_states)
+        transposed_A = self.A.T
+        lyapunov_operator = np.kron(identity, transposed_A) + np.kron(
+            transposed_A, identity
+        )
+        forcing = self.C.T @ self.C
+        gramian = np.linalg.solve(
+            lyapunov_operator, -forcing.reshape(-1, order="F")
+        ).reshape((self.n_states, self.n_states), order="F")
+        return np.asarray((gramian + gramian.T) / 2.0, dtype=float)
+
     def is_detectable(self):
         """Return whether every nonstable mode satisfies the PBH rank test.
 
