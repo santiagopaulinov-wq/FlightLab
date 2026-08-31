@@ -583,6 +583,66 @@ class StateSpace:
         """Return the eigenvalues of the continuous-time system matrix."""
         return np.linalg.eigvals(self.A)
 
+    def frequency_response(self, angular_frequencies):
+        """Evaluate ``G(j omega)`` at explicit angular frequencies in rad/s.
+
+        The transfer matrix is
+        ``C @ solve(1j * omega * I - A, B) + D``. A finite real scalar returns
+        one complex array with shape ``(n_outputs, n_inputs)``. A nonempty
+        finite real one-dimensional array returns shape
+        ``(n_frequencies, n_outputs, n_inputs)`` in the supplied frequency
+        order. Zero input and output dimensions are preserved.
+
+        Stability is not required. If ``1j * omega * I - A`` is singular at a
+        requested frequency, a ``ValueError`` is raised because the frequency
+        response is undefined at that pole. Linear solves are used; no matrix
+        inverse or automatic frequency grid is formed.
+        """
+        frequencies = np.asarray(angular_frequencies)
+        if frequencies.ndim not in (0, 1):
+            raise ValueError(
+                "angular frequencies must be a real scalar or 1D array"
+            )
+        if frequencies.ndim == 1 and frequencies.size == 0:
+            raise ValueError("angular frequency array must contain at least one value")
+        if np.iscomplexobj(frequencies):
+            raise TypeError("angular frequencies must be real numeric values")
+        try:
+            frequencies = np.asarray(frequencies, dtype=float)
+        except (TypeError, ValueError) as error:
+            raise TypeError("angular frequencies must be real numeric values") from error
+        if not np.all(np.isfinite(frequencies)):
+            raise ValueError("angular frequencies must contain only finite values")
+
+        scalar_input = frequencies.ndim == 0
+        frequency_values = np.atleast_1d(frequencies)
+        response = np.empty(
+            (frequency_values.size, self.n_outputs, self.n_inputs), dtype=complex
+        )
+        identity = np.eye(self.n_states, dtype=complex)
+        for index, frequency in enumerate(frequency_values):
+            resolvent = 1j * frequency * identity - self.A
+            right_hand_side = (
+                self.B
+                if self.n_inputs > 0
+                else np.zeros((self.n_states, 1), dtype=complex)
+            )
+            try:
+                solved = np.linalg.solve(resolvent, right_hand_side)
+            except np.linalg.LinAlgError as error:
+                raise ValueError(
+                    "frequency response is undefined at angular frequency "
+                    f"{frequency} rad/s because 1j * omega * I - A is singular"
+                ) from error
+            dynamic_response = (
+                self.C @ solved
+                if self.n_inputs > 0
+                else np.empty((self.n_outputs, 0), dtype=complex)
+            )
+            response[index] = dynamic_response + self.D
+
+        return response[0] if scalar_input else response
+
     def controllability_matrix(self):
         """Return ``[B, A B, ..., A^(n-1) B]`` for the continuous-time system."""
         blocks = []

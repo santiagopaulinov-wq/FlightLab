@@ -50,6 +50,156 @@ def test_dimensions():
     assert system.n_outputs == 1
 
 
+def test_frequency_response_matches_first_order_siso_analytic_value():
+    system = StateSpace([[-2.0]], [[3.0]], [[4.0]], [[0.5]])
+    frequency = 1.5
+
+    response = system.frequency_response(frequency)
+
+    expected = 12.0 / (2.0 + 1j * frequency) + 0.5
+    assert response.shape == (1, 1)
+    assert response.dtype == complex
+    np.testing.assert_allclose(response, [[expected]])
+
+
+def test_frequency_response_at_dc_matches_static_gain():
+    system = StateSpace(
+        [[-2.0, 1.0], [0.0, -3.0]],
+        [[1.0], [2.0]],
+        [[4.0, -1.0]],
+        [[0.25]],
+    )
+
+    response = system.frequency_response(0.0)
+    expected = -system.C @ np.linalg.solve(system.A, system.B) + system.D
+
+    np.testing.assert_allclose(response, expected)
+
+
+def test_frequency_response_vector_preserves_shape_order_and_scalar_values():
+    system = StateSpace([[-2.0]], [[3.0]], [[4.0]], [[0.5]])
+    frequencies = np.array([3.0, 0.0, 1.5])
+
+    response = system.frequency_response(frequencies)
+
+    assert response.shape == (3, 1, 1)
+    for index, frequency in enumerate(frequencies):
+        np.testing.assert_array_equal(
+            response[index], system.frequency_response(frequency)
+        )
+
+
+def test_frequency_response_mimo_includes_direct_feedthrough():
+    A = np.diag([-1.0, -2.0])
+    B = np.eye(2)
+    C = np.array([[1.0, 2.0], [3.0, 4.0]])
+    D = np.array([[0.25, -0.5], [1.5, 2.0]])
+    system = StateSpace(A, B, C, D)
+    frequency = 2.5
+
+    response = system.frequency_response(frequency)
+    dynamic_response = np.column_stack(
+        (C[:, 0] / (1.0 + 1j * frequency), C[:, 1] / (2.0 + 1j * frequency))
+    )
+
+    assert response.shape == (2, 2)
+    np.testing.assert_allclose(response, dynamic_response + D)
+    direct_only = StateSpace(A, B, np.zeros((2, 2)), D)
+    np.testing.assert_array_equal(
+        direct_only.frequency_response(frequency), D.astype(complex)
+    )
+
+
+@pytest.mark.parametrize(
+    ("B", "C", "D", "scalar_shape", "vector_shape"),
+    [
+        (
+            np.empty((2, 0)),
+            np.eye(2),
+            np.empty((2, 0)),
+            (2, 0),
+            (3, 2, 0),
+        ),
+        (
+            np.eye(2),
+            np.empty((0, 2)),
+            np.empty((0, 2)),
+            (0, 2),
+            (3, 0, 2),
+        ),
+        (
+            np.empty((2, 0)),
+            np.empty((0, 2)),
+            np.empty((0, 0)),
+            (0, 0),
+            (3, 0, 0),
+        ),
+    ],
+)
+def test_frequency_response_preserves_empty_channel_shapes(
+    B, C, D, scalar_shape, vector_shape
+):
+    system = StateSpace(np.diag([-1.0, -2.0]), B, C, D)
+
+    scalar_response = system.frequency_response(1.0)
+    vector_response = system.frequency_response([0.0, 1.0, 2.0])
+
+    assert scalar_response.shape == scalar_shape
+    assert vector_response.shape == vector_shape
+    assert scalar_response.dtype == complex
+    assert vector_response.dtype == complex
+
+
+def test_frequency_response_accepts_nonstable_system_away_from_poles():
+    system = StateSpace([[1.0]], [[2.0]], [[3.0]], [[0.0]])
+
+    response = system.frequency_response(2.0)
+
+    assert system.is_asymptotically_stable() is False
+    np.testing.assert_allclose(response, [[6.0 / (-1.0 + 2.0j)]])
+
+
+def test_frequency_response_rejects_frequency_at_imaginary_axis_pole():
+    system = StateSpace(
+        [[0.0, -1.0], [1.0, 0.0]],
+        [[1.0], [0.0]],
+        [[1.0, 0.0]],
+        [[0.0]],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"frequency response is undefined at angular frequency 1\.0 rad/s",
+    ):
+        system.frequency_response(1.0)
+
+
+@pytest.mark.parametrize("frequencies", [np.nan, np.inf, -np.inf, [0.0, np.nan]])
+def test_frequency_response_rejects_nonfinite_frequencies(frequencies):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(
+        ValueError, match="angular frequencies must contain only finite values"
+    ):
+        system.frequency_response(frequencies)
+
+
+@pytest.mark.parametrize("frequencies", [1.0 + 0.0j, [0.0, 1.0j], "one"])
+def test_frequency_response_rejects_nonreal_frequencies(frequencies):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(TypeError, match="angular frequencies must be real"):
+        system.frequency_response(frequencies)
+
+
+@pytest.mark.parametrize("frequencies", [np.empty((0,)), [[0.0, 1.0]]])
+def test_frequency_response_rejects_invalid_frequency_dimensions(frequencies):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="angular frequenc"):
+        system.frequency_response(frequencies)
+
+
 def test_fully_controllable_system_has_full_controllability_rank():
     system = StateSpace(*valid_matrices())
 

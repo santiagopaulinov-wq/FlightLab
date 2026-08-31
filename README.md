@@ -64,3 +64,24 @@ input-output induced H-infinity norm error of the stable minimal original and
 its explicit-order reduced model. It is not generally an equality, does not
 estimate an error from sampled responses, and is not a state-reconstruction
 error bound. It is diagnostic only and does not select a retained order.
+
+## Continuous-time frequency response
+
+`system.frequency_response(angular_frequencies)` evaluates the NumPy-only
+transfer matrix
+
+```text
+G(j omega) = C @ solve(j omega I - A, B) + D
+```
+
+Frequencies are finite real angular frequencies in rad/s. A scalar returns a
+complex array with shape `(n_outputs, n_inputs)`. A nonempty one-dimensional
+frequency array returns shape
+`(n_frequencies, n_outputs, n_inputs)` in the supplied order. Valid zero-input
+and zero-output dimensions are preserved, and `D` is included exactly.
+
+The system need not be stable. Evaluation is valid wherever
+`j omega I - A` is nonsingular. A requested frequency exactly at a pole raises
+`ValueError`; nonfinite, complex, empty-vector, and higher-dimensional inputs
+are rejected clearly. The method uses linear solves, selects no grid, and does
+not estimate an H-infinity norm.

@@ -30,6 +30,8 @@ singular values. The aircraft-model layer can interpret dominant generic state
 indices using each model's established physical state labels without changing
 generic modal results, and likewise interprets dominant input and output
 indices using the models' established channel ordering.
+Every `StateSpace` can also evaluate its complex continuous-time transfer
+matrix at explicit real angular frequencies without requiring stability.
 Both aircraft models can filter these immutable interpreted families by their
 existing oscillatory status, mathematical stability, and exact dominant
 state/input/output labels, with configurable global or per-category ANY, ALL,
@@ -38,14 +40,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `cd288457474a085327df329ac0d27bf8dbc657e8`
-- Pre-checkpoint message: `feat: add explicit balanced truncation`
-- The current checkpoint adds the classical a priori continuous-time balanced-
-  truncation error bound as a diagnostic.
+  `7615e79169022f5e7467b07d685da673b64786ef`
+- Pre-checkpoint message: `feat: add balanced truncation error bound`
+- The current checkpoint adds NumPy-only continuous-time frequency-response
+  evaluation at explicit angular frequencies.
 
 ## Current verification baseline
 
-- Test count: 519 tests.
+- Test count: 537 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -102,6 +104,17 @@ or EXACT set matching for both inclusions and exclusions.
   truncations require `r < n` and stable minimal Hankel values are positive,
   their discarded sum is positive; the mathematically empty full-order tail is
   verified separately without permitting `balanced_truncation(n)`.
+- `StateSpace.frequency_response(angular_frequencies)` evaluates
+  `C solve(j omega I - A, B) + D` at a finite real scalar or nonempty finite
+  real one-dimensional frequency array in rad/s, without an explicit inverse.
+- Scalar frequency input returns complex shape `(n_outputs, n_inputs)`; vector
+  input returns `(n_frequencies, n_outputs, n_inputs)` in caller order. MIMO,
+  zero-input, zero-output, and jointly empty channel shapes are preserved, and
+  direct feedthrough is included exactly.
+- Frequency response does not require stability. A singular resolvent at an
+  exact imaginary-axis pole raises a clear `ValueError`, including when there
+  are no input channels. Nonfinite, complex, empty-vector, and non-scalar/non-1D
+  inputs are rejected. No grid selection or H-infinity estimation is performed.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -521,20 +534,20 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Continuous-time frequency response
+### Explicit frequency-response singular values
 
-Add a generic NumPy-only `StateSpace` frequency-response evaluation at explicit
-real angular frequencies. This provides the next foundation for inspecting
-full and reduced input-output behavior without claiming an H-infinity norm.
+Add MIMO transfer-matrix singular values at caller-supplied angular frequencies
+as a thin analysis layer over the verified frequency response. Do not maximize
+over frequency or select a grid.
 
 ## Suggested implementation direction
 
-- Evaluate `G(j omega) = C solve(j omega I - A, B) + D` for caller-supplied
-  finite nonnegative angular frequencies, preserving input/output ordering.
-- Return one complex transfer matrix per frequency with explicit shape and
-  singular-resolvent errors.
-- Do not maximize over frequency, estimate an H-infinity norm, or select a
-  balanced-truncation order.
+- Reuse `frequency_response()` exactly and apply NumPy SVD independently at
+  each supplied frequency.
+- Return real nonnegative singular values in descending order with explicit
+  scalar/vector and empty-channel shapes.
+- Do not maximize, interpolate, estimate an H-infinity norm, or select a
+  frequency grid or balanced-truncation order.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -543,8 +556,8 @@ full and reduced input-output behavior without claiming an H-infinity norm.
 
 ## Focused tests to add
 
-- Verify DC and nonzero-frequency analytic cases, MIMO shapes and ordering,
-  conjugate symmetry where applicable, and invalid frequency handling.
+- Verify analytic SISO magnitude, MIMO descending order, scalar/vector shapes,
+  empty-channel behavior, and direct consistency with `frequency_response()`.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 
