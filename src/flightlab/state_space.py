@@ -648,6 +648,61 @@ class StateSpace:
         ).reshape((self.n_states, self.n_states), order="F")
         return np.asarray((gramian + gramian.T) / 2.0, dtype=float)
 
+    def hankel_singular_values(self):
+        """Return stable continuous-time Hankel singular values in descending order.
+
+        The values are ``sqrt(eigvals(Wc @ Wo))`` for the existing
+        controllability and observability Gramians. A symmetric
+        positive-semidefinite equivalent is used to avoid insignificant complex
+        roundoff. Tiny negative eigenvalues are clipped to zero; materially
+        negative or nonfinite results raise ``ValueError``. The Gramian APIs
+        enforce asymptotic stability.
+        """
+
+        def clipped_psd_eigenvalues(values):
+            if not np.all(np.isfinite(values)):
+                raise ValueError(
+                    "Hankel singular value computation produced a nonfinite result"
+                )
+            scale = max(1.0, float(np.max(np.abs(values), initial=0.0)))
+            tolerance = (
+                100.0
+                * np.finfo(float).eps
+                * max(1, self.n_states)
+                * scale
+            )
+            if np.any(values < -tolerance):
+                raise ValueError(
+                    "Hankel singular value computation produced a materially "
+                    "negative result"
+                )
+            return np.clip(values, 0.0, None)
+
+        controllability_gramian = self.controllability_gramian()
+        observability_gramian = self.observability_gramian()
+
+        controllability_eigenvalues, controllability_eigenvectors = np.linalg.eigh(
+            controllability_gramian
+        )
+        controllability_eigenvalues = clipped_psd_eigenvalues(
+            controllability_eigenvalues
+        )
+        clipped_psd_eigenvalues(np.linalg.eigvalsh(observability_gramian))
+
+        gramian_square_root = (
+            controllability_eigenvectors * np.sqrt(controllability_eigenvalues)
+        ) @ controllability_eigenvectors.T
+        squared_values_matrix = (
+            gramian_square_root @ observability_gramian @ gramian_square_root
+        )
+        squared_values_matrix = (
+            squared_values_matrix + squared_values_matrix.T
+        ) / 2.0
+        squared_values = clipped_psd_eigenvalues(
+            np.linalg.eigvalsh(squared_values_matrix)
+        )
+        return np.sqrt(squared_values)[::-1]
+
     def is_detectable(self):
         """Return whether every nonstable mode satisfies the PBH rank test.
 

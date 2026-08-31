@@ -273,6 +273,82 @@ def test_observability_gramian_is_zero_without_output_channels():
     np.testing.assert_array_equal(gramian, np.zeros((2, 2)))
 
 
+def test_hankel_singular_values_match_ordered_diagonal_analytic_solution():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.diag([2.0, 4.0]),
+        np.diag([3.0, 5.0]),
+        np.zeros((2, 2)),
+    )
+
+    values = system.hankel_singular_values()
+
+    np.testing.assert_allclose(values, [5.0, 3.0])
+    assert values.shape == (2,)
+    assert values.dtype == float
+    assert np.all(values >= 0.0)
+
+
+def test_hankel_singular_values_preserve_repeated_value_multiplicity():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.diag([np.sqrt(2.0), 2.0]),
+        np.diag([np.sqrt(2.0), 2.0]),
+        np.zeros((2, 2)),
+    )
+
+    np.testing.assert_allclose(system.hankel_singular_values(), [1.0, 1.0])
+
+
+@pytest.mark.parametrize("empty_channel", ["input", "output"])
+def test_hankel_singular_values_are_zero_with_empty_channel(empty_channel):
+    B = np.empty((2, 0)) if empty_channel == "input" else np.eye(2)
+    C = np.empty((0, 2)) if empty_channel == "output" else np.eye(2)
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        B,
+        C,
+        np.empty((C.shape[0], B.shape[1])),
+    )
+
+    np.testing.assert_array_equal(system.hankel_singular_values(), np.zeros(2))
+
+
+def test_hankel_singular_values_are_invariant_under_state_similarity():
+    system = StateSpace(*valid_matrices())
+    transformation = np.array([[2.0, 1.0], [0.0, 1.0]])
+    inverse_transformation = np.linalg.inv(transformation)
+    transformed_system = StateSpace(
+        transformation @ system.A @ inverse_transformation,
+        transformation @ system.B,
+        system.C @ inverse_transformation,
+        system.D,
+    )
+
+    np.testing.assert_allclose(
+        transformed_system.hankel_singular_values(),
+        system.hankel_singular_values(),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+@pytest.mark.parametrize("nonstable_eigenvalue", [0.0, 1.0])
+def test_hankel_singular_values_reject_nonstable_system(nonstable_eigenvalue):
+    system = StateSpace(
+        np.diag([-1.0, nonstable_eigenvalue]),
+        np.eye(2),
+        np.eye(2),
+        np.zeros((2, 2)),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="controllability Gramian requires an asymptotically stable system",
+    ):
+        system.hankel_singular_values()
+
+
 def test_fully_observable_unstable_system_is_detectable():
     system = StateSpace(
         np.diag([-1.0, 2.0]),

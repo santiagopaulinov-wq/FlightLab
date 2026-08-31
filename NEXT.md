@@ -33,14 +33,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `fe1c5cf941893d181316ac7ce515ec2b689f5f60`
-- Pre-checkpoint message: `feat: add controllability Gramian`
-- The current checkpoint adds the dual stable continuous-time observability
-  Gramian.
+  `8ff66c41ccbbbb70b79ef2b03431add53138e609`
+- Pre-checkpoint message: `feat: add observability Gramian`
+- The current checkpoint adds stable-system continuous-time Hankel singular
+  values derived from the verified Gramian pair.
 
 ## Current verification baseline
 
-- Test count: 479 tests.
+- Test count: 486 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -53,6 +53,9 @@ or EXACT set matching for both inclusions and exclusions.
 - Infinite-horizon observability Gramian for asymptotically stable systems,
   defined by `A.T Wo + Wo A + C.T C = 0` with the same NumPy-only solve and
   exact returned symmetry.
+- Hankel singular values `sqrt(eigvals(Wc Wo))` for asymptotically stable
+  systems, returned as a descending real nonnegative vector with multiplicity
+  preserved through a validated symmetric positive-semidefinite formulation.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -472,19 +475,18 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Stable-system Hankel singular values
+### Hankel singular value structural consistency
 
-Add Hankel singular values for asymptotically stable `StateSpace` systems,
-derived from the verified controllability and observability Gramians. Preserve
-all current APIs and add no dependencies.
+Add focused verification that zero Hankel singular values agree with deficient
+controllability or observability and that fully controllable and observable
+stable realizations have strictly positive values. Preserve all current APIs.
 
 ## Suggested implementation direction
 
-- Compute real nonnegative values from the verified Gramian pair using a
-  symmetric positive-semidefinite formulation rather than directly trusting
-  nonsymmetric floating-point eigenvalues of `Wc @ Wo`.
-- Return values in descending order and preserve multiplicity.
-- Reuse the Gramian stability errors without changing either Gramian API.
+- Use small stable diagonal systems with individually unreachable or
+  unobservable states and one minimal stable realization.
+- Compare zero-value multiplicity with the established controllability and
+  observability ranks without introducing a new numerical rank convention.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -493,8 +495,8 @@ all current APIs and add no dependencies.
 
 ## Focused tests to add
 
-- Verify an analytic diagonal system, ordering and multiplicity, zero-channel
-  values, and invariance under a simple state-coordinate similarity transform.
+- Verify zero-value multiplicity and strictly positive values against existing
+  structural ranks.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 
