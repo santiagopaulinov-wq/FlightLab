@@ -200,6 +200,147 @@ def test_frequency_response_rejects_invalid_frequency_dimensions(frequencies):
         system.frequency_response(frequencies)
 
 
+def test_frequency_response_singular_value_equals_siso_response_magnitude():
+    system = StateSpace([[-2.0]], [[3.0]], [[4.0]], [[0.5]])
+    frequency = 1.5
+
+    values = system.frequency_response_singular_values(frequency)
+
+    assert values.shape == (1,)
+    assert values.dtype == float
+    assert np.all(values >= 0.0)
+    np.testing.assert_allclose(
+        values, [abs(system.frequency_response(frequency)[0, 0])]
+    )
+
+
+def test_frequency_response_singular_values_match_analytic_diagonal_mimo():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.eye(2),
+        np.diag([1.0, 4.0]),
+        np.zeros((2, 2)),
+    )
+
+    values = system.frequency_response_singular_values(0.0)
+
+    np.testing.assert_allclose(values, [2.0, 1.0])
+    assert np.all(np.diff(values) <= 0.0)
+
+
+def test_frequency_response_singular_values_match_numpy_svd_for_general_mimo():
+    system = StateSpace(
+        [[-2.0, 1.0], [-1.0, -3.0]],
+        [[1.0, 0.5], [0.25, 1.0]],
+        [[1.0, 0.2], [-0.4, 1.0], [0.5, -0.3]],
+        [[0.1, 0.0], [0.0, -0.2], [0.3, 0.4]],
+    )
+    frequencies = np.array([3.0, 0.0, 1.5])
+
+    values = system.frequency_response_singular_values(frequencies)
+    expected = np.linalg.svd(
+        system.frequency_response(frequencies), compute_uv=False
+    )
+
+    assert values.shape == (3, 2)
+    np.testing.assert_allclose(values, expected)
+
+
+def test_frequency_response_singular_values_preserve_scalar_and_vector_order():
+    system = StateSpace([[-2.0]], [[3.0]], [[4.0]], [[0.5]])
+    frequencies = np.array([3.0, 0.0, 1.5])
+
+    scalar_values = system.frequency_response_singular_values(3.0)
+    vector_values = system.frequency_response_singular_values(frequencies)
+
+    assert scalar_values.shape == (1,)
+    assert vector_values.shape == (3, 1)
+    for index, frequency in enumerate(frequencies):
+        np.testing.assert_array_equal(
+            vector_values[index],
+            system.frequency_response_singular_values(frequency),
+        )
+
+
+def test_frequency_response_singular_values_preserve_repeated_multiplicity():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.eye(2),
+        np.zeros((2, 2)),
+        2.0 * np.eye(2),
+    )
+
+    values = system.frequency_response_singular_values(4.0)
+
+    np.testing.assert_array_equal(values, [2.0, 2.0])
+
+
+@pytest.mark.parametrize(
+    ("B", "C", "D"),
+    [
+        (np.empty((2, 0)), np.eye(2), np.empty((2, 0))),
+        (np.eye(2), np.empty((0, 2)), np.empty((0, 2))),
+        (np.empty((2, 0)), np.empty((0, 2)), np.empty((0, 0))),
+    ],
+)
+def test_frequency_response_singular_values_preserve_empty_channels(B, C, D):
+    system = StateSpace(np.diag([-1.0, -2.0]), B, C, D)
+
+    scalar_values = system.frequency_response_singular_values(1.0)
+    vector_values = system.frequency_response_singular_values([0.0, 1.0, 2.0])
+
+    assert scalar_values.shape == (0,)
+    assert vector_values.shape == (3, 0)
+    assert scalar_values.dtype == float
+    assert vector_values.dtype == float
+
+
+def test_frequency_response_singular_values_include_direct_feedthrough():
+    D = np.array([[3.0, 0.0, 0.0], [0.0, -2.0, 0.0]])
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.ones((2, 3)),
+        np.zeros((2, 2)),
+        D,
+    )
+
+    values = system.frequency_response_singular_values([0.0, 5.0])
+
+    np.testing.assert_allclose(values, [[3.0, 2.0], [3.0, 2.0]])
+
+
+def test_frequency_response_singular_values_preserve_pole_error():
+    system = StateSpace(
+        [[0.0, -1.0], [1.0, 0.0]],
+        [[1.0], [0.0]],
+        [[1.0, 0.0]],
+        [[0.0]],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"frequency response is undefined at angular frequency 1\.0 rad/s",
+    ):
+        system.frequency_response_singular_values(1.0)
+
+
+@pytest.mark.parametrize(
+    ("frequencies", "error_type", "message"),
+    [
+        (np.nan, ValueError, "must contain only finite values"),
+        (1.0 + 0.0j, TypeError, "must be real numeric values"),
+        ([[0.0, 1.0]], ValueError, "must be a real scalar or 1D array"),
+    ],
+)
+def test_frequency_response_singular_values_preserve_frequency_validation(
+    frequencies, error_type, message
+):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(error_type, match=message):
+        system.frequency_response_singular_values(frequencies)
+
+
 def test_fully_controllable_system_has_full_controllability_rank():
     system = StateSpace(*valid_matrices())
 

@@ -31,7 +31,8 @@ indices using each model's established physical state labels without changing
 generic modal results, and likewise interprets dominant input and output
 indices using the models' established channel ordering.
 Every `StateSpace` can also evaluate its complex continuous-time transfer
-matrix at explicit real angular frequencies without requiring stability.
+matrix and its descending singular values at explicit real angular frequencies
+without requiring stability.
 Both aircraft models can filter these immutable interpreted families by their
 existing oscillatory status, mathematical stability, and exact dominant
 state/input/output labels, with configurable global or per-category ANY, ALL,
@@ -40,14 +41,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `7615e79169022f5e7467b07d685da673b64786ef`
-- Pre-checkpoint message: `feat: add balanced truncation error bound`
-- The current checkpoint adds NumPy-only continuous-time frequency-response
-  evaluation at explicit angular frequencies.
+  `3b49b95b2b33a63158a68758691ab6ba8662b0d5`
+- Pre-checkpoint message: `feat: add state-space frequency response`
+- The current checkpoint adds transfer-matrix singular values at explicit
+  angular frequencies.
 
 ## Current verification baseline
 
-- Test count: 537 tests.
+- Test count: 550 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -115,6 +116,15 @@ or EXACT set matching for both inclusions and exclusions.
   exact imaginary-axis pole raises a clear `ValueError`, including when there
   are no input channels. Nonfinite, complex, empty-vector, and non-scalar/non-1D
   inputs are rejected. No grid selection or H-infinity estimation is performed.
+- `StateSpace.frequency_response_singular_values(angular_frequencies)` reuses
+  `frequency_response()` and applies NumPy SVD independently to each returned
+  transfer matrix. It therefore inherits rad/s units, caller ordering,
+  feedthrough, validation, stability independence, and exact-pole errors.
+- Singular values are real, nonnegative, descending, and multiplicity-
+  preserving. Scalar input returns `(min(n_outputs, n_inputs),)` and vector
+  input returns `(n_frequencies, min(n_outputs, n_inputs))`; empty channels
+  preserve a zero final dimension. No grid selection, maximization, or
+  H-infinity estimation is performed.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -534,20 +544,18 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Explicit frequency-response singular values
+### Explicit frequency-response singular directions
 
-Add MIMO transfer-matrix singular values at caller-supplied angular frequencies
-as a thin analysis layer over the verified frequency response. Do not maximize
-over frequency or select a grid.
+Add left and right singular vectors for transfer matrices at caller-supplied
+angular frequencies, extending the verified singular-value analysis without
+selecting or maximizing over a grid.
 
 ## Suggested implementation direction
 
-- Reuse `frequency_response()` exactly and apply NumPy SVD independently at
-  each supplied frequency.
-- Return real nonnegative singular values in descending order with explicit
-  scalar/vector and empty-channel shapes.
-- Do not maximize, interpolate, estimate an H-infinity norm, or select a
-  frequency grid or balanced-truncation order.
+- Reuse `frequency_response()` and one NumPy SVD per requested frequency.
+- Return input and output singular directions with explicit scalar/vector,
+  channel-order, and phase/sign ambiguity documentation.
+- Do not maximize, interpolate, estimate an H-infinity norm, or select a grid.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -556,8 +564,9 @@ over frequency or select a grid.
 
 ## Focused tests to add
 
-- Verify analytic SISO magnitude, MIMO descending order, scalar/vector shapes,
-  empty-channel behavior, and direct consistency with `frequency_response()`.
+- Verify reconstruction of each transfer matrix from singular triplets,
+  orthonormality, scalar/vector shapes, empty channels, and repeated-value
+  ambiguity without asserting a particular phase convention.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 

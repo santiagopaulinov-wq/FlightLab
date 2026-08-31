@@ -85,3 +85,20 @@ The system need not be stable. Evaluation is valid wherever
 `ValueError`; nonfinite, complex, empty-vector, and higher-dimensional inputs
 are rejected clearly. The method uses linear solves, selects no grid, and does
 not estimate an H-infinity norm.
+
+## Transfer-matrix singular values
+
+`system.frequency_response_singular_values(angular_frequencies)` applies
+`np.linalg.svd(..., compute_uv=False)` to each transfer matrix returned by
+`frequency_response()`. Frequencies use the same rad/s units, scalar/vector
+forms, ordering, validation, and exact-pole behavior.
+
+For `k = min(n_outputs, n_inputs)`, a scalar frequency returns a real
+nonnegative array with shape `(k,)`; a frequency vector returns
+`(n_frequencies, k)`. Values are descending at each frequency and repeated
+values retain their multiplicity. Empty input or output channels produce
+`(0,)` or `(n_frequencies, 0)` as appropriate.
+
+These values describe directional gains of `G(j omega)` only at the explicitly
+requested frequencies. The method selects no grid, performs no maximization,
+and does not estimate an H-infinity norm.

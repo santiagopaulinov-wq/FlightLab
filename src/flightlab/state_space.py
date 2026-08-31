@@ -643,6 +643,30 @@ class StateSpace:
 
         return response[0] if scalar_input else response
 
+    def frequency_response_singular_values(self, angular_frequencies):
+        """Return singular values of ``G(j omega)`` at frequencies in rad/s.
+
+        This is a thin layer over :meth:`frequency_response` and therefore
+        accepts the same finite real scalar or one-dimensional frequency input
+        and preserves its ordering, validation, and pole errors. Singular
+        values are real, nonnegative, preserve multiplicity, and are returned
+        in descending order for each transfer matrix.
+
+        A scalar frequency returns shape ``(min(n_outputs, n_inputs),)``. A
+        frequency vector returns shape
+        ``(n_frequencies, min(n_outputs, n_inputs))``. If either channel
+        dimension is zero, the corresponding final dimension is zero. This
+        method selects no grid and performs no maximization or H-infinity norm
+        estimation.
+        """
+        response = self.frequency_response(angular_frequencies)
+        singular_value_count = min(self.n_outputs, self.n_inputs)
+        if singular_value_count == 0:
+            return np.empty(response.shape[:-2] + (0,), dtype=float)
+        return np.asarray(
+            np.linalg.svd(response, compute_uv=False), dtype=float
+        )
+
     def controllability_matrix(self):
         """Return ``[B, A B, ..., A^(n-1) B]`` for the continuous-time system."""
         blocks = []
