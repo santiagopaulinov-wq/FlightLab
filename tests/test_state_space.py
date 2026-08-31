@@ -462,6 +462,26 @@ def test_nonstable_pbh_diagnostics_preserve_defective_eigenvalue_multiplicity():
     )
 
 
+def test_nonstable_pbh_diagnostics_distinguish_all_nonstable_outcomes():
+    system = StateSpace(
+        np.diag([1.0, 2.0, 3.0, 4.0]),
+        [[0.0], [1.0], [0.0], [1.0]],
+        [[1.0, 0.0, 0.0, 1.0]],
+        [[0.0]],
+    )
+
+    eigenvalues = system.eigenvalues()
+    diagnostics = system.nonstable_pbh_diagnostics()
+
+    np.testing.assert_array_equal(eigenvalues, [1.0, 2.0, 3.0, 4.0])
+    assert diagnostics == (
+        NonstablePBHDiagnostic(eigenvalues[0], True, False),
+        NonstablePBHDiagnostic(eigenvalues[1], False, True),
+        NonstablePBHDiagnostic(eigenvalues[2], True, True),
+    )
+    assert all(diagnostic.eigenvalue != eigenvalues[3] for diagnostic in diagnostics)
+
+
 def test_eigenvalues_and_asymptotic_stability_for_stable_system():
     system = StateSpace(*valid_matrices())
 

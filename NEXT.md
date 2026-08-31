@@ -33,14 +33,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `0691542fdba1ade019a9adbbd212dd79df3ed932`
-- Pre-checkpoint message: `test: cover nonstable PBH diagnostic ordering`
-- The current checkpoint adds focused defective-Jordan-block PBH diagnostic
-  coverage without changing production behavior.
+  `5de14f28572b7697bcf62fe0d2f06e0d6d20daf9`
+- Pre-checkpoint message: `test: cover defective PBH diagnostics`
+- The current checkpoint adds focused mixed-outcome PBH diagnostic coverage
+  without changing production behavior.
 
 ## Current verification baseline
 
-- Test count: 452 tests.
+- Test count: 453 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -64,6 +64,9 @@ or EXACT set matching for both inclusions and exclusions.
 - A defective nonstable Jordan block is verified to retain one diagnostic per
   algebraic eigenvalue occurrence in `eigenvalues()` order despite having only
   one independent eigenvector.
+- One explicit multistate system verifies controllability-only,
+  observability-only, and combined PBH failure flags in eigenvalue order while
+  a fourth nonstable mode that passes both conditions is omitted.
 
 ## Important existing capabilities
 
@@ -442,19 +445,19 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Mixed PBH diagnostic classification verification
+### PBH diagnostic and structural-check consistency verification
 
-Add one focused multistate test verifying that controllability-only,
-observability-only, and combined nonstable PBH failures retain their correct
-flags and eigenvalue order while a passing nonstable mode is omitted. Preserve
-all current APIs and diagnostic omission semantics.
+Add focused tests verifying that the aggregate nonstable diagnostic flags agree
+with `StateSpace.is_stabilizable()` and `StateSpace.is_detectable()` across
+representative passing and failing systems. Preserve all current APIs and the
+established NumPy rank convention.
 
 ## Suggested implementation direction
 
-- Use a small deterministic diagonal system with independently selected input
-  and output channels.
-- Verify each failing mode's exact diagnostic flags and original eigenvalue
-  order, with one passing nonstable mode omitted.
+- Reuse small deterministic synthetic systems with unambiguous PBH ranks.
+- Verify stabilizability exactly matches the absence of controllability-failure
+  flags and detectability exactly matches the absence of
+  observability-failure flags.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -463,7 +466,7 @@ all current APIs and diagnostic omission semantics.
 
 ## Focused tests to add
 
-- Verify mixed PBH failure classifications and passing-mode omission together.
+- Verify diagnostic aggregates remain consistent with both structural checks.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 
