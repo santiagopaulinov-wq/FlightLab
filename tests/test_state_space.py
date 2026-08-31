@@ -4,6 +4,7 @@ import pytest
 from flightlab.state_space import (
     BalancedRealization,
     BalancedTruncation,
+    FrequencyResponseSingularDirections,
     ModalFamily,
     ModalProperties,
     ModalStateCharacterization,
@@ -339,6 +340,186 @@ def test_frequency_response_singular_values_preserve_frequency_validation(
 
     with pytest.raises(error_type, match=message):
         system.frequency_response_singular_values(frequencies)
+
+
+def test_frequency_response_singular_directions_reconstruct_siso_response():
+    system = StateSpace([[-2.0]], [[3.0]], [[4.0]], [[0.5]])
+    frequency = 1.5
+
+    result = system.frequency_response_singular_directions(frequency)
+    reconstructed = (
+        result.left_singular_directions
+        @ np.diag(result.singular_values)
+        @ result.right_singular_directions.conj().T
+    )
+
+    assert isinstance(result, FrequencyResponseSingularDirections)
+    np.testing.assert_allclose(reconstructed, system.frequency_response(frequency))
+
+
+def test_frequency_response_singular_directions_reconstruct_rectangular_mimo():
+    system = StateSpace(
+        [[-2.0, 1.0], [-1.0, -3.0]],
+        [[1.0, 0.5], [0.25, 1.0]],
+        [[1.0, 0.2], [-0.4, 1.0], [0.5, -0.3]],
+        [[0.1, 0.0], [0.0, -0.2], [0.3, 0.4]],
+    )
+    frequency = 2.0
+
+    result = system.frequency_response_singular_directions(frequency)
+    reconstructed = (
+        result.left_singular_directions
+        @ np.diag(result.singular_values)
+        @ result.right_singular_directions.conj().T
+    )
+
+    assert result.singular_values.shape == (2,)
+    assert result.left_singular_directions.shape == (3, 2)
+    assert result.right_singular_directions.shape == (2, 2)
+    np.testing.assert_allclose(reconstructed, system.frequency_response(frequency))
+
+
+def test_frequency_response_singular_direction_values_match_existing_api():
+    system = StateSpace(
+        [[-2.0, 1.0], [-1.0, -3.0]],
+        [[1.0, 0.5], [0.25, 1.0]],
+        [[1.0, 0.2], [-0.4, 1.0], [0.5, -0.3]],
+        [[0.1, 0.0], [0.0, -0.2], [0.3, 0.4]],
+    )
+    frequencies = np.array([3.0, 0.0, 1.5])
+
+    result = system.frequency_response_singular_directions(frequencies)
+
+    np.testing.assert_array_equal(
+        result.singular_values,
+        system.frequency_response_singular_values(frequencies),
+    )
+
+
+def test_frequency_response_singular_directions_are_orthonormal():
+    system = StateSpace(
+        [[-2.0, 1.0], [-1.0, -3.0]],
+        [[1.0, 0.5], [0.25, 1.0]],
+        [[1.0, 0.2], [-0.4, 1.0], [0.5, -0.3]],
+        [[0.1, 0.0], [0.0, -0.2], [0.3, 0.4]],
+    )
+
+    result = system.frequency_response_singular_directions([0.0, 1.5])
+
+    for left, right in zip(
+        result.left_singular_directions,
+        result.right_singular_directions,
+        strict=True,
+    ):
+        np.testing.assert_allclose(left.conj().T @ left, np.eye(2), atol=1e-12)
+        np.testing.assert_allclose(right.conj().T @ right, np.eye(2), atol=1e-12)
+
+
+def test_frequency_response_singular_direction_scalar_and_vector_shapes():
+    system = StateSpace(
+        [[-2.0]],
+        [[1.0, 2.0, 3.0]],
+        [[4.0], [5.0]],
+        np.zeros((2, 3)),
+    )
+    frequencies = np.array([3.0, 0.0, 1.5])
+
+    scalar = system.frequency_response_singular_directions(3.0)
+    vector = system.frequency_response_singular_directions(frequencies)
+
+    assert scalar.singular_values.shape == (2,)
+    assert scalar.left_singular_directions.shape == (2, 2)
+    assert scalar.right_singular_directions.shape == (3, 2)
+    assert vector.singular_values.shape == (3, 2)
+    assert vector.left_singular_directions.shape == (3, 2, 2)
+    assert vector.right_singular_directions.shape == (3, 3, 2)
+    for index, frequency in enumerate(frequencies):
+        individual = system.frequency_response_singular_directions(frequency)
+        np.testing.assert_array_equal(
+            vector.singular_values[index], individual.singular_values
+        )
+        reconstructed = (
+            vector.left_singular_directions[index]
+            @ np.diag(vector.singular_values[index])
+            @ vector.right_singular_directions[index].conj().T
+        )
+        np.testing.assert_allclose(reconstructed, system.frequency_response(frequency))
+
+
+def test_frequency_response_singular_directions_preserve_channel_ordering():
+    D = np.array([[0.0, 3.0], [2.0, 0.0]])
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.eye(2),
+        np.zeros((2, 2)),
+        D,
+    )
+
+    result = system.frequency_response_singular_directions(1.0)
+
+    np.testing.assert_allclose(result.singular_values, [3.0, 2.0])
+    np.testing.assert_allclose(
+        np.abs(result.left_singular_directions), np.eye(2)
+    )
+    np.testing.assert_allclose(
+        np.abs(result.right_singular_directions), [[0.0, 1.0], [1.0, 0.0]]
+    )
+
+
+@pytest.mark.parametrize(
+    ("B", "C", "D", "left_rows", "right_rows"),
+    [
+        (np.empty((2, 0)), np.eye(2), np.empty((2, 0)), 2, 0),
+        (np.eye(2), np.empty((0, 2)), np.empty((0, 2)), 0, 2),
+        (np.empty((2, 0)), np.empty((0, 2)), np.empty((0, 0)), 0, 0),
+    ],
+)
+def test_frequency_response_singular_directions_preserve_empty_channels(
+    B, C, D, left_rows, right_rows
+):
+    system = StateSpace(np.diag([-1.0, -2.0]), B, C, D)
+
+    scalar = system.frequency_response_singular_directions(1.0)
+    vector = system.frequency_response_singular_directions([0.0, 1.0, 2.0])
+
+    assert scalar.singular_values.shape == (0,)
+    assert scalar.left_singular_directions.shape == (left_rows, 0)
+    assert scalar.right_singular_directions.shape == (right_rows, 0)
+    assert vector.singular_values.shape == (3, 0)
+    assert vector.left_singular_directions.shape == (3, left_rows, 0)
+    assert vector.right_singular_directions.shape == (3, right_rows, 0)
+
+
+def test_frequency_response_singular_directions_preserve_pole_error():
+    system = StateSpace(
+        [[0.0, -1.0], [1.0, 0.0]],
+        [[1.0], [0.0]],
+        [[1.0, 0.0]],
+        [[0.0]],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"frequency response is undefined at angular frequency 1\.0 rad/s",
+    ):
+        system.frequency_response_singular_directions(1.0)
+
+
+@pytest.mark.parametrize(
+    ("frequencies", "error_type", "message"),
+    [
+        (np.nan, ValueError, "must contain only finite values"),
+        (1.0 + 0.0j, TypeError, "must be real numeric values"),
+        ([[0.0, 1.0]], ValueError, "must be a real scalar or 1D array"),
+    ],
+)
+def test_frequency_response_singular_directions_preserve_frequency_validation(
+    frequencies, error_type, message
+):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(error_type, match=message):
+        system.frequency_response_singular_directions(frequencies)
 
 
 def test_fully_controllable_system_has_full_controllability_rank():

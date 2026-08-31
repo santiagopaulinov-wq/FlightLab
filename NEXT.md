@@ -31,8 +31,8 @@ indices using each model's established physical state labels without changing
 generic modal results, and likewise interprets dominant input and output
 indices using the models' established channel ordering.
 Every `StateSpace` can also evaluate its complex continuous-time transfer
-matrix and its descending singular values at explicit real angular frequencies
-without requiring stability.
+matrix, descending singular values, and corresponding input/output singular
+directions at explicit real angular frequencies without requiring stability.
 Both aircraft models can filter these immutable interpreted families by their
 existing oscillatory status, mathematical stability, and exact dominant
 state/input/output labels, with configurable global or per-category ANY, ALL,
@@ -41,14 +41,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `3b49b95b2b33a63158a68758691ab6ba8662b0d5`
-- Pre-checkpoint message: `feat: add state-space frequency response`
-- The current checkpoint adds transfer-matrix singular values at explicit
-  angular frequencies.
+  `adff669972f41d3b8b6cf5158345c723655e59c6`
+- Pre-checkpoint message: `feat: add frequency-response singular values`
+- The current checkpoint adds left and right transfer-matrix singular
+  directions at explicit angular frequencies.
 
 ## Current verification baseline
 
-- Test count: 550 tests.
+- Test count: 563 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -125,6 +125,17 @@ or EXACT set matching for both inclusions and exclusions.
   input returns `(n_frequencies, min(n_outputs, n_inputs))`; empty channels
   preserve a zero final dimension. No grid selection, maximization, or
   H-infinity estimation is performed.
+- `StateSpace.frequency_response_singular_directions(angular_frequencies)`
+  returns immutable reduced-SVD triplets with `G = U diag(sigma) V^H`, reusing
+  `frequency_response()` for rad/s units, ordering, validation, and pole errors.
+- With `p` outputs, `m` inputs, and `k = min(p, m)`, scalar shapes are `(k,)`,
+  `(p, k)`, and `(m, k)` for singular values, left directions `U`, and right
+  directions `V`; vector input prepends the frequency dimension. Empty channel
+  cases retain these shapes with `k = 0`.
+- Rows of `U` follow output-channel order and rows of `V` follow input-channel
+  order. No phase normalization is imposed: paired directions have arbitrary
+  unit-magnitude complex phase, and repeated-value subspaces may rotate. Tests
+  therefore verify reconstruction and orthonormality rather than raw phases.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -544,18 +555,20 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Explicit frequency-response singular directions
+### Explicit balanced-truncation frequency-error samples
 
-Add left and right singular vectors for transfer matrices at caller-supplied
-angular frequencies, extending the verified singular-value analysis without
-selecting or maximizing over a grid.
+Add a caller-frequency diagnostic comparing an original `StateSpace` with its
+explicit-order balanced truncation, while keeping samples distinct from the
+existing global a priori H-infinity bound.
 
 ## Suggested implementation direction
 
-- Reuse `frequency_response()` and one NumPy SVD per requested frequency.
-- Return input and output singular directions with explicit scalar/vector,
-  channel-order, and phase/sign ambiguity documentation.
-- Do not maximize, interpolate, estimate an H-infinity norm, or select a grid.
+- Reuse `balanced_truncation(r)` and evaluate both the original and returned
+  reduced system through `frequency_response()` at the caller's frequencies.
+- Report `G(j omega) - G_r(j omega)` and its singular values with the verified
+  scalar/vector and empty-channel conventions.
+- Do not maximize, interpolate, treat samples as an H-infinity estimate, select
+  a grid, or change the global a priori error bound.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -564,9 +577,9 @@ selecting or maximizing over a grid.
 
 ## Focused tests to add
 
-- Verify reconstruction of each transfer matrix from singular triplets,
-  orthonormality, scalar/vector shapes, empty channels, and repeated-value
-  ambiguity without asserting a particular phase convention.
+- Verify analytic diagonal cases, direct equality with separate full/reduced
+  evaluations, shape conventions, and clear separation between sampled local
+  gains and the existing global bound.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 

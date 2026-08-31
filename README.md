@@ -102,3 +102,25 @@ values retain their multiplicity. Empty input or output channels produce
 These values describe directional gains of `G(j omega)` only at the explicitly
 requested frequencies. The method selects no grid, performs no maximization,
 and does not estimate an H-infinity norm.
+
+## Transfer-matrix singular directions
+
+`system.frequency_response_singular_directions(angular_frequencies)` returns
+an immutable `FrequencyResponseSingularDirections` with reduced-SVD singular
+values, left directions `U`, and right directions `V`:
+
+```text
+G(j omega) = U @ diag(singular_values) @ V.conj().T
+```
+
+For `p` outputs, `m` inputs, and `k = min(p, m)`, scalar shapes are `(k,)`,
+`(p, k)`, and `(m, k)`. A vector of `f` frequencies returns `(f, k)`,
+`(f, p, k)`, and `(f, m, k)`. Empty channels use the same conventions with
+`k = 0`. Rows of `U` follow output-channel order; rows of `V` follow
+input-channel order. Frequencies remain in rad/s and inherit all validation and
+pole behavior from `frequency_response()`.
+
+Singular directions are not unique. Each paired direction may differ by an
+arbitrary unit-magnitude complex phase, and bases within repeated-singular-value
+subspaces may rotate. No phase normalization is imposed. The API selects no
+grid and performs no maximization or H-infinity estimation.

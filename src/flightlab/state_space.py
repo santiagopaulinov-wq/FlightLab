@@ -282,6 +282,22 @@ class BalancedTruncation(NamedTuple):
     a_priori_error_bound: float
 
 
+class FrequencyResponseSingularDirections(NamedTuple):
+    """Reduced singular triplets for transfer matrices at explicit frequencies.
+
+    ``left_singular_directions`` is ``U`` and
+    ``right_singular_directions`` is ``V``, so each transfer matrix reconstructs
+    as ``U @ diag(singular_values) @ V.conj().T``. Rows of ``U`` follow output
+    channel order; rows of ``V`` follow input channel order. Individual vectors
+    have arbitrary unit-magnitude complex phase, and bases within repeated-
+    singular-value subspaces may rotate.
+    """
+
+    singular_values: np.ndarray
+    left_singular_directions: np.ndarray
+    right_singular_directions: np.ndarray
+
+
 class ModalStateSpace(NamedTuple):
     """System matrices expressed in biorthogonal modal coordinates."""
 
@@ -665,6 +681,42 @@ class StateSpace:
             return np.empty(response.shape[:-2] + (0,), dtype=float)
         return np.asarray(
             np.linalg.svd(response, compute_uv=False), dtype=float
+        )
+
+    def frequency_response_singular_directions(self, angular_frequencies):
+        """Return reduced singular triplets of ``G(j omega)`` in rad/s.
+
+        The method delegates frequency handling to :meth:`frequency_response`
+        and applies ``np.linalg.svd(..., full_matrices=False)`` directly. For
+        ``p`` outputs, ``m`` inputs, and ``k = min(p, m)``, scalar input returns
+        singular values with shape ``(k,)``, left directions ``U`` with shape
+        ``(p, k)``, and right directions ``V`` with shape ``(m, k)``. A vector
+        of ``f`` frequencies returns shapes ``(f, k)``, ``(f, p, k)``, and
+        ``(f, m, k)``. Empty channels preserve these shapes with ``k = 0``.
+
+        ``G = U @ diag(singular_values) @ V.conj().T``. Rows of ``U`` correspond
+        to output-channel order and rows of ``V`` to input-channel order.
+        Singular vectors are not unique: each paired direction may carry an
+        arbitrary unit-magnitude complex phase, and directions in a repeated-
+        singular-value subspace may rotate. No phase normalization is imposed.
+        This API selects no grid and performs no maximization or norm estimate.
+        """
+        response = self.frequency_response(angular_frequencies)
+        singular_value_count = min(self.n_outputs, self.n_inputs)
+        if singular_value_count == 0:
+            leading_shape = response.shape[:-2]
+            return FrequencyResponseSingularDirections(
+                np.empty(leading_shape + (0,), dtype=float),
+                np.empty(leading_shape + (self.n_outputs, 0), dtype=complex),
+                np.empty(leading_shape + (self.n_inputs, 0), dtype=complex),
+            )
+
+        left, singular_values, right_conjugate_transpose = np.linalg.svd(
+            response, full_matrices=False
+        )
+        right = np.swapaxes(right_conjugate_transpose.conj(), -2, -1)
+        return FrequencyResponseSingularDirections(
+            np.asarray(singular_values, dtype=float), left, right
         )
 
     def controllability_matrix(self):
