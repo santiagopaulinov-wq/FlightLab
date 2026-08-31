@@ -33,14 +33,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `69472f2e98f0671fe2cbba9f369f78173fd87e04`
-- Pre-checkpoint message: `test: cover mixed PBH diagnostic outcomes`
-- The current checkpoint verifies aggregate PBH diagnostic consistency with
-  stabilizability and detectability without changing production behavior.
+  `eebe245f382fda536d4bfe01df824ac78fe034a1`
+- Pre-checkpoint message: `test: verify PBH predicate consistency`
+- The current checkpoint verifies PBH predicate and diagnostic consistency at
+  the exact neutral boundary without changing production behavior.
 
 ## Current verification baseline
 
-- Test count: 457 tests.
+- Test count: 461 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -70,6 +70,9 @@ or EXACT set matching for both inclusions and exclusions.
 - Four representative systems verify that aggregate diagnostic failure flags
   are exactly consistent with `is_stabilizable()` and `is_detectable()`,
   including the fully passing case with no diagnostics.
+- The same four structural outcomes are verified for an eigenvalue exactly
+  equal to zero, including its treatment as nonstable and omission when both
+  PBH conditions pass.
 
 ## Important existing capabilities
 
@@ -448,18 +451,18 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Neutral-mode PBH consistency verification
+### Purely imaginary PBH consistency verification
 
-Add focused tests verifying aggregate diagnostic consistency with
-`StateSpace.is_stabilizable()` and `StateSpace.is_detectable()` at the exact
-continuous-time nonstable boundary, eigenvalue zero. Preserve all current APIs
-and the established NumPy rank convention.
+Add focused tests verifying that a purely imaginary complex-conjugate pair is
+treated as nonstable and remains consistent across diagnostics,
+`StateSpace.is_stabilizable()`, and `StateSpace.is_detectable()`. Preserve all
+current APIs and the established NumPy rank convention.
 
 ## Suggested implementation direction
 
-- Reuse a small deterministic diagonal system with one zero eigenvalue.
-- Cover passing and independently failing PBH conditions at the neutral mode,
-  preserving the existing inclusive nonstable boundary.
+- Use a small deterministic real system with a purely imaginary conjugate pair.
+- Verify separate ordered diagnostic entries for failing pair members and an
+  empty result when both PBH conditions pass.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -468,7 +471,7 @@ and the established NumPy rank convention.
 
 ## Focused tests to add
 
-- Verify neutral-mode diagnostic aggregates remain consistent with both
+- Verify purely imaginary pair diagnostics remain consistent with both
   structural checks.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
