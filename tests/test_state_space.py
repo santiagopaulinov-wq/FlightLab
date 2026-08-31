@@ -349,6 +349,79 @@ def test_hankel_singular_values_reject_nonstable_system(nonstable_eigenvalue):
         system.hankel_singular_values()
 
 
+def test_unreachable_stable_state_produces_one_zero_hankel_singular_value():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        [[1.0], [0.0]],
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    values = system.hankel_singular_values()
+
+    assert system.controllability_rank() == 1
+    assert system.observability_rank() == 2
+    assert np.count_nonzero(values == 0.0) == (
+        system.n_states - system.controllability_rank()
+    )
+    np.testing.assert_allclose(values, [0.5, 0.0])
+
+
+def test_unobservable_stable_state_produces_one_zero_hankel_singular_value():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.eye(2),
+        [[1.0, 0.0]],
+        np.zeros((1, 2)),
+    )
+
+    values = system.hankel_singular_values()
+
+    assert system.controllability_rank() == 2
+    assert system.observability_rank() == 1
+    assert np.count_nonzero(values == 0.0) == (
+        system.n_states - system.observability_rank()
+    )
+    np.testing.assert_allclose(values, [0.5, 0.0])
+
+
+def test_distinct_unreachable_and_unobservable_states_produce_two_zero_values():
+    system = StateSpace(
+        np.diag([-1.0, -2.0, -3.0]),
+        [[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]],
+        [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+        np.zeros((2, 2)),
+    )
+
+    values = system.hankel_singular_values()
+    controllability_deficiency = system.n_states - system.controllability_rank()
+    observability_deficiency = system.n_states - system.observability_rank()
+
+    assert controllability_deficiency == 1
+    assert observability_deficiency == 1
+    assert np.count_nonzero(values == 0.0) == (
+        controllability_deficiency + observability_deficiency
+    )
+    np.testing.assert_allclose(values, [0.5, 0.0, 0.0])
+
+
+def test_stable_minimal_realization_has_strictly_positive_hankel_values():
+    system = StateSpace(
+        np.diag([-1.0, -2.0, -3.0]),
+        np.eye(3),
+        np.eye(3),
+        np.zeros((3, 3)),
+    )
+
+    values = system.hankel_singular_values()
+
+    assert system.controllability_rank() == system.n_states
+    assert system.observability_rank() == system.n_states
+    assert system.is_minimal_realization() is True
+    assert np.all(values > 0.0)
+    np.testing.assert_allclose(values, [0.5, 0.25, 1.0 / 6.0])
+
+
 def test_fully_observable_unstable_system_is_detectable():
     system = StateSpace(
         np.diag([-1.0, 2.0]),

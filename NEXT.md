@@ -32,15 +32,15 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Checkpoint commit
 
-- Completed implementation commit:
-  `2461934676db145c360b91875c265af3f9e376d8`
-- Completed implementation message: `feat: add Hankel singular values`
-- This stopping checkpoint records the verified Gramian and stable-system
-  Hankel singular value foundation.
+- Pre-checkpoint commit:
+  `7fe310e46733c198a7819dbe8b4371e5600dade7`
+- Pre-checkpoint message: `docs: checkpoint Gramian foundation`
+- The current checkpoint verifies structural consistency between Hankel
+  singular values and the existing controllability and observability ranks.
 
 ## Current verification baseline
 
-- Test count: 486 tests.
+- Test count: 490 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -56,6 +56,9 @@ or EXACT set matching for both inclusions and exclusions.
 - Hankel singular values `sqrt(eigvals(Wc Wo))` for asymptotically stable
   systems, returned as a descending real nonnegative vector with multiplicity
   preserved through a validated symmetric positive-semidefinite formulation.
+- Stable unreachable and unobservable directions are verified to produce the
+  expected zero-value multiplicity, including distinct deficient directions;
+  stable minimal realizations are verified to have only positive values.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -475,18 +478,20 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Hankel singular value structural consistency
+### Stable minimal balanced-coordinate transformation
 
-Add focused verification that zero Hankel singular values agree with deficient
-controllability or observability and that fully controllable and observable
-stable realizations have strictly positive values. Preserve all current APIs.
+Add a general balanced-coordinate transformation for asymptotically stable
+minimal `StateSpace` systems, without truncating any states. Preserve all
+current APIs and add no dependencies.
 
 ## Suggested implementation direction
 
-- Use small stable diagonal systems with individually unreachable or
-  unobservable states and one minimal stable realization.
-- Compare zero-value multiplicity with the established controllability and
-  observability ranks without introducing a new numerical rank convention.
+- Derive a real nonsingular state transformation from the verified positive
+  definite Gramian pair.
+- Return a full-order equivalent realization whose controllability and
+  observability Gramians are both diagonal and equal to the existing Hankel
+  singular values.
+- Reject nonstable or nonminimal systems clearly; do not add truncation yet.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -495,8 +500,8 @@ stable realizations have strictly positive values. Preserve all current APIs.
 
 ## Focused tests to add
 
-- Verify zero-value multiplicity and strictly positive values against existing
-  structural ranks.
+- Verify input-output equivalence, equal diagonal balanced Gramians, Hankel
+  singular value preservation, and clear stability/minimality rejection.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 
