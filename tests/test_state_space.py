@@ -641,6 +641,67 @@ def test_balanced_truncation_retains_largest_hankel_singular_values():
     )
 
 
+def test_balanced_truncation_error_bound_matches_analytic_diagonal_system():
+    hankel_values = np.array([3.0, 0.5, 0.125])
+    decay_rates = np.array([1.0, 2.0, 4.0])
+    channel_gains = np.sqrt(2.0 * decay_rates * hankel_values)
+    system = StateSpace(
+        -np.diag(decay_rates),
+        np.diag(channel_gains),
+        np.diag(channel_gains),
+        np.zeros((3, 3)),
+    )
+
+    result = system.balanced_truncation(1)
+
+    np.testing.assert_allclose(system.hankel_singular_values(), hankel_values)
+    np.testing.assert_allclose(
+        result.discarded_hankel_singular_values, [0.5, 0.125]
+    )
+    assert result.a_priori_error_bound == pytest.approx(2.0 * (0.5 + 0.125))
+
+
+def test_balanced_truncation_error_bound_does_not_increase_with_retained_order():
+    hankel_values = np.array([3.0, 0.5, 0.125])
+    decay_rates = np.array([1.0, 2.0, 4.0])
+    channel_gains = np.sqrt(2.0 * decay_rates * hankel_values)
+    system = StateSpace(
+        -np.diag(decay_rates),
+        np.diag(channel_gains),
+        np.diag(channel_gains),
+        np.zeros((3, 3)),
+    )
+
+    order_one_bound = system.balanced_truncation(1).a_priori_error_bound
+    order_two_bound = system.balanced_truncation(2).a_priori_error_bound
+
+    assert order_two_bound <= order_one_bound
+    assert order_two_bound == pytest.approx(2.0 * 0.125)
+
+
+def test_balanced_truncation_error_bound_is_finite_real_and_nonnegative():
+    system = StateSpace(*stable_minimal_balancing_matrices())
+
+    bound = system.balanced_truncation(1).a_priori_error_bound
+
+    assert isinstance(bound, float)
+    assert np.isreal(bound)
+    assert np.isfinite(bound)
+    assert bound >= 0.0
+
+
+def test_zero_discarded_sum_is_full_order_fact_not_valid_truncation():
+    system = StateSpace(*stable_minimal_balancing_matrices())
+    values = system.hankel_singular_values()
+
+    assert float(2.0 * np.sum(values[system.n_states :])) == 0.0
+    assert system.balanced_truncation(1).a_priori_error_bound > 0.0
+    with pytest.raises(
+        ValueError, match="retained order must satisfy 1 <= r < n_states"
+    ):
+        system.balanced_truncation(system.n_states)
+
+
 @pytest.mark.parametrize("retained_order", [0, -1, 2, 3])
 def test_balanced_truncation_rejects_orders_outside_reduced_range(retained_order):
     system = StateSpace(*stable_minimal_balancing_matrices())
@@ -702,8 +763,14 @@ def test_balanced_truncation_is_stable_and_approximates_small_discarded_state():
 
     assert result.system.is_asymptotically_stable() is True
     np.testing.assert_allclose(result.retained_hankel_singular_values, [1.0])
-    assert np.max(np.abs(reduced_outputs - full_outputs)) <= (
+    np.testing.assert_allclose(
+        result.discarded_hankel_singular_values, [discarded_hankel_value]
+    )
+    assert result.a_priori_error_bound == pytest.approx(
         2.0 * discarded_hankel_value
+    )
+    assert np.max(np.abs(reduced_outputs - full_outputs)) <= (
+        result.a_priori_error_bound
     )
 
 

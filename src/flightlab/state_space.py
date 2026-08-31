@@ -267,6 +267,9 @@ class BalancedTruncation(NamedTuple):
     ``reconstruction @ x_reduced`` maps a reduced state back to the original
     state space with every discarded balanced coordinate set to zero. The
     reconstruction is therefore approximate in general.
+    ``a_priori_error_bound`` is twice the sum of
+    ``discarded_hankel_singular_values`` and bounds the induced input-output
+    H-infinity norm error; it is not a state-reconstruction bound or equality.
     """
 
     system: "StateSpace"
@@ -275,6 +278,8 @@ class BalancedTruncation(NamedTuple):
     reconstruction: np.ndarray
     balanced_transformation: np.ndarray
     retained_hankel_singular_values: np.ndarray
+    discarded_hankel_singular_values: np.ndarray
+    a_priori_error_bound: float
 
 
 class ModalStateSpace(NamedTuple):
@@ -849,6 +854,11 @@ class StateSpace:
         Consequently this is an approximate model reduction, not an equivalent
         coordinate transformation. Stability, minimality, and numerical
         factorization errors are inherited from :meth:`balanced_realization`.
+        ``a_priori_error_bound`` is the classical diagnostic
+        ``2 * sum(discarded_hankel_singular_values)`` satisfying
+        ``||G - G_r||_inf <= a_priori_error_bound`` for the input-output
+        induced H-infinity norm. It is an upper bound, not an equality, an
+        estimate of sampled response error, or a state-reconstruction bound.
         No order is selected automatically.
         """
         if isinstance(retained_order, (bool, np.bool_)) or not isinstance(
@@ -872,9 +882,20 @@ class StateSpace:
             balanced_system.C[:, :retained_order].copy(),
             balanced_system.D.copy(),
         )
-        retained_hankel_singular_values = self.hankel_singular_values()[
+        hankel_singular_values = self.hankel_singular_values()
+        retained_hankel_singular_values = hankel_singular_values[
             :retained_order
         ].copy()
+        discarded_hankel_singular_values = hankel_singular_values[
+            retained_order:
+        ].copy()
+        a_priori_error_bound = float(
+            2.0 * np.sum(discarded_hankel_singular_values, dtype=float)
+        )
+        if not np.isfinite(a_priori_error_bound) or a_priori_error_bound < 0.0:
+            raise ValueError(
+                "balanced truncation error bound must be finite and nonnegative"
+            )
         return BalancedTruncation(
             reduced_system,
             retained_order,
@@ -882,6 +903,8 @@ class StateSpace:
             reconstruction,
             transformation,
             retained_hankel_singular_values,
+            discarded_hankel_singular_values,
+            a_priori_error_bound,
         )
 
     def is_detectable(self):

@@ -50,3 +50,17 @@ model and reconstructed state are approximations. The reduced matrices are the
 leading balanced blocks, and `D` is preserved exactly. Stability, minimality,
 and numerical-factorization requirements are inherited from
 `balanced_realization()`.
+
+Each result also records `discarded_hankel_singular_values` and the diagnostic
+`a_priori_error_bound`:
+
+```text
+||G - G_r||_inf <= a_priori_error_bound
+a_priori_error_bound = 2 * sum(discarded_hankel_singular_values)
+```
+
+This is the classical continuous-time balanced-truncation upper bound for the
+input-output induced H-infinity norm error of the stable minimal original and
+its explicit-order reduced model. It is not generally an equality, does not
+estimate an error from sampled responses, and is not a state-reconstruction
+error bound. It is diagnostic only and does not select a retained order.

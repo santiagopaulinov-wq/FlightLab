@@ -24,10 +24,12 @@ immutable generic characterization per canonical family.
 Stable minimal realizations can also be transformed into full-order balanced
 coordinates, with no state truncation, through a real transformation using the
 convention `x = T z`, or explicitly reduced by retaining a caller-selected
-number of leading balanced coordinates. The aircraft-model layer can interpret
-dominant generic state indices using each model's established physical state
-labels without changing generic modal results, and likewise interprets
-dominant input and output indices using the models' established channel ordering.
+number of leading balanced coordinates. Each valid truncation reports the
+classical a priori induced H-infinity error bound from its discarded Hankel
+singular values. The aircraft-model layer can interpret dominant generic state
+indices using each model's established physical state labels without changing
+generic modal results, and likewise interprets dominant input and output
+indices using the models' established channel ordering.
 Both aircraft models can filter these immutable interpreted families by their
 existing oscillatory status, mathematical stability, and exact dominant
 state/input/output labels, with configurable global or per-category ANY, ALL,
@@ -36,14 +38,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `8a2293dd916e35d53a9e0cd8bb2279100da5455e`
-- Pre-checkpoint message: `feat: add balanced state-space realization`
-- The current checkpoint adds explicit retained-order balanced truncation for
-  stable minimal realizations.
+  `cd288457474a085327df329ac0d27bf8dbc657e8`
+- Pre-checkpoint message: `feat: add explicit balanced truncation`
+- The current checkpoint adds the classical a priori continuous-time balanced-
+  truncation error bound as a diagnostic.
 
 ## Current verification baseline
 
-- Test count: 515 tests.
+- Test count: 519 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -87,7 +89,19 @@ or EXACT set matching for both inclusions and exclusions.
   Reconstruction sets discarded coordinates to zero, so state reconstruction
   and reduced input-output behavior are explicitly approximate. A stable
   diagonal system with a separated discarded Hankel value verifies a bounded,
-  deterministic step-response discrepancy without adding an error-bound API.
+  deterministic step-response discrepancy against the diagnostic bound without
+  treating the sampled discrepancy as the induced-norm error.
+- Every `BalancedTruncation` records its discarded Hankel singular values and
+  finite real nonnegative `a_priori_error_bound`, computed exactly as
+  `2 * sum(discarded_hankel_singular_values)` from the original stable minimal
+  realization.
+- The bound satisfies the classical continuous-time statement
+  `||G - G_r||_inf <= bound` for the induced input-output H-infinity norm. It is
+  diagnostic only: not an equality claim, sampled-response estimate,
+  state-reconstruction bound, or automatic order-selection rule. Because valid
+  truncations require `r < n` and stable minimal Hankel values are positive,
+  their discarded sum is positive; the mathematically empty full-order tail is
+  verified separately without permitting `balanced_truncation(n)`.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -507,20 +521,20 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### A priori balanced-truncation error bound
+### Continuous-time frequency response
 
-Expose the classical continuous-time balanced-truncation upper bound from the
-discarded Hankel singular values for an existing explicit truncation order.
-Keep it diagnostic only and preserve caller-selected order.
+Add a generic NumPy-only `StateSpace` frequency-response evaluation at explicit
+real angular frequencies. This provides the next foundation for inspecting
+full and reduced input-output behavior without claiming an H-infinity norm.
 
 ## Suggested implementation direction
 
-- Derive the bound only from the existing descending Hankel singular values:
-  `2 * sum(hankel_singular_values[r:])`.
-- Document precisely the induced-norm assumptions and distinguish the a priori
-  bound from sampled time-response error.
-- Reuse the truncation order validation without selecting an order or changing
-  the reduced realization.
+- Evaluate `G(j omega) = C solve(j omega I - A, B) + D` for caller-supplied
+  finite nonnegative angular frequencies, preserving input/output ordering.
+- Return one complex transfer matrix per frequency with explicit shape and
+  singular-resolvent errors.
+- Do not maximize over frequency, estimate an H-infinity norm, or select a
+  balanced-truncation order.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -529,9 +543,8 @@ Keep it diagnostic only and preserve caller-selected order.
 
 ## Focused tests to add
 
-- Verify analytic diagonal cases, monotonicity with retained order, zero
-  discarded sum only where applicable, and rejection behavior inherited from
-  balancing and truncation.
+- Verify DC and nonzero-frequency analytic cases, MIMO shapes and ordering,
+  conjugate symmetry where applicable, and invalid frequency handling.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 
