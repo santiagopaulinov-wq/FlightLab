@@ -167,3 +167,24 @@ the reduction error at that frequency. These explicit samples are not an
 H-infinity estimate and do not generally equal the global
 `BalancedTruncation.a_priori_error_bound`. No grid, interpolation,
 maximization, or automatic order selection is performed.
+
+## Singular directions of balanced-truncation error samples
+
+`system.balanced_truncation_frequency_response_error_singular_directions(r,
+angular_frequencies)` returns an immutable
+`BalancedTruncationErrorSingularDirections` with the reduced SVD
+
+```text
+E(j omega) = Ue @ diag(error_singular_values) @ Ve.conj().T
+```
+
+For `p` original outputs, `m` original inputs, and `k = min(p, m)`, scalar
+shapes are `(k,)`, `(p, k)`, and `(m, k)`. A vector of `f` frequencies returns
+`(f, k)`, `(f, p, k)`, and `(f, m, k)`. Empty channels retain these conventions
+with `k = 0`. Rows of `Ue` follow original output-channel order; rows of `Ve`
+follow original input-channel order.
+
+Paired directions have arbitrary unit-magnitude complex phase, and bases within
+repeated-singular-value subspaces may rotate. No phase normalization is
+imposed. The API inherits all sampled-error validation and adds no grid,
+interpolation, maximization, H-infinity estimation, or order selection.

@@ -4,6 +4,7 @@ import pytest
 from flightlab.state_space import (
     BalancedRealization,
     BalancedTruncation,
+    BalancedTruncationErrorSingularDirections,
     FrequencyResponseSingularDirections,
     ModalFamily,
     ModalProperties,
@@ -1665,6 +1666,271 @@ def test_balanced_truncation_error_singular_values_preserve_underlying_errors(
 ):
     with pytest.raises(error_type, match=message):
         system.balanced_truncation_frequency_response_error_singular_values(
+            retained_order, frequency
+        )
+
+
+def test_balanced_truncation_error_singular_directions_reconstruct_siso_error():
+    system = StateSpace(
+        np.diag([-1.0, -4.0]),
+        [[1.0], [0.2]],
+        [[1.0, 0.3]],
+        [[0.1]],
+    )
+    frequency = 1.5
+
+    result = (
+        system.balanced_truncation_frequency_response_error_singular_directions(
+            1, frequency
+        )
+    )
+    reconstructed = (
+        result.left_error_singular_directions
+        @ np.diag(result.error_singular_values)
+        @ result.right_error_singular_directions.conj().T
+    )
+
+    assert isinstance(result, BalancedTruncationErrorSingularDirections)
+    np.testing.assert_allclose(
+        reconstructed,
+        system.balanced_truncation_frequency_response_error(1, frequency),
+    )
+
+
+def test_balanced_truncation_error_singular_directions_reconstruct_rectangular():
+    system = StateSpace(
+        [[-2.0, 1.0], [-1.0, -3.0]],
+        [[1.0, 0.5], [0.25, 1.0]],
+        [[1.0, 0.2], [-0.4, 1.0], [0.5, -0.3]],
+        [[0.1, 0.0], [0.0, -0.2], [0.3, 0.4]],
+    )
+    frequency = 2.0
+
+    result = (
+        system.balanced_truncation_frequency_response_error_singular_directions(
+            1, frequency
+        )
+    )
+    reconstructed = (
+        result.left_error_singular_directions
+        @ np.diag(result.error_singular_values)
+        @ result.right_error_singular_directions.conj().T
+    )
+
+    assert result.error_singular_values.shape == (2,)
+    assert result.left_error_singular_directions.shape == (3, 2)
+    assert result.right_error_singular_directions.shape == (2, 2)
+    np.testing.assert_allclose(
+        reconstructed,
+        system.balanced_truncation_frequency_response_error(1, frequency),
+    )
+
+
+def test_balanced_truncation_error_direction_values_match_existing_api():
+    system = StateSpace(*stable_minimal_balancing_matrices())
+    frequencies = np.array([3.0, 0.0, 1.5])
+
+    result = (
+        system.balanced_truncation_frequency_response_error_singular_directions(
+            1, frequencies
+        )
+    )
+
+    np.testing.assert_allclose(
+        result.error_singular_values,
+        system.balanced_truncation_frequency_response_error_singular_values(
+            1, frequencies
+        ),
+        rtol=1e-14,
+        atol=1e-18,
+    )
+
+
+def test_balanced_truncation_error_singular_directions_are_orthonormal():
+    system = StateSpace(
+        [[-2.0, 1.0], [-1.0, -3.0]],
+        [[1.0, 0.5], [0.25, 1.0]],
+        [[1.0, 0.2], [-0.4, 1.0], [0.5, -0.3]],
+        [[0.1, 0.0], [0.0, -0.2], [0.3, 0.4]],
+    )
+
+    result = (
+        system.balanced_truncation_frequency_response_error_singular_directions(
+            1, [0.0, 1.5]
+        )
+    )
+
+    for left, right in zip(
+        result.left_error_singular_directions,
+        result.right_error_singular_directions,
+        strict=True,
+    ):
+        np.testing.assert_allclose(left.conj().T @ left, np.eye(2), atol=1e-12)
+        np.testing.assert_allclose(right.conj().T @ right, np.eye(2), atol=1e-12)
+
+
+def test_balanced_truncation_error_direction_scalar_vector_shapes_and_order():
+    system = StateSpace(
+        [[-2.0, 0.5], [-0.25, -3.0]],
+        [[1.0, 2.0, 3.0], [0.5, -1.0, 1.5]],
+        [[4.0, 0.2], [0.3, 5.0]],
+        np.zeros((2, 3)),
+    )
+    frequencies = np.array([3.0, 0.0, 1.5])
+
+    scalar = (
+        system.balanced_truncation_frequency_response_error_singular_directions(
+            1, 3.0
+        )
+    )
+    vector = (
+        system.balanced_truncation_frequency_response_error_singular_directions(
+            1, frequencies
+        )
+    )
+
+    assert scalar.error_singular_values.shape == (2,)
+    assert scalar.left_error_singular_directions.shape == (2, 2)
+    assert scalar.right_error_singular_directions.shape == (3, 2)
+    assert vector.error_singular_values.shape == (3, 2)
+    assert vector.left_error_singular_directions.shape == (3, 2, 2)
+    assert vector.right_error_singular_directions.shape == (3, 3, 2)
+    for index, frequency in enumerate(frequencies):
+        reconstructed = (
+            vector.left_error_singular_directions[index]
+            @ np.diag(vector.error_singular_values[index])
+            @ vector.right_error_singular_directions[index].conj().T
+        )
+        np.testing.assert_allclose(
+            reconstructed,
+            system.balanced_truncation_frequency_response_error(1, frequency),
+        )
+
+
+def test_balanced_truncation_error_directions_preserve_channel_ordering(monkeypatch):
+    system = StateSpace(*stable_minimal_balancing_matrices())
+    error_matrix = np.array([[0.0, 3.0], [2.0, 0.0]], dtype=complex)
+    monkeypatch.setattr(
+        system,
+        "balanced_truncation_frequency_response_error",
+        lambda retained_order, angular_frequencies: error_matrix,
+    )
+
+    result = (
+        system.balanced_truncation_frequency_response_error_singular_directions(
+            1, 1.0
+        )
+    )
+
+    np.testing.assert_allclose(result.error_singular_values, [3.0, 2.0])
+    np.testing.assert_allclose(
+        np.abs(result.left_error_singular_directions), np.eye(2)
+    )
+    np.testing.assert_allclose(
+        np.abs(result.right_error_singular_directions),
+        [[0.0, 1.0], [1.0, 0.0]],
+    )
+
+
+@pytest.mark.parametrize(
+    ("error_shape", "left_rows", "right_rows"),
+    [((2, 0), 2, 0), ((0, 2), 0, 2), ((0, 0), 0, 0)],
+)
+def test_balanced_truncation_error_singular_directions_empty_channels(
+    monkeypatch, error_shape, left_rows, right_rows
+):
+    system = StateSpace(*stable_minimal_balancing_matrices())
+    monkeypatch.setattr(system, "n_outputs", error_shape[0])
+    monkeypatch.setattr(system, "n_inputs", error_shape[1])
+
+    def sampled_error(retained_order, angular_frequencies):
+        frequencies = np.asarray(angular_frequencies)
+        leading_shape = () if frequencies.ndim == 0 else (frequencies.size,)
+        return np.empty(leading_shape + error_shape, dtype=complex)
+
+    monkeypatch.setattr(
+        system, "balanced_truncation_frequency_response_error", sampled_error
+    )
+
+    scalar = (
+        system.balanced_truncation_frequency_response_error_singular_directions(
+            1, 1.0
+        )
+    )
+    vector = (
+        system.balanced_truncation_frequency_response_error_singular_directions(
+            1, [0.0, 1.0, 2.0]
+        )
+    )
+
+    assert scalar.error_singular_values.shape == (0,)
+    assert scalar.left_error_singular_directions.shape == (left_rows, 0)
+    assert scalar.right_error_singular_directions.shape == (right_rows, 0)
+    assert vector.error_singular_values.shape == (3, 0)
+    assert vector.left_error_singular_directions.shape == (3, left_rows, 0)
+    assert vector.right_error_singular_directions.shape == (3, right_rows, 0)
+
+
+@pytest.mark.parametrize(
+    ("system", "retained_order", "frequency", "error_type", "message"),
+    [
+        (
+            StateSpace(*stable_minimal_balancing_matrices()),
+            0,
+            1.0,
+            ValueError,
+            "retained order",
+        ),
+        (
+            StateSpace(
+                np.diag([-1.0, 1.0]),
+                np.eye(2),
+                np.eye(2),
+                np.zeros((2, 2)),
+            ),
+            1,
+            2.0,
+            ValueError,
+            "requires an asymptotically stable system",
+        ),
+        (
+            StateSpace(
+                np.diag([-1.0, -2.0]),
+                [[1.0], [0.0]],
+                [[1.0, 1.0]],
+                [[0.0]],
+            ),
+            1,
+            2.0,
+            ValueError,
+            "requires a minimal realization",
+        ),
+        (
+            StateSpace(
+                [[0.0, -1.0], [1.0, 0.0]],
+                [[1.0], [0.0]],
+                [[1.0, 0.0]],
+                [[0.0]],
+            ),
+            1,
+            1.0,
+            ValueError,
+            "frequency response is undefined",
+        ),
+        (
+            StateSpace(*stable_minimal_balancing_matrices()),
+            1,
+            np.nan,
+            ValueError,
+            "must contain only finite values",
+        ),
+    ],
+)
+def test_balanced_truncation_error_directions_preserve_underlying_errors(
+    system, retained_order, frequency, error_type, message
+):
+    with pytest.raises(error_type, match=message):
+        system.balanced_truncation_frequency_response_error_singular_directions(
             retained_order, frequency
         )
 

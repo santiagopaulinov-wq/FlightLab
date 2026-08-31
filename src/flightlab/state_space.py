@@ -298,6 +298,21 @@ class FrequencyResponseSingularDirections(NamedTuple):
     right_singular_directions: np.ndarray
 
 
+class BalancedTruncationErrorSingularDirections(NamedTuple):
+    """Reduced singular triplets for sampled balanced-truncation errors.
+
+    The sampled error reconstructs as
+    ``Ue @ diag(error_singular_values) @ Ve.conj().T``. Rows of ``Ue`` follow
+    original output-channel order and rows of ``Ve`` follow original
+    input-channel order. Paired directions have arbitrary unit-complex phase,
+    and bases within repeated-singular-value subspaces may rotate.
+    """
+
+    error_singular_values: np.ndarray
+    left_error_singular_directions: np.ndarray
+    right_error_singular_directions: np.ndarray
+
+
 class ModalStateSpace(NamedTuple):
     """System matrices expressed in biorthogonal modal coordinates."""
 
@@ -1096,6 +1111,48 @@ class StateSpace:
             return np.empty(error_response.shape[:-2] + (0,), dtype=float)
         return np.asarray(
             np.linalg.svd(error_response, compute_uv=False), dtype=float
+        )
+
+    def balanced_truncation_frequency_response_error_singular_directions(
+        self, retained_order, angular_frequencies
+    ):
+        """Return reduced singular triplets of sampled truncation errors.
+
+        This method delegates to
+        :meth:`balanced_truncation_frequency_response_error` and applies
+        ``np.linalg.svd(..., full_matrices=False)``. For ``p`` outputs, ``m``
+        inputs, and ``k = min(p, m)``, scalar input returns error singular
+        values with shape ``(k,)``, left directions ``Ue`` with ``(p, k)``, and
+        right directions ``Ve`` with ``(m, k)``. A vector of ``f`` frequencies
+        returns ``(f, k)``, ``(f, p, k)``, and ``(f, m, k)``. Empty channels
+        preserve these shapes with ``k = 0``.
+
+        ``E = Ue @ diag(error_singular_values) @ Ve.conj().T``. Rows of ``Ue``
+        follow original output-channel order; rows of ``Ve`` follow original
+        input-channel order. Paired directions may differ by arbitrary unit-
+        magnitude complex phase, and bases in repeated-singular-value subspaces
+        may rotate. No phase normalization is imposed. All underlying order,
+        stability, minimality, frequency, and pole errors propagate unchanged;
+        no grid, interpolation, maximization, or norm estimate is added.
+        """
+        error_response = self.balanced_truncation_frequency_response_error(
+            retained_order, angular_frequencies
+        )
+        singular_value_count = min(self.n_outputs, self.n_inputs)
+        if singular_value_count == 0:
+            leading_shape = error_response.shape[:-2]
+            return BalancedTruncationErrorSingularDirections(
+                np.empty(leading_shape + (0,), dtype=float),
+                np.empty(leading_shape + (self.n_outputs, 0), dtype=complex),
+                np.empty(leading_shape + (self.n_inputs, 0), dtype=complex),
+            )
+
+        left, singular_values, right_conjugate_transpose = np.linalg.svd(
+            error_response, full_matrices=False
+        )
+        right = np.swapaxes(right_conjugate_transpose.conj(), -2, -1)
+        return BalancedTruncationErrorSingularDirections(
+            np.asarray(singular_values, dtype=float), left, right
         )
 
     def is_detectable(self):
