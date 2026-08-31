@@ -52,11 +52,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Checkpoint commit
 
-- Pre-checkpoint commit:
-  `d914821be581774e4cd3facaafeb911e6531ef3e`
-- Pre-checkpoint message: `feat: add SISO reference prefilter`
-- The current checkpoint adds a SISO output-error integral augmentation design
-  model with no gain synthesis or feedback closure.
+- Completed checkpoint commit:
+  `540e5ef1398fc04e054cb416c307c163b89d7db8`
+- Completed checkpoint message: `feat: add SISO integral augmentation`
+- This checkpoint adds a SISO output-error integral augmentation design model
+  with no gain synthesis or feedback closure.
 
 ## Current verification baseline
 
