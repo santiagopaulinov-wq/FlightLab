@@ -401,6 +401,48 @@ def test_nonstable_pbh_diagnostics_are_immutable_and_deterministic():
         diagnostics[0] = diagnostics[1]
 
 
+def test_nonstable_pbh_diagnostics_preserve_unstable_complex_pair_order():
+    system = StateSpace(
+        [[1.0, -2.0], [2.0, 1.0]],
+        np.zeros((2, 1)),
+        np.zeros((1, 2)),
+        [[0.0]],
+    )
+
+    eigenvalues = system.eigenvalues()
+    diagnostics = system.nonstable_pbh_diagnostics()
+
+    assert len(diagnostics) == 2
+    np.testing.assert_array_equal(
+        [diagnostic.eigenvalue for diagnostic in diagnostics], eigenvalues
+    )
+    assert eigenvalues[0] != eigenvalues[1]
+    assert eigenvalues[0] == np.conj(eigenvalues[1])
+    assert all(
+        diagnostic.controllability_failed
+        and diagnostic.observability_failed
+        for diagnostic in diagnostics
+    )
+
+
+def test_nonstable_pbh_diagnostics_preserve_repeated_eigenvalue_multiplicity():
+    system = StateSpace(
+        np.diag([2.0, 2.0, -1.0]),
+        np.zeros((3, 1)),
+        np.zeros((1, 3)),
+        [[0.0]],
+    )
+
+    eigenvalues = system.eigenvalues()
+    diagnostics = system.nonstable_pbh_diagnostics()
+
+    assert diagnostics == (
+        NonstablePBHDiagnostic(eigenvalues[0], True, True),
+        NonstablePBHDiagnostic(eigenvalues[1], True, True),
+    )
+    np.testing.assert_array_equal(eigenvalues, [2.0, 2.0, -1.0])
+
+
 def test_eigenvalues_and_asymptotic_stability_for_stable_system():
     system = StateSpace(*valid_matrices())
 

@@ -33,13 +33,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `f5efc0cdefbe7db95a6b2d2d6f8ade28c6834264`
-- Pre-checkpoint message: `feat: diagnose nonstable PBH failures`
-- The working tree was clean before this documentation-only checkpoint.
+  `d391f20`
+- Pre-checkpoint message: `docs: checkpoint structural analysis work`
+- The current checkpoint adds focused nonstable PBH diagnostic ordering and
+  multiplicity coverage without changing production behavior.
 
 ## Current verification baseline
 
-- Test count: 449 tests.
+- Test count: 451 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -56,6 +57,10 @@ or EXACT set matching for both inclusions and exclusions.
   observable, minimal, stabilizable, and detectable booleans.
 - Immutable `NonstablePBHDiagnostic` entries returned in an immutable tuple for
   nonstable eigenvalues that fail PBH controllability, observability, or both.
+- Focused diagnostic tests verify that unstable complex-conjugate modes remain
+  separate and in `eigenvalues()` order, and that repeated failing nonstable
+  eigenvalues retain one entry per occurrence while stable and passing modes
+  remain omitted.
 
 ## Important existing capabilities
 
@@ -434,20 +439,18 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Complex and repeated PBH diagnostic verification
+### Defective repeated PBH diagnostic verification
 
-Add focused robustness tests verifying that
-`StateSpace.nonstable_pbh_diagnostics()` preserves deterministic eigenvalue
-ordering and multiplicity for failing unstable complex-conjugate pairs and
-repeated eigenvalues. Preserve all current APIs and diagnostic omission
-semantics.
+Add one focused robustness test verifying that a defective Jordan block with a
+repeated nonstable eigenvalue preserves algebraic multiplicity in
+`StateSpace.nonstable_pbh_diagnostics()`. Preserve all current APIs, eigenvalue
+ordering, and diagnostic omission semantics.
 
 ## Suggested implementation direction
 
-- Use deterministic synthetic systems with unstable complex-conjugate modes and
-  repeated nonstable eigenvalues.
-- Verify every failing eigenvalue occurrence remains in existing eigenvalue
-  order, including multiplicity.
+- Use a small deterministic synthetic system with a nonstable Jordan block.
+- Verify every failing repeated eigenvalue occurrence remains in existing
+  eigenvalue order, including algebraic multiplicity.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -456,8 +459,8 @@ semantics.
 
 ## Focused tests to add
 
-- Verify a failing unstable complex pair produces two ordered entries.
-- Verify repeated failing eigenvalues preserve their multiplicity.
+- Verify a defective repeated failing eigenvalue produces one entry per
+  algebraic occurrence.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 
