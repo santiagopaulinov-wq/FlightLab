@@ -12,8 +12,9 @@ Longitudinal and lateral-directional physical-mode identification v1 are both
 complete at their verified conservative baselines. The active development stage
 is now general continuous-time controllability and observability analysis.
 Every `StateSpace` can construct the standard controllability and observability
-matrices, report their numerical ranks, and test full-state controllability and
-observability. Each modal family also has a generic dynamic summary derived from
+matrices, report their numerical ranks, and test full-state controllability,
+observability, and continuous-time stabilizability. Each modal family also has
+a generic dynamic summary derived from
 its canonical member
 properties and generic physical-input and physical-output influence summaries.
 These verified summaries are available together through one consolidated,
@@ -34,7 +35,7 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current verification baseline
 
-- Test count: 423 tests.
+- Test count: 432 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -312,6 +313,14 @@ or EXACT set matching for both inclusions and exclusions.
   `True`. It introduces no new rank calculation, tolerance, or reduction
   behavior. All four controllability/observability truth-table combinations and
   both aircraft model conversions are verified.
+- `StateSpace.is_stabilizable()` applies the continuous-time PBH condition to
+  every eigenvalue with nonnegative real part. Each `[lambda I - A, B]` matrix
+  must have full state rank under NumPy's default SVD-based `matrix_rank`
+  tolerance; strictly stable uncontrollable modes are permitted.
+- Fully controllable unstable, wholly stable uncontrollable, unstable and
+  neutral uncontrollable, and mixed multi-state realizations are verified.
+  `StateSpace` now consistently rejects nonfinite entries in any system matrix
+  after preserving its existing shape validation.
 - Dominant-label filtering is intentionally paused and complete enough for the
   current stage; all verified inclusion and exclusion APIs remain available.
 - Generic trajectory-extrema analysis and synthetic longitudinal and
@@ -383,28 +392,29 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Stabilizability check
+### Detectability check
 
-Add a generic continuous-time stabilizability check for existing `StateSpace`
-realizations. Preserve all controllability, observability, minimality, modal,
-and physical-mode behavior. Do not add controllers yet.
+Add the dual generic continuous-time detectability check for existing
+`StateSpace` realizations. Preserve all controllability, observability,
+minimality, stabilizability, modal, and physical-mode behavior. Do not add
+observers yet.
 
 ## Suggested implementation direction
 
-- Use the standard PBH rank condition on eigenvalues whose real part is
-  nonnegative.
-- Fully controllable systems must be stabilizable; uncontrollable systems are
-  stabilizable only when every uncontrollable mode is strictly stable.
-- Document and test the numerical rank convention used.
+- Use the standard PBH observability rank condition on eigenvalues whose real
+  part is nonnegative.
+- Fully observable systems must be detectable; unobservable systems are
+  detectable only when every unobservable mode is strictly stable.
+- Reuse the established NumPy numerical rank convention.
 - Preserve all existing state-space and modal results unchanged.
 - Preserve all dominant-label inclusion and exclusion APIs unchanged.
 - Preserve longitudinal identification and evidence APIs unchanged.
 
 ## Focused tests to add
 
-- A fully controllable realization returns `True`.
-- A stable uncontrollable mode is permitted, while a marginal or unstable
-  uncontrollable mode returns `False`.
+- A fully observable realization returns `True`.
+- A stable unobservable mode is permitted, while a marginal or unstable
+  unobservable mode returns `False`.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 

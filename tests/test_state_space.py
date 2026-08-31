@@ -62,6 +62,82 @@ def test_uncontrollable_system_has_deficient_controllability_rank():
     assert system.is_fully_controllable() is False
 
 
+def test_fully_controllable_unstable_system_is_stabilizable():
+    system = StateSpace(
+        [[0.0, 1.0], [2.0, 1.0]],
+        [[0.0], [1.0]],
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    assert system.is_fully_controllable() is True
+    assert np.any(system.eigenvalues().real > 0.0)
+    assert system.is_stabilizable() is True
+
+
+def test_uncontrollable_asymptotically_stable_system_is_stabilizable():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        [[1.0], [0.0]],
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    assert system.is_fully_controllable() is False
+    assert system.is_asymptotically_stable() is True
+    assert system.is_stabilizable() is True
+
+
+def test_uncontrollable_unstable_mode_is_not_stabilizable():
+    system = StateSpace(
+        np.diag([-1.0, 2.0]),
+        [[1.0], [0.0]],
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    assert system.is_fully_controllable() is False
+    assert system.is_stabilizable() is False
+
+
+def test_uncontrollable_neutral_mode_is_not_stabilizable():
+    system = StateSpace(
+        np.diag([-1.0, 0.0]),
+        [[1.0], [0.0]],
+        np.eye(2),
+        np.zeros((2, 1)),
+    )
+
+    assert system.is_fully_controllable() is False
+    assert system.is_stabilizable() is False
+
+
+def test_only_stable_modes_may_be_uncontrollable_in_multistate_system():
+    system = StateSpace(
+        np.diag([-3.0, -1.0, 0.0, 2.0]),
+        [[0.0, 0.0], [0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+        np.eye(4),
+        np.zeros((4, 2)),
+    )
+
+    assert system.controllability_rank() == 2
+    assert system.is_stabilizable() is True
+
+
+@pytest.mark.parametrize(
+    ("matrix_index", "nonfinite_value"),
+    [(0, np.nan), (1, np.inf), (2, -np.inf), (3, np.nan)],
+)
+def test_state_space_rejects_nonfinite_system_data(matrix_index, nonfinite_value):
+    matrices = [matrix.astype(float) for matrix in valid_matrices()]
+    matrices[matrix_index].flat[0] = nonfinite_value
+
+    with pytest.raises(
+        ValueError, match="A, B, C, and D must contain only finite values"
+    ):
+        StateSpace(*matrices)
+
+
 def test_fully_observable_system_has_full_observability_rank():
     system = StateSpace(*valid_matrices())
 

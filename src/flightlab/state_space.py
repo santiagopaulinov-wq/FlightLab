@@ -519,6 +519,12 @@ class StateSpace:
         if self.D.ndim != 2 or self.D.shape != (self.n_outputs, self.n_inputs):
             raise ValueError("D must have shape (p, m)")
 
+        if not all(
+            np.all(np.isfinite(matrix))
+            for matrix in (self.A, self.B, self.C, self.D)
+        ):
+            raise ValueError("A, B, C, and D must contain only finite values")
+
     def eigenvalues(self):
         """Return the eigenvalues of the continuous-time system matrix."""
         return np.linalg.eigvals(self.A)
@@ -542,6 +548,20 @@ class StateSpace:
     def is_fully_controllable(self):
         """Return whether the controllability matrix has full state rank."""
         return self.controllability_rank() == self.n_states
+
+    def is_stabilizable(self):
+        """Return whether every nonstable mode satisfies the PBH rank test.
+
+        Rank uses NumPy's default SVD-based tolerance, matching the existing
+        controllability and observability rank methods.
+        """
+        identity = np.eye(self.n_states)
+        for eigenvalue in self.eigenvalues():
+            if eigenvalue.real >= 0.0:
+                pbh_matrix = np.hstack((eigenvalue * identity - self.A, self.B))
+                if np.linalg.matrix_rank(pbh_matrix) < self.n_states:
+                    return False
+        return True
 
     def observability_matrix(self):
         """Return ``[C; C A; ...; C A^(n-1)]`` for the continuous-time system."""

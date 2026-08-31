@@ -217,6 +217,7 @@ def test_longitudinal_model_builds_expected_state_space_matrices():
     assert system.is_fully_controllable() is (
         system.controllability_rank() == system.n_states
     )
+    assert isinstance(system.is_stabilizable(), bool)
     assert system.is_fully_observable() is True
     assert system.is_minimal_realization() is (
         system.is_fully_controllable() and system.is_fully_observable()
