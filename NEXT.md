@@ -36,8 +36,9 @@ established channel ordering.
 Every `StateSpace` can also evaluate its complex continuous-time transfer
 matrix, descending singular values, and corresponding input/output singular
 directions at explicit real angular frequencies without requiring stability.
-The controller-design foundation now begins with a generic, non-mutating static
-full-state feedback interconnection for a caller-supplied gain.
+The controller-design foundation now includes a generic, non-mutating static
+full-state feedback interconnection and NumPy-only Ackermann pole placement for
+controllable SISO systems.
 Both aircraft models can filter these immutable interpreted families by their
 existing oscillatory status, mathematical stability, and exact dominant
 state/input/output labels, with configurable global or per-category ANY, ALL,
@@ -46,14 +47,14 @@ or EXACT set matching for both inclusions and exclusions.
 ## Checkpoint commit
 
 - Pre-checkpoint commit:
-  `ba37b2ec194ce5c190b331c645b63fbc73f43bde`
-- Pre-checkpoint message: `feat: add truncation error singular directions`
-- The current checkpoint adds static full-state feedback interconnection for a
-  caller-supplied gain.
+  `aeb7ad14ca5bb93b8e4bffa7d0b5daf6fc7b1ff3`
+- Pre-checkpoint message: `feat: add full-state feedback interconnection`
+- The current checkpoint adds controllable SISO pole placement using
+  Ackermann's formula.
 
 ## Current verification baseline
 
-- Test count: 627 tests.
+- Test count: 646 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -190,6 +191,24 @@ or EXACT set matching for both inclusions and exclusions.
 - The plant is not mutated. This capability performs interconnection only: no
   pole placement, LQR, tuning, reference tracking, observers, saturation, or
   aircraft-specific controller behavior is included.
+- `StateSpace.place_siso_poles(desired_poles)` returns a finite real gain with
+  shape `(1, n_states)` that is directly accepted by `full_state_feedback()`
+  under the same `u = v - K x` convention.
+- Placement uses `Ctrb = [B, A B, ..., A^(n-1) B]` and Ackermann's formula
+  `K = e_n^T Ctrb^-1 phi(A)`. The implementation forms no inverse: it obtains
+  the selector row by solving the transposed controllability system and
+  evaluates `phi(A)` by Horner's method.
+- The plant must have exactly one input, at least one state, and full
+  controllability according to the existing structural analysis. Desired
+  poles must be a finite one-dimensional sequence of length `n_states`.
+- Complex desired poles must be conjugate-closed within `rtol=1e-7` and
+  `atol=1e-10`, so the polynomial and gain are real. Unsupported MIMO and
+  uncontrollable plants, invalid pole arrays, and numerically singular solves
+  raise clear errors without mutating the plant.
+- Requested poles are not required to be stable. The caller controls the
+  closed-loop pole set and is responsible for its stability; no MIMO
+  placement, optimal design, gain tuning, or aircraft-specific behavior is
+  included.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -609,20 +628,21 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### SISO full-state pole placement
+### Caller-supplied full-order state observer interconnection
 
-Add the first narrowly scoped gain-synthesis capability: continuous-time pole
-placement for controllable single-input systems, returning a gain compatible
-with the verified full-state feedback convention.
+Add a generic continuous-time Luenberger observer construction for a
+caller-supplied observer gain. Establish and verify the estimator/error-dynamic
+sign conventions before adding observer-gain synthesis.
 
 ## Suggested implementation direction
 
-- Use a NumPy-only Ackermann construction based on the existing controllability
-  matrix and the convention `A_cl = A - B K`.
-- Require exactly one input, full controllability, and a finite conjugate-closed
-  desired pole set of length `n_states`; return a real gain of shape `(1, n)`.
-- Reject repeated/ill-conditioned cases clearly where numerical assumptions
-  fail. Do not add MIMO placement, LQR, observers, or aircraft tuning yet.
+- Use `xhat_dot = A xhat + B u + L(y - yhat)` with the existing plant channel
+  order and document the resulting estimation-error dynamics `A - L C`.
+- Accept a caller-supplied finite real gain with shape
+  `(n_states, n_outputs)` and preserve empty-output behavior when that shape is
+  valid.
+- Do not add observer pole placement, output-feedback composition, LQR/LQG,
+  noise models, Kalman filtering, or aircraft tuning yet.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -631,9 +651,9 @@ with the verified full-state feedback convention.
 
 ## Focused tests to add
 
-- Verify analytic first- and second-order systems, achieved eigenvalues under
-  `full_state_feedback()`, real gains for conjugate poles, and input,
-  controllability, pole-count, conjugacy, finiteness, and conditioning errors.
+- Verify the observer equations directly, the `A - L C` error dynamics,
+  dimensions, non-mutation, nonzero feedthrough handling, empty outputs, and
+  gain validation.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 

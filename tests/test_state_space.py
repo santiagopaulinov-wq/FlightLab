@@ -198,6 +198,143 @@ def test_full_state_feedback_accepts_only_empty_gain_for_zero_input_system():
         system.full_state_feedback(np.empty((1, 2)))
 
 
+def test_place_siso_poles_returns_analytic_gain_for_real_poles():
+    system = StateSpace(*valid_matrices())
+
+    gain = system.place_siso_poles([-4.0, -5.0])
+
+    np.testing.assert_allclose(gain, [[18.0, 6.0]])
+
+
+def test_place_siso_poles_achieves_requested_real_pole_multiset():
+    system = StateSpace(*valid_matrices())
+    desired_poles = np.array([-5.0, -4.0])
+
+    gain = system.place_siso_poles(desired_poles)
+    closed_loop = system.full_state_feedback(gain)
+
+    np.testing.assert_allclose(
+        np.sort_complex(closed_loop.eigenvalues()),
+        np.sort_complex(desired_poles),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_place_siso_poles_returns_real_gain_for_conjugate_pair():
+    system = StateSpace(*valid_matrices())
+    desired_poles = np.array([-1.0 + 2.0j, -1.0 - 2.0j])
+
+    gain = system.place_siso_poles(desired_poles)
+    closed_loop = system.full_state_feedback(gain)
+
+    assert gain.shape == (1, system.n_states)
+    assert gain.dtype == float
+    assert np.isrealobj(gain)
+    np.testing.assert_allclose(gain, [[3.0, -1.0]])
+    np.testing.assert_allclose(
+        np.sort_complex(closed_loop.eigenvalues()),
+        np.sort_complex(desired_poles),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_place_siso_poles_gain_is_accepted_by_full_state_feedback():
+    system = StateSpace(*valid_matrices())
+
+    gain = system.place_siso_poles([-2.0, -6.0])
+    closed_loop = system.full_state_feedback(gain)
+
+    assert gain.shape == (1, 2)
+    assert isinstance(closed_loop, StateSpace)
+    np.testing.assert_allclose(
+        np.sort_complex(closed_loop.eigenvalues()), [-6.0, -2.0]
+    )
+
+
+def test_place_siso_poles_does_not_mutate_original_system():
+    system = StateSpace(*valid_matrices())
+    originals = tuple(matrix.copy() for matrix in (system.A, system.B, system.C, system.D))
+
+    system.place_siso_poles([-4.0, -5.0])
+
+    for matrix, original in zip(
+        (system.A, system.B, system.C, system.D), originals, strict=True
+    ):
+        np.testing.assert_array_equal(matrix, original)
+
+
+def test_place_siso_poles_rejects_mimo_system():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]), np.eye(2), np.eye(2), np.zeros((2, 2))
+    )
+
+    with pytest.raises(ValueError, match="requires exactly one input channel"):
+        system.place_siso_poles([-3.0, -4.0])
+
+
+def test_place_siso_poles_rejects_uncontrollable_system():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]), [[1.0], [0.0]], np.eye(2), np.zeros((2, 1))
+    )
+
+    with pytest.raises(ValueError, match="requires a controllable system"):
+        system.place_siso_poles([-3.0, -4.0])
+
+
+@pytest.mark.parametrize("desired_poles", [[], [-1.0], [-1.0, -2.0, -3.0]])
+def test_place_siso_poles_rejects_wrong_pole_count(desired_poles):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="exactly n_states values"):
+        system.place_siso_poles(desired_poles)
+
+
+@pytest.mark.parametrize(
+    "desired_poles", [[-1.0, np.nan], [-1.0, np.inf], [-1.0, -np.inf]]
+)
+def test_place_siso_poles_rejects_nonfinite_poles(desired_poles):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="only finite values"):
+        system.place_siso_poles(desired_poles)
+
+
+@pytest.mark.parametrize("desired_poles", [-1.0, [[-1.0, -2.0]]])
+def test_place_siso_poles_rejects_nonvector_poles(desired_poles):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="must be a 1D sequence"):
+        system.place_siso_poles(desired_poles)
+
+
+@pytest.mark.parametrize("desired_poles", ["poles", [object(), -2.0]])
+def test_place_siso_poles_rejects_invalid_pole_types(desired_poles):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(TypeError, match="must be a numeric 1D sequence"):
+        system.place_siso_poles(desired_poles)
+
+
+def test_place_siso_poles_rejects_unpaired_complex_pole():
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="must include matching conjugates"):
+        system.place_siso_poles([-1.0 + 2.0j, -3.0])
+
+
+def test_place_siso_poles_accepts_deliberately_unstable_pole():
+    system = StateSpace([[-1.0]], [[1.0]], [[1.0]], [[0.0]])
+
+    gain = system.place_siso_poles([2.0])
+    closed_loop = system.full_state_feedback(gain)
+
+    np.testing.assert_allclose(gain, [[-3.0]])
+    np.testing.assert_allclose(closed_loop.eigenvalues(), [2.0])
+    assert closed_loop.is_asymptotically_stable() is False
+
+
 def test_frequency_response_matches_first_order_siso_analytic_value():
     system = StateSpace([[-2.0]], [[3.0]], [[4.0]], [[0.5]])
     frequency = 1.5

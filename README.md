@@ -214,3 +214,34 @@ channels, the only valid gain shape is `(0, n_states)` and the zero-dimensional
 command leaves all matrices unchanged. The original plant is never mutated.
 This API interconnects a caller-supplied gain only; it performs no pole
 placement, LQR, tuning, reference tracking, observer design, or saturation.
+
+## Controllable SISO pole placement
+
+`system.place_siso_poles(desired_poles)` synthesizes a real full-state feedback
+gain for the same `u = v - K x` convention. It supports continuous-time plants
+with exactly one input and full controllability, and returns `K` with shape
+`(1, n_states)` for direct use with `system.full_state_feedback(K)`.
+
+For
+
+```text
+Ctrb = [B, A B, ..., A^(n-1) B]
+phi(s) = product(s - desired_pole)
+```
+
+the implementation uses Ackermann's formula
+
+```text
+K = e_n^T Ctrb^-1 phi(A)
+```
+
+without forming an explicit inverse: the selector row is obtained by a linear
+solve, and `phi(A)` is evaluated by Horner's method. The desired poles must be
+a finite one-dimensional sequence of length `n_states`. Complex poles must be
+closed under conjugation within `rtol=1e-7` and `atol=1e-10`, ensuring that the
+characteristic polynomial and returned gain are real.
+
+This API performs SISO placement only. It does not require stable requested
+poles or otherwise tune the controller; closed-loop stability is the caller's
+responsibility. MIMO placement, LQR, reference tracking, observer design, and
+aircraft-specific tuning are outside its scope.

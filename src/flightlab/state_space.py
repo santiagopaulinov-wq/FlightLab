@@ -653,6 +653,99 @@ class StateSpace:
             self.D.copy(),
         )
 
+    def place_siso_poles(self, desired_poles):
+        """Return a SISO Ackermann gain compatible with ``u = v - K x``.
+
+        The plant must have exactly one input, at least one state, and full
+        controllability under :meth:`is_fully_controllable`. ``desired_poles``
+        must be a finite numeric one-dimensional sequence of length
+        ``n_states``. Complex poles must form a complete conjugate-closed
+        multiset using ``rtol=1e-7`` and ``atol=1e-10`` so a real gain exists.
+
+        For ``Ctrb = [B, A B, ..., A^(n-1) B]`` and desired characteristic
+        polynomial ``phi``, Ackermann's formula is
+        ``K = e_n.T @ inv(Ctrb) @ phi(A)``. This implementation obtains the
+        selector row with a linear solve and evaluates ``phi(A)`` by Horner's
+        method; it forms no explicit inverse. The finite real result has shape
+        ``(1, n_states)`` and directly places the eigenvalues of ``A - B K``
+        when passed to :meth:`full_state_feedback`.
+
+        Desired poles need not be stable. Closed-loop stability is entirely the
+        caller's responsibility. The plant is not mutated, and no MIMO pole
+        placement, tuning, or optimal-control design is performed.
+        """
+        if self.n_inputs != 1:
+            raise ValueError("SISO pole placement requires exactly one input channel")
+        if self.n_states == 0:
+            raise ValueError("SISO pole placement requires at least one state")
+        if not self.is_fully_controllable():
+            raise ValueError("SISO pole placement requires a controllable system")
+
+        try:
+            poles = np.asarray(desired_poles, dtype=complex)
+        except (TypeError, ValueError) as error:
+            raise TypeError("desired poles must be a numeric 1D sequence") from error
+        if poles.ndim != 1:
+            raise ValueError("desired poles must be a 1D sequence")
+        if poles.size != self.n_states:
+            raise ValueError("desired poles must contain exactly n_states values")
+        if not np.all(np.isfinite(poles)):
+            raise ValueError("desired poles must contain only finite values")
+
+        matched = np.zeros(poles.size, dtype=bool)
+        for index, pole in enumerate(poles):
+            if matched[index]:
+                continue
+            if abs(pole.imag) <= _CONJUGATE_ATOL:
+                matched[index] = True
+                continue
+            candidates = [
+                candidate_index
+                for candidate_index in range(index + 1, poles.size)
+                if not matched[candidate_index]
+                and np.isclose(
+                    poles[candidate_index],
+                    np.conj(pole),
+                    rtol=_CONJUGATE_RTOL,
+                    atol=_CONJUGATE_ATOL,
+                )
+            ]
+            if not candidates:
+                raise ValueError(
+                    "complex desired poles must include matching conjugates"
+                )
+            matched[index] = True
+            matched[candidates[0]] = True
+
+        coefficients = np.poly(poles)
+        coefficient_scale = np.maximum(1.0, np.abs(coefficients.real))
+        if np.any(
+            np.abs(coefficients.imag)
+            > _CONJUGATE_ATOL + _CONJUGATE_RTOL * coefficient_scale
+        ):
+            raise ValueError("desired poles do not define a real polynomial")
+        coefficients = coefficients.real
+
+        identity = np.eye(self.n_states)
+        polynomial_matrix = identity.copy()
+        for coefficient in coefficients[1:]:
+            polynomial_matrix = polynomial_matrix @ self.A + coefficient * identity
+
+        selector = np.zeros(self.n_states)
+        selector[-1] = 1.0
+        try:
+            ackermann_row = np.linalg.solve(
+                self.controllability_matrix().T, selector
+            )
+        except np.linalg.LinAlgError as error:
+            raise ValueError(
+                "SISO pole placement controllability matrix is numerically singular"
+            ) from error
+        gain = np.asarray((ackermann_row @ polynomial_matrix)[np.newaxis, :])
+        if not np.all(np.isfinite(gain)):
+            raise ValueError("SISO pole placement produced a nonfinite gain")
+        return gain
+
     def frequency_response(self, angular_frequencies):
         """Evaluate ``G(j omega)`` at explicit angular frequencies in rad/s.
 
