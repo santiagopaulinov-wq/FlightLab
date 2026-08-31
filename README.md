@@ -245,3 +245,38 @@ This API performs SISO placement only. It does not require stable requested
 poles or otherwise tune the controller; closed-loop stability is the caller's
 responsibility. MIMO placement, LQR, reference tracking, observer design, and
 aircraft-specific tuning are outside its scope.
+
+## Full-order Luenberger observer interconnection
+
+`system.luenberger_observer(L)` interconnects the plant with a caller-supplied
+full-order observer gain using
+
+```text
+x_hat_dot = A x_hat + B u + L (y - C x_hat - D u)
+e = x - x_hat
+```
+
+It returns an immutable `LuenbergerObserverInterconnection` containing the
+augmented `StateSpace` and the validated gain. The augmented state order is
+`[x; x_hat]`, its external input is the known plant input `u`, and its output
+order is `[y; x_hat]`. The complete realization is
+
+```text
+A_aug = [[A,   0],       B_aug = [[B],
+         [L C, A-L C]]            [B]]
+
+C_aug = [[C, 0],         D_aug = [[D],
+         [0, I]]                  [0]]
+```
+
+Substituting `y = C x + D u` into the innovation cancels `D u`, giving
+`x_hat_dot = L C x + (A - L C) x_hat + B u`. Consequently, the estimation
+error satisfies `e_dot = (A - L C) e`; plant feedthrough remains present only
+in the exposed plant output `y`.
+
+`L` must be a finite real matrix with shape `(n_states, n_outputs)`.
+Observability is not required because this API performs interconnection only.
+For a plant with no output channels, the valid gain has shape `(n_states, 0)`
+and there is no measurement correction. The plant is not mutated. Observer
+gain synthesis, observer pole placement, Kalman filtering, output feedback,
+and aircraft-specific design are outside this capability.

@@ -246,6 +246,20 @@ class NonstablePBHDiagnostic(NamedTuple):
     observability_failed: bool
 
 
+class LuenbergerObserverInterconnection(NamedTuple):
+    """Full-order plant and observer interconnection for a supplied gain.
+
+    ``system`` has augmented state order ``[x; x_hat]``, retains the plant
+    input ``u`` as its external input, and has output order ``[y; x_hat]``.
+    ``observer_gain`` is the validated real matrix ``L`` with shape
+    ``(n_states, n_outputs)``. This immutable result records the gain alongside
+    the realization so its convention remains explicit.
+    """
+
+    system: "StateSpace"
+    observer_gain: np.ndarray
+
+
 class BalancedRealization(NamedTuple):
     """Full-order balanced system and its original-coordinate transformation.
 
@@ -651,6 +665,73 @@ class StateSpace:
             self.B.copy(),
             self.C - self.D @ gain,
             self.D.copy(),
+        )
+
+    def luenberger_observer(self, observer_gain):
+        """Interconnect a supplied full-order continuous-time observer gain.
+
+        The observer convention is
+        ``x_hat_dot = A x_hat + B u + L (y - C x_hat - D u)`` with estimation
+        error ``e = x - x_hat``. Because the measured plant output is
+        ``y = C x + D u``, the two feedthrough terms cancel in the innovation.
+        Thus ``x_hat_dot = L C x + (A - L C) x_hat + B u`` and
+        ``e_dot = (A - L C) e``.
+
+        The returned immutable :class:`LuenbergerObserverInterconnection`
+        contains an augmented :class:`StateSpace` with state order
+        ``[x; x_hat]``, external input ``u``, and output order ``[y; x_hat]``::
+
+            A_aug = [[A,   0],       B_aug = [[B],
+                     [L C, A-L C]]            [B]]
+            C_aug = [[C, 0],         D_aug = [[D],
+                     [0, I]]                  [0]]
+
+        ``L`` must be a finite real two-dimensional array with shape
+        ``(n_states, n_outputs)``. Observability is not required. With no
+        output channels, the valid shape is ``(n_states, 0)`` and the observer
+        has no measurement correction. The plant is not mutated, and this
+        method performs no observer-gain synthesis or output-feedback design.
+        """
+        raw_gain = np.asarray(observer_gain)
+        if np.iscomplexobj(raw_gain):
+            raise TypeError("L must contain only real values")
+        try:
+            observer_gain = np.asarray(observer_gain, dtype=float)
+        except (TypeError, ValueError) as error:
+            raise TypeError("L must be a real numeric 2D array") from error
+        if observer_gain.ndim != 2:
+            raise ValueError(
+                "L must be a 2D array with shape (n_states, n_outputs)"
+            )
+        if observer_gain.shape != (self.n_states, self.n_outputs):
+            raise ValueError("L must have shape (n_states, n_outputs)")
+        if not np.all(np.isfinite(observer_gain)):
+            raise ValueError("L must contain only finite values")
+
+        state_count = self.n_states
+        output_count = self.n_outputs
+        correction = observer_gain @ self.C
+        augmented_system = StateSpace(
+            np.block(
+                [
+                    [self.A, np.zeros((state_count, state_count))],
+                    [correction, self.A - correction],
+                ]
+            ),
+            np.vstack((self.B, self.B)),
+            np.block(
+                [
+                    [self.C, np.zeros((output_count, state_count))],
+                    [
+                        np.zeros((state_count, state_count)),
+                        np.eye(state_count),
+                    ],
+                ]
+            ),
+            np.vstack((self.D, np.zeros((state_count, self.n_inputs)))),
+        )
+        return LuenbergerObserverInterconnection(
+            augmented_system, observer_gain.copy()
         )
 
     def place_siso_poles(self, desired_poles):

@@ -6,6 +6,7 @@ from flightlab.state_space import (
     BalancedTruncation,
     BalancedTruncationErrorSingularDirections,
     FrequencyResponseSingularDirections,
+    LuenbergerObserverInterconnection,
     ModalFamily,
     ModalProperties,
     ModalStateCharacterization,
@@ -196,6 +197,218 @@ def test_full_state_feedback_accepts_only_empty_gain_for_zero_input_system():
     np.testing.assert_array_equal(closed_loop.D, system.D)
     with pytest.raises(ValueError, match="K must have shape"):
         system.full_state_feedback(np.empty((1, 2)))
+
+
+def observer_mimo_system():
+    return StateSpace(
+        [[0.0, 1.0], [-2.0, -3.0]],
+        [[1.0, 0.5], [0.0, 2.0]],
+        [[1.0, -1.0], [0.5, 2.0], [3.0, 0.0]],
+        [[0.2, -0.1], [0.0, 0.3], [0.5, 0.4]],
+    )
+
+
+def test_luenberger_observer_matches_exact_augmented_matrix_identities():
+    system = observer_mimo_system()
+    gain = np.array([[2.0, -1.0, 0.5], [0.25, 1.5, -0.75]])
+    correction = gain @ system.C
+
+    result = system.luenberger_observer(gain)
+
+    assert isinstance(result, LuenbergerObserverInterconnection)
+    np.testing.assert_array_equal(
+        result.system.A,
+        np.block(
+            [
+                [system.A, np.zeros((2, 2))],
+                [correction, system.A - correction],
+            ]
+        ),
+    )
+    np.testing.assert_array_equal(result.system.B, np.vstack((system.B, system.B)))
+    np.testing.assert_array_equal(
+        result.system.C,
+        np.block([[system.C, np.zeros((3, 2))], [np.zeros((2, 2)), np.eye(2)]]),
+    )
+    np.testing.assert_array_equal(
+        result.system.D, np.vstack((system.D, np.zeros((2, 2))))
+    )
+    np.testing.assert_array_equal(result.observer_gain, gain)
+
+
+def test_luenberger_observer_matches_plant_and_observer_equations():
+    system = observer_mimo_system()
+    gain = np.array([[2.0, -1.0, 0.5], [0.25, 1.5, -0.75]])
+    state = np.array([0.7, -0.4])
+    estimate = np.array([-0.2, 0.6])
+    plant_input = np.array([0.3, -0.2])
+    plant_output = system.output(state, plant_input)
+    expected_observer_derivative = (
+        system.A @ estimate
+        + system.B @ plant_input
+        + gain
+        @ (plant_output - system.C @ estimate - system.D @ plant_input)
+    )
+    augmented_state = np.concatenate((state, estimate))
+
+    result = system.luenberger_observer(gain)
+    augmented_derivative = result.system.state_derivative(
+        augmented_state, plant_input
+    )
+
+    np.testing.assert_allclose(
+        augmented_derivative[: system.n_states],
+        system.state_derivative(state, plant_input),
+    )
+    np.testing.assert_allclose(
+        augmented_derivative[system.n_states :], expected_observer_derivative
+    )
+
+
+def test_luenberger_observer_error_dynamics_are_a_minus_lc():
+    system = observer_mimo_system()
+    gain = np.array([[2.0, -1.0, 0.5], [0.25, 1.5, -0.75]])
+    state = np.array([0.7, -0.4])
+    estimate = np.array([-0.2, 0.6])
+    plant_input = np.array([0.3, -0.2])
+    augmented_state = np.concatenate((state, estimate))
+
+    result = system.luenberger_observer(gain)
+    augmented_derivative = result.system.state_derivative(
+        augmented_state, plant_input
+    )
+    error = state - estimate
+    error_derivative = (
+        augmented_derivative[: system.n_states]
+        - augmented_derivative[system.n_states :]
+    )
+
+    np.testing.assert_allclose(error_derivative, (system.A - gain @ system.C) @ error)
+
+
+def test_luenberger_observer_state_and_output_order_are_x_xhat_and_y_xhat():
+    system = observer_mimo_system()
+    gain = np.array([[2.0, -1.0, 0.5], [0.25, 1.5, -0.75]])
+    state = np.array([0.7, -0.4])
+    estimate = np.array([-0.2, 0.6])
+    plant_input = np.array([0.3, -0.2])
+
+    result = system.luenberger_observer(gain)
+    augmented_output = result.system.output(
+        np.concatenate((state, estimate)), plant_input
+    )
+
+    np.testing.assert_allclose(
+        augmented_output[: system.n_outputs], system.output(state, plant_input)
+    )
+    np.testing.assert_array_equal(augmented_output[system.n_outputs :], estimate)
+
+
+def test_luenberger_observer_gain_moves_error_eigenvalues_as_a_minus_lc():
+    system = StateSpace(*valid_matrices())
+    gain = np.array([[8.0], [4.0]])
+
+    result = system.luenberger_observer(gain)
+
+    np.testing.assert_allclose(
+        np.sort_complex(np.linalg.eigvals(system.A - gain @ system.C)),
+        [-6.0, -5.0],
+    )
+    np.testing.assert_allclose(
+        np.sort_complex(result.system.eigenvalues()), [-6.0, -5.0, -2.0, -1.0]
+    )
+
+
+def test_luenberger_observer_does_not_mutate_original_system():
+    system = observer_mimo_system()
+    originals = tuple(
+        matrix.copy() for matrix in (system.A, system.B, system.C, system.D)
+    )
+
+    result = system.luenberger_observer(np.ones((2, 3)))
+
+    assert result.system is not system
+    for matrix, original in zip(
+        (system.A, system.B, system.C, system.D), originals, strict=True
+    ):
+        np.testing.assert_array_equal(matrix, original)
+
+
+def test_luenberger_observer_preserves_mimo_dimensions_and_result_is_immutable():
+    system = observer_mimo_system()
+    result = system.luenberger_observer(np.ones((2, 3)))
+
+    assert result.system.A.shape == (4, 4)
+    assert result.system.B.shape == (4, 2)
+    assert result.system.C.shape == (5, 4)
+    assert result.system.D.shape == (5, 2)
+    with pytest.raises(AttributeError):
+        result.system = system
+
+
+def test_luenberger_observer_supports_zero_output_channels_without_correction():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.ones((2, 3)),
+        np.empty((0, 2)),
+        np.empty((0, 3)),
+    )
+
+    result = system.luenberger_observer(np.empty((2, 0)))
+
+    np.testing.assert_array_equal(
+        result.system.A,
+        np.block([[system.A, np.zeros((2, 2))], [np.zeros((2, 2)), system.A]]),
+    )
+    np.testing.assert_array_equal(result.system.B, np.vstack((system.B, system.B)))
+    np.testing.assert_array_equal(
+        result.system.C, np.block([[np.zeros((2, 2)), np.eye(2)]])
+    )
+    np.testing.assert_array_equal(result.system.D, np.zeros((2, 3)))
+    assert result.system.n_outputs == system.n_states
+
+
+@pytest.mark.parametrize(
+    "gain", [np.zeros((1, 1)), np.zeros((2, 2)), np.zeros((3, 3))]
+)
+def test_luenberger_observer_rejects_wrong_gain_shape(gain):
+    system = observer_mimo_system()
+
+    with pytest.raises(ValueError, match="L must have shape"):
+        system.luenberger_observer(gain)
+
+
+@pytest.mark.parametrize("gain", [1.0, [1.0, 2.0], np.zeros((2, 3, 1))])
+def test_luenberger_observer_rejects_nonmatrix_gain(gain):
+    system = observer_mimo_system()
+
+    with pytest.raises(ValueError, match="L must be a 2D array"):
+        system.luenberger_observer(gain)
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+def test_luenberger_observer_rejects_nonfinite_gain(value):
+    system = observer_mimo_system()
+    gain = np.zeros((2, 3))
+    gain[0, 0] = value
+
+    with pytest.raises(ValueError, match="L must contain only finite values"):
+        system.luenberger_observer(gain)
+
+
+def test_luenberger_observer_rejects_complex_gain_even_with_zero_imaginary_part():
+    system = observer_mimo_system()
+
+    with pytest.raises(TypeError, match="L must contain only real values"):
+        system.luenberger_observer(np.ones((2, 3), dtype=complex))
+
+
+@pytest.mark.parametrize("gain", ["gain", [[object(), 1.0, 2.0], [3.0, 4.0, 5.0]]])
+def test_luenberger_observer_rejects_incompatible_gain_type(gain):
+    system = observer_mimo_system()
+
+    with pytest.raises(TypeError, match="L must be a real numeric 2D array"):
+        system.luenberger_observer(gain)
 
 
 def test_place_siso_poles_returns_analytic_gain_for_real_poles():
