@@ -13,8 +13,8 @@ complete at their verified conservative baselines. The active development stage
 is now general continuous-time controllability and observability analysis.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
-observability, and continuous-time stabilizability. Each modal family also has
-a generic dynamic summary derived from
+observability, continuous-time stabilizability, and continuous-time
+detectability. Each modal family also has a generic dynamic summary derived from
 its canonical member
 properties and generic physical-input and physical-output influence summaries.
 These verified summaries are available together through one consolidated,
@@ -35,7 +35,7 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current verification baseline
 
-- Test count: 432 tests.
+- Test count: 437 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -321,6 +321,14 @@ or EXACT set matching for both inclusions and exclusions.
   neutral uncontrollable, and mixed multi-state realizations are verified.
   `StateSpace` now consistently rejects nonfinite entries in any system matrix
   after preserving its existing shape validation.
+- `StateSpace.is_detectable()` applies the dual continuous-time PBH condition
+  to every eigenvalue with nonnegative real part. Each vertically stacked
+  `[lambda I - A; C]` matrix must have full state rank using the same NumPy
+  default SVD tolerance; strictly stable unobservable modes are permitted.
+- Fully observable unstable, wholly stable unobservable, unstable and neutral
+  unobservable, and mixed multi-state realizations are verified. Both aircraft
+  model conversions remain compatible and detectable through their existing
+  full-state outputs.
 - Dominant-label filtering is intentionally paused and complete enough for the
   current stage; all verified inclusion and exclusion APIs remain available.
 - Generic trajectory-extrema analysis and synthetic longitudinal and
@@ -392,29 +400,26 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Detectability check
+### Structural-analysis summary
 
-Add the dual generic continuous-time detectability check for existing
-`StateSpace` realizations. Preserve all controllability, observability,
-minimality, stabilizability, modal, and physical-mode behavior. Do not add
-observers yet.
+Add a small immutable summary that consolidates the existing controllability
+rank, observability rank, full controllability, full observability, minimality,
+stabilizability, and detectability results without adding new control theory or
+recomputing unrelated modal data.
 
 ## Suggested implementation direction
 
-- Use the standard PBH observability rank condition on eigenvalues whose real
-  part is nonnegative.
-- Fully observable systems must be detectable; unobservable systems are
-  detectable only when every unobservable mode is strictly stable.
-- Reuse the established NumPy numerical rank convention.
+- Compose the summary from the existing verified `StateSpace` methods.
+- Keep it generic and immutable, with explicit state dimension and rank fields.
+- Preserve the established NumPy numerical rank convention.
 - Preserve all existing state-space and modal results unchanged.
 - Preserve all dominant-label inclusion and exclusion APIs unchanged.
 - Preserve longitudinal identification and evidence APIs unchanged.
 
 ## Focused tests to add
 
-- A fully observable realization returns `True`.
-- A stable unobservable mode is permitted, while a marginal or unstable
-  unobservable mode returns `False`.
+- Verify representative controllable/observable and deficient realizations.
+- Verify the summary agrees exactly with each existing source method.
 - Existing aircraft and modal behavior remains unchanged.
 - Ambiguous longitudinal families retain `None` rather than being guessed.
 

@@ -163,6 +163,68 @@ def test_unobservable_system_has_deficient_observability_rank():
     assert system.is_fully_observable() is False
 
 
+def test_fully_observable_unstable_system_is_detectable():
+    system = StateSpace(
+        np.diag([-1.0, 2.0]),
+        np.eye(2),
+        [[1.0, 1.0]],
+        np.zeros((1, 2)),
+    )
+
+    assert system.is_fully_observable() is True
+    assert np.any(system.eigenvalues().real > 0.0)
+    assert system.is_detectable() is True
+
+
+def test_unobservable_asymptotically_stable_system_is_detectable():
+    system = StateSpace(
+        np.diag([-1.0, -2.0]),
+        np.eye(2),
+        [[1.0, 0.0]],
+        np.zeros((1, 2)),
+    )
+
+    assert system.is_fully_observable() is False
+    assert system.is_asymptotically_stable() is True
+    assert system.is_detectable() is True
+
+
+def test_unobservable_unstable_mode_is_not_detectable():
+    system = StateSpace(
+        np.diag([-1.0, 2.0]),
+        np.eye(2),
+        [[1.0, 0.0]],
+        np.zeros((1, 2)),
+    )
+
+    assert system.is_fully_observable() is False
+    assert system.is_detectable() is False
+
+
+def test_unobservable_neutral_mode_is_not_detectable():
+    system = StateSpace(
+        np.diag([-1.0, 0.0]),
+        np.eye(2),
+        [[1.0, 0.0]],
+        np.zeros((1, 2)),
+    )
+
+    assert system.is_fully_observable() is False
+    assert system.is_detectable() is False
+
+
+def test_only_stable_modes_may_be_unobservable_in_multistate_system():
+    system = StateSpace(
+        np.diag([-3.0, -1.0, 0.0, 2.0]),
+        np.eye(4),
+        [[0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
+        np.zeros((2, 4)),
+    )
+
+    assert system.observability_rank() == 2
+    assert system.is_detectable() is True
+
+
 @pytest.mark.parametrize(
     ("controllable", "observable", "expected"),
     [

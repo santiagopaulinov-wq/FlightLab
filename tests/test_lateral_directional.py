@@ -231,6 +231,7 @@ def test_lateral_directional_model_builds_expected_state_space_matrices():
     )
     assert isinstance(system.is_stabilizable(), bool)
     assert system.is_fully_observable() is True
+    assert system.is_detectable() is True
     assert system.is_minimal_realization() is (
         system.is_fully_controllable() and system.is_fully_observable()
     )

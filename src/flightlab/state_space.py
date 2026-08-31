@@ -583,6 +583,20 @@ class StateSpace:
         """Return whether the observability matrix has full state rank."""
         return self.observability_rank() == self.n_states
 
+    def is_detectable(self):
+        """Return whether every nonstable mode satisfies the PBH rank test.
+
+        Rank uses NumPy's default SVD-based tolerance, matching the existing
+        controllability, observability, and stabilizability checks.
+        """
+        identity = np.eye(self.n_states)
+        for eigenvalue in self.eigenvalues():
+            if eigenvalue.real >= 0.0:
+                pbh_matrix = np.vstack((eigenvalue * identity - self.A, self.C))
+                if np.linalg.matrix_rank(pbh_matrix) < self.n_states:
+                    return False
+        return True
+
     def is_minimal_realization(self):
         """Return whether the realization is controllable and observable."""
         return self.is_fully_controllable() and self.is_fully_observable()
