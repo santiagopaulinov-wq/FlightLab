@@ -105,7 +105,11 @@ def test_initialize_creates_the_exact_schema_and_created_at_index(tmp_path):
             """
         ).fetchall()
 
-    assert tables == [("experiment_runs",)]
+    assert tables == [
+        ("experiment_campaign_runs",),
+        ("experiment_campaigns",),
+        ("experiment_runs",),
+    ]
     assert tuple((row[1], row[2]) for row in columns) == _SCHEMA_COLUMNS
     assert len(columns) == 23
     assert columns[0][3] == 1

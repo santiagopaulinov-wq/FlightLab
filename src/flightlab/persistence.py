@@ -5,6 +5,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from flightlab.campaign import ExperimentCampaignResult
 from flightlab.experiment import ExperimentRun
 
 _TOP_LEVEL_KEYS = (
@@ -68,6 +69,26 @@ CREATE TABLE IF NOT EXISTS experiment_runs (
 _CREATE_LIST_INDEX_SQL = """
 CREATE INDEX IF NOT EXISTS experiment_runs_created_at_idx
 ON experiment_runs (created_at DESC, run_id ASC)
+"""
+
+_CREATE_CAMPAIGNS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS experiment_campaigns (
+    campaign_id TEXT PRIMARY KEY NOT NULL,
+    created_at TEXT NOT NULL,
+    run_count INTEGER NOT NULL CHECK (run_count >= 0)
+)
+"""
+
+_CREATE_CAMPAIGN_RUNS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS experiment_campaign_runs (
+    campaign_id TEXT NOT NULL,
+    position INTEGER NOT NULL CHECK (position >= 0),
+    run_id TEXT NOT NULL,
+    PRIMARY KEY (campaign_id, position),
+    UNIQUE (campaign_id, run_id),
+    FOREIGN KEY (campaign_id) REFERENCES experiment_campaigns (campaign_id),
+    FOREIGN KEY (run_id) REFERENCES experiment_runs (run_id)
+)
 """
 
 _INSERT_SQL = """
@@ -135,9 +156,36 @@ FROM experiment_runs
 ORDER BY created_at DESC, run_id ASC
 """
 
+_INSERT_CAMPAIGN_SQL = """
+INSERT INTO experiment_campaigns (campaign_id, created_at, run_count)
+VALUES (?, ?, ?)
+"""
+
+_INSERT_CAMPAIGN_RUN_SQL = """
+INSERT INTO experiment_campaign_runs (campaign_id, position, run_id)
+VALUES (?, ?, ?)
+"""
+
+_SELECT_CAMPAIGN_SQL = """
+SELECT campaign_id, created_at, run_count
+FROM experiment_campaigns
+WHERE campaign_id = ?
+"""
+
+_SELECT_CAMPAIGN_RUN_IDS_SQL = """
+SELECT run_id
+FROM experiment_campaign_runs
+WHERE campaign_id = ?
+ORDER BY position ASC
+"""
+
 
 class DuplicateRunIDError(ValueError):
     """Raised when save would overwrite an existing run identifier."""
+
+
+class DuplicateCampaignIDError(ValueError):
+    """Raised when save would overwrite an existing campaign identifier."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +195,13 @@ class ExperimentRunSummary:
     method: str
     duration: float
     sample_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class ExperimentCampaignManifest:
+    campaign_id: str
+    created_at: str
+    run_ids: tuple[str, ...]
 
 
 def _invalid_record(message):
@@ -408,6 +463,7 @@ class SQLiteExperimentStore:
         self.path = path
         self._connection = sqlite3.connect(path, isolation_level="DEFERRED")
         self._connection.row_factory = sqlite3.Row
+        self._connection.execute("PRAGMA foreign_keys = ON")
         self._initialized = False
 
     def __enter__(self):
@@ -437,6 +493,8 @@ class SQLiteExperimentStore:
         with connection:
             connection.execute(_CREATE_TABLE_SQL)
             connection.execute(_CREATE_LIST_INDEX_SQL)
+            connection.execute(_CREATE_CAMPAIGNS_TABLE_SQL)
+            connection.execute(_CREATE_CAMPAIGN_RUNS_TABLE_SQL)
         self._initialized = True
 
     def save(self, run):
@@ -456,21 +514,83 @@ class SQLiteExperimentStore:
         records = tuple(_record_from_run(run) for run in run_iterator)
         self._save_records(connection, records)
 
-    @staticmethod
-    def _save_records(connection, records):
+    def save_campaign(self, campaign):
+        connection = self._ready_connection()
+        if not isinstance(campaign, ExperimentCampaignResult):
+            raise TypeError("campaign must be an ExperimentCampaignResult")
+        records = tuple(_record_from_run(run) for run in campaign.runs)
+        campaign_values = (
+            campaign.campaign_id,
+            campaign.created_at.isoformat(),
+            len(records),
+        )
+
+        operation = "campaign"
         try:
             with connection:
-                for record in records:
-                    connection.execute(_INSERT_SQL, _record_values(record))
+                self._insert_records(connection, records)
+                connection.execute(_INSERT_CAMPAIGN_SQL, campaign_values)
+                operation = "membership"
+                for position, record in enumerate(records):
+                    connection.execute(
+                        _INSERT_CAMPAIGN_RUN_SQL,
+                        (campaign.campaign_id, position, record["run_id"]),
+                    )
         except sqlite3.IntegrityError as error:
-            if error.sqlite_errorcode in (
+            if operation == "campaign" and error.sqlite_errorcode in (
                 sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY,
                 sqlite3.SQLITE_CONSTRAINT_UNIQUE,
             ):
-                raise DuplicateRunIDError(
-                    f"run_id {record['run_id']!r} already exists"
+                raise DuplicateCampaignIDError(
+                    f"campaign_id {campaign.campaign_id!r} already exists"
                 ) from error
-            raise ValueError("run violates the experiment_runs schema") from error
+            raise ValueError("campaign violates the experiment campaign schema") from error
+
+    @staticmethod
+    def _save_records(connection, records):
+        with connection:
+            SQLiteExperimentStore._insert_records(connection, records)
+
+    @staticmethod
+    def _insert_records(connection, records):
+        for record in records:
+            try:
+                connection.execute(_INSERT_SQL, _record_values(record))
+            except sqlite3.IntegrityError as error:
+                SQLiteExperimentStore._raise_run_integrity_error(error, record)
+
+    @staticmethod
+    def _raise_run_integrity_error(error, record):
+        if error.sqlite_errorcode in (
+            sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY,
+            sqlite3.SQLITE_CONSTRAINT_UNIQUE,
+        ):
+            raise DuplicateRunIDError(
+                f"run_id {record['run_id']!r} already exists"
+            ) from error
+        raise ValueError("run violates the experiment_runs schema") from error
+
+    def get_campaign(self, campaign_id):
+        connection = self._ready_connection()
+        if not isinstance(campaign_id, str) or not campaign_id.strip():
+            raise ValueError("campaign_id must be a non-empty string")
+
+        row = connection.execute(
+            _SELECT_CAMPAIGN_SQL, (str(campaign_id),)
+        ).fetchone()
+        if row is None:
+            return None
+        run_rows = connection.execute(
+            _SELECT_CAMPAIGN_RUN_IDS_SQL, (str(campaign_id),)
+        ).fetchall()
+        run_ids = tuple(run_row["run_id"] for run_row in run_rows)
+        if len(run_ids) != row["run_count"]:
+            raise ValueError("stored campaign membership is incomplete")
+        return ExperimentCampaignManifest(
+            campaign_id=row["campaign_id"],
+            created_at=row["created_at"],
+            run_ids=run_ids,
+        )
 
     def get(self, run_id):
         connection = self._ready_connection()

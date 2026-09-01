@@ -819,37 +819,56 @@ complete collection in one transaction. Duplicate IDs within the collection or
 against stored data, malformed runs, schema violations, and database failures
 leave none of that collection persisted.
 
-The single `experiment_runs` table stores identity, UTC timestamp, timing, and
-all scalar metrics in typed columns. Initial state and the four metadata groups
-use deterministic standard-library JSON with sorted keys, compact separators,
-and nonfinite values disabled; pickle is never used. One connection is retained
-for each store lifetime so `:memory:` works as expected. The store is also a
-context manager that initializes on entry and closes on exit; explicit
-`close()` is idempotent and terminal.
+The `experiment_runs` table stores identity, UTC timestamp, timing, and all
+scalar metrics in typed columns. Initial state and the four metadata groups use
+deterministic standard-library JSON with sorted keys, compact separators, and
+nonfinite values disabled; pickle is never used. Campaign manifests use one
+small campaign table and one foreign-keyed membership table with explicit
+zero-based positions. One connection is retained for each store lifetime so
+`:memory:` works as expected. The store is also a context manager that
+initializes on entry and closes on exit; explicit `close()` is idempotent and
+terminal.
 
 ## Experimental Platform: sequential campaigns with optional persistence
 
-`run_experiment_campaign(cases, store=None)` composes the existing sequential
-execution and atomic SQLite batch-persistence boundaries:
+`run_experiment_campaign(cases, store=None, *, campaign_id=None,
+created_at=None)` composes the existing sequential execution and atomic SQLite
+campaign-persistence boundaries:
 
 ```python
 from flightlab.campaign import run_experiment_campaign
 from flightlab.persistence import SQLiteExperimentStore
 
 with SQLiteExperimentStore("flightlab.db") as store:
-    campaign = run_experiment_campaign(cases, store=store)
+    campaign = run_experiment_campaign(
+        cases,
+        store=store,
+        campaign_id="baseline-campaign",
+    )
+    manifest = store.get_campaign(campaign.campaign_id)
 
 runs = campaign.runs
 ```
 
-The returned frozen, slotted `ExperimentCampaignResult` contains the completed
-runs as an immutable tuple in caller order. With no store, the campaign remains
-in memory. With a store, every case first completes through
-`execute_experiments()`; only then is the complete tuple passed once to
-`SQLiteExperimentStore.save_many()`.
+The returned frozen, slotted `ExperimentCampaignResult` contains a nonblank
+campaign ID, an aware UTC creation time, and the completed runs as an immutable
+tuple in caller order. IDs default to UUID4 strings and timestamps default to
+the current UTC time; explicit aware timestamps are normalized to UTC. With no
+store, the campaign remains in memory.
+
+With a store, every case first completes through `execute_experiments()`. The
+completed result is then passed once to `SQLiteExperimentStore.save_campaign()`.
+That method reuses the existing validated run-record insertion path and writes
+all new runs, one campaign row, and positional run-membership rows in a single
+transaction. Empty campaigns persist a valid manifest with zero memberships.
+
+`get_campaign(campaign_id)` returns a new frozen
+`ExperimentCampaignManifest` containing the campaign ID, ISO UTC timestamp,
+and ordered tuple of run IDs, or `None` when unknown. It does not reconstruct
+full runs. Duplicate campaign IDs raise `DuplicateCampaignIDError`.
 
 An execution failure propagates unchanged and prevents all campaign
-persistence. A persistence failure propagates after execution and the existing
-`save_many()` transaction rolls back every run from that campaign. There are no
-partial campaign results, retries, automatic case generation, parallel work,
-optimization, analysis, or CLI behavior.
+persistence. Any run, manifest, or membership failure propagates after
+execution and rolls back every newly inserted campaign row. Existing records
+remain unchanged. There are no partial campaign results, retries, automatic
+case generation, parallel work, optimization, analysis, or CLI behavior.

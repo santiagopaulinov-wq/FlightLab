@@ -29,7 +29,9 @@ deterministic standard Cartesian-product order, also without execution. The
 eighth layer composes that expansion with existing sequential execution to
 produce immutable ordered campaign runs. The ninth layer composes explicit
 sequential case execution with optional atomic persistence and returns one
-minimal immutable completed-campaign result.
+minimal immutable completed-campaign result. The tenth layer assigns explicit
+campaign identity and atomically persists a campaign manifest, its newly
+completed runs, and their exact ordered membership.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -75,14 +77,15 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: explicit sequential experiment campaigns with optional
-  atomic SQLite persistence of their completed ordered run collections.
+- Completed capability: persisted campaign manifests with explicit immutable
+  identity and exact ordered run membership in the same transaction as all new
+  campaign runs.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add optionally persisted experiment campaigns`).
+  (`feat: persist ordered experiment campaign manifests`).
 
 ## Current verification baseline
 
-- Test count: 1026 tests.
+- Test count: 1030 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -230,14 +233,26 @@ or EXACT set matching for both inclusions and exclusions.
   ordered tuple of completed `ExperimentRun` objects.
 - `run_experiment_campaign()` delegates explicit finite case execution to
   `execute_experiments()`. With an optional initialized
-  `SQLiteExperimentStore`, it calls `save_many()` only after every experiment
-  succeeds and returns the campaign result only after persistence succeeds.
+  `SQLiteExperimentStore`, it calls `save_campaign()` only after every
+  experiment succeeds and returns the campaign result only after persistence
+  succeeds.
 - Execution failures cause no campaign persistence. Persistence errors
-  propagate after execution and retain the complete rollback and connection
-  recovery semantics of `save_many()`.
+  propagate after execution and roll back the complete campaign transaction.
 - Campaign orchestration adds no simulation, metric, provenance, serialization,
   validation, transaction, generation, retry, parallel, optimization,
   statistical-analysis, distributed, or CLI/UI implementation of its own.
+- Each `ExperimentCampaignResult` has a nonblank stable campaign ID, an aware
+  UTC creation timestamp, and its existing immutable ordered run tuple.
+- `SQLiteExperimentStore.save_campaign()` validates every run through the
+  existing reproducibility-record path and writes all runs, the campaign row,
+  and zero-based positional membership rows in one transaction.
+- `ExperimentCampaignManifest` is a frozen detached retrieval representation
+  containing campaign ID, ISO UTC creation timestamp, and ordered run IDs.
+  `get_campaign()` returns a new manifest or `None` without reconstructing full
+  experiment runs.
+- Duplicate campaign IDs raise `DuplicateCampaignIDError`. Any run, manifest,
+  or membership failure rolls back all new rows while preserving existing data
+  and store usability.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -944,10 +959,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next persisted-campaign layer limited to explicit immutable campaign
-  identity, ordered run membership, and one owned-store transaction. Do not add
-  parallel work, retries, resumption, optimization, statistical analysis,
-  distributed execution, CLI/UI workflows, or Scientific ML yet.
+- Keep the next campaign-bundle layer limited to deterministic retrieval of one
+  explicit persisted campaign and its existing detached run records. Do not add
+  cross-campaign queries, filesystem export, parallel work, retries, resumption,
+  optimization, statistical analysis, distributed execution, CLI/UI workflows,
+  or Scientific ML yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -962,32 +978,28 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Persisted campaign manifests with ordered run membership
+### Deterministic persisted-campaign reproducibility bundles
 
-Add an explicit immutable campaign identity and a small SQLite campaign
-manifest that records the ordered run IDs belonging to one successfully
-persisted campaign. Persist the manifest and its new runs in the same owned
-store transaction, and retrieve detached campaign metadata plus ordered run
-IDs without reconstructing `ExperimentRun` objects.
+Add the smallest read-only store API that retrieves one explicit persisted
+campaign manifest together with its existing detached reproducibility records
+in exact membership order, without reconstructing `ExperimentRun` objects.
 
 ## Suggested implementation direction
 
-- Extend the existing SQLite store schema idempotently with campaign and
-  ordered-membership tables using foreign keys and explicit position values.
-- Reuse the existing run-record validation, serialization, and insertion path;
-  do not create a second run persistence implementation.
-- Preserve explicit campaign and run identities, caller order, atomic rollback,
-  and the current standalone `save()` and `save_many()` APIs.
-- Keep manifest persistence separate from experiment execution so the campaign
-  orchestration layer remains a small composition boundary.
-- Add no parallel execution, retry, resumption, optimization, statistical
-  analysis, distributed work, or CLI/UI workflow.
+- Compose `get_campaign()` and the existing detached run-record decoding path;
+  do not add another SQL-to-record implementation.
+- Preserve the manifest's exact positional membership order and validate that
+  every retrieved record matches its referenced run ID.
+- Return a small immutable bundle boundary while keeping its record dictionaries
+  detached from store state.
+- Add no writes, full-run reconstruction, cross-campaign listing, filesystem
+  export, analytics, parallel work, retry, resumption, or CLI/UI workflow.
 
 ## Focused tests to add
 
-- Verify empty and populated manifests, ordered membership, deterministic
-  retrieval, duplicate campaign IDs, duplicate run IDs, complete rollback,
-  foreign-key integrity, reopening, and store recovery after failure.
+- Verify unknown, empty, and populated campaigns; exact record order;
+  deterministic detached retrieval; corrupted/missing membership detection;
+  source isolation; reopening; and unchanged store usability.
 
 ## Commands that must pass
 
