@@ -325,6 +325,112 @@ def test_save_commits_before_return_for_a_second_file_connection(tmp_path):
         writer.close()
 
 
+def test_save_many_atomically_persists_runs_in_caller_order(tmp_path):
+    path = tmp_path / "experiments.sqlite3"
+    runs = (
+        _run(run_id="run-003"),
+        _run(run_id="run-001"),
+        _run(run_id="run-002"),
+    )
+    originals = tuple(run.reproducibility_record() for run in runs)
+
+    with SQLiteExperimentStore(path) as store:
+        store.save_many(run for run in runs)
+        assert tuple(store.get(run.run_id) for run in runs) == tuple(
+            run.reproducibility_record() for run in runs
+        )
+
+    with sqlite3.connect(path) as connection:
+        inserted_ids = tuple(
+            row[0]
+            for row in connection.execute(
+                "SELECT run_id FROM experiment_runs ORDER BY rowid"
+            )
+        )
+
+    assert inserted_ids == tuple(run.run_id for run in runs)
+    assert tuple(run.reproducibility_record() for run in runs) == originals
+
+
+def test_save_many_accepts_empty_and_single_run_collections(tmp_path):
+    run = _run()
+    with SQLiteExperimentStore(tmp_path / "experiments.sqlite3") as store:
+        store.save_many([])
+        assert store.list_runs() == ()
+
+        store.save_many((run,))
+        assert store.get(run.run_id) == run.reproducibility_record()
+
+
+def test_save_many_rejects_duplicate_ids_within_batch_and_rolls_back(tmp_path):
+    first = _run(run_id="duplicate")
+    duplicate = _run(run_id="duplicate", method="rk4")
+
+    with SQLiteExperimentStore(tmp_path / "experiments.sqlite3") as store:
+        with pytest.raises(DuplicateRunIDError, match="duplicate.*already exists"):
+            store.save_many((first, duplicate))
+
+        assert store.list_runs() == ()
+
+
+def test_save_many_rejects_existing_id_and_rolls_back_complete_batch(tmp_path):
+    existing = _run(run_id="existing")
+    earlier = _run(run_id="earlier")
+    duplicate = _run(run_id="existing", method="rk4")
+
+    with SQLiteExperimentStore(tmp_path / "experiments.sqlite3") as store:
+        store.save(existing)
+        with pytest.raises(DuplicateRunIDError, match="existing.*already exists"):
+            store.save_many((earlier, duplicate))
+
+        assert store.get("earlier") is None
+        assert store.get("existing") == existing.reproducibility_record()
+
+
+def test_save_many_validates_complete_snapshot_before_insertion(tmp_path):
+    valid = _run(run_id="valid")
+    malformed = replace(valid, run_id="   ")
+
+    with SQLiteExperimentStore(tmp_path / "experiments.sqlite3") as store:
+        with pytest.raises(ValueError, match="run_id"):
+            store.save_many(iter((valid, malformed)))
+
+        assert store.list_runs() == ()
+
+
+def test_save_many_database_failure_rolls_back_and_store_remains_usable(tmp_path):
+    first = _run(run_id="first")
+    rejected = _run(run_id="rejected")
+    later = _run(run_id="later")
+
+    with SQLiteExperimentStore(tmp_path / "experiments.sqlite3") as store:
+        store._connection.execute(
+            """
+            CREATE TRIGGER reject_selected_run
+            BEFORE INSERT ON experiment_runs
+            WHEN NEW.run_id = 'rejected'
+            BEGIN
+                SELECT RAISE(ABORT, 'selected database failure');
+            END
+            """
+        )
+        with pytest.raises(ValueError, match="violates the experiment_runs schema"):
+            store.save_many((first, rejected))
+
+        assert store.list_runs() == ()
+        store._connection.execute("DROP TRIGGER reject_selected_run")
+        store.save_many((later,))
+        assert store.get(later.run_id) == later.reproducibility_record()
+
+
+@pytest.mark.parametrize("runs", [None, 1], ids=("none", "integer"))
+def test_save_many_rejects_non_iterable_inputs(tmp_path, runs):
+    with SQLiteExperimentStore(tmp_path / "experiments.sqlite3") as store:
+        with pytest.raises(TypeError, match="runs must be an iterable"):
+            store.save_many(runs)
+        assert store.list_runs() == ()
+
+
 def test_file_database_reopens_when_its_path_contains_spaces(tmp_path):
     path = tmp_path / "flight lab experiment records.sqlite3"
     run = _run()
@@ -350,6 +456,7 @@ def test_context_manager_initializes_automatically_and_close_is_terminal(tmp_pat
         store.list_runs,
         lambda: store.get(run.run_id),
         lambda: store.save(run),
+        lambda: store.save_many((run,)),
     ):
         with pytest.raises(RuntimeError, match="closed"):
             operation()
@@ -401,6 +508,7 @@ def test_operations_before_initialize_fail_clearly(tmp_path):
             store.list_runs,
             lambda: store.get(run.run_id),
             lambda: store.save(run),
+            lambda: store.save_many((run,)),
         ):
             with pytest.raises(RuntimeError, match="must be initialized"):
                 operation()

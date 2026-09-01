@@ -442,9 +442,26 @@ class SQLiteExperimentStore:
     def save(self, run):
         connection = self._ready_connection()
         record = _record_from_run(run)
+        self._save_records(connection, (record,))
+
+    def save_many(self, runs):
+        """Persist a finite ordered collection of runs in one transaction."""
+        connection = self._ready_connection()
+        try:
+            run_iterator = iter(runs)
+        except TypeError as error:
+            raise TypeError(
+                "runs must be an iterable of ExperimentRun objects"
+            ) from error
+        records = tuple(_record_from_run(run) for run in run_iterator)
+        self._save_records(connection, records)
+
+    @staticmethod
+    def _save_records(connection, records):
         try:
             with connection:
-                connection.execute(_INSERT_SQL, _record_values(record))
+                for record in records:
+                    connection.execute(_INSERT_SQL, _record_values(record))
         except sqlite3.IntegrityError as error:
             if error.sqlite_errorcode in (
                 sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY,
