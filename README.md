@@ -458,3 +458,54 @@ matrix with shape `(1, n_states)`, and `K_i` must be a finite real scalar. No
 stability, controllability, or observability condition is imposed. The method
 does not mutate the plant, synthesize gains, select poles, perform LQR, or add
 anti-windup, saturation, observer, or aircraft-specific behavior.
+
+## SISO integral state-feedback pole placement
+
+`system.place_siso_integral_poles(desired_poles)` computes gains for the
+existing `u = -K x + K_i xi`, `xi_dot = r - y` interconnection from exactly
+`n_states + 1` caller-supplied continuous-time poles. It returns an immutable
+`SISOIntegralPolePlacement` with fields `K`, `K_i`, `desired_poles`, and
+`achieved_poles`; the gains can be used directly as
+
+```python
+placement = system.place_siso_integral_poles(desired_poles)
+closed_loop = system.siso_integral_state_feedback(
+    placement.K, placement.K_i
+)
+```
+
+For autonomous synthesis, set `r = 0` and write
+
+```text
+A_i = [[ A, 0],       B_i = [[ B],
+       [-C, 0]]              [-D]]
+```
+
+The existing NumPy-only Ackermann implementation places poles for
+`u = -K_aug [x; xi]`. Compatibility with the integral-controller convention
+therefore requires
+
+```text
+K_aug = [K, -K_i]
+K = K_aug[:, :n_states]
+K_i = -K_aug[0, -1]
+```
+
+Substitution gives the existing closed-loop matrix
+
+```text
+A_i - B_i K_aug = [[A-B K,  B K_i],
+                   [-C+D K, -D K_i]]
+```
+
+Finite nonzero `D` is supported exactly through the `-D` row of `B_i`; it may
+change augmented controllability and the resulting gains but creates no
+algebraic loop or inversion. The augmented pair must be controllable under the
+existing numerical-rank convention. Desired poles reuse the existing finite,
+one-dimensional, conjugate-closure validation, and the achieved poles of the
+actual integral-feedback interconnection are checked against them with the
+repository's existing tolerances.
+
+Requested poles need not be stable. The API performs no automatic pole
+selection, LQR/LQI, optimization, gain scheduling, PID design, or
+aircraft-specific tuning, and it does not mutate the plant.

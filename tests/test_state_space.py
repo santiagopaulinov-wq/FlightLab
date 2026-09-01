@@ -13,6 +13,7 @@ from flightlab.state_space import (
     NonstablePBHDiagnostic,
     ObserverBasedOutputFeedbackInterconnection,
     SISOIntegralAugmentation,
+    SISOIntegralPolePlacement,
     SISOIntegralStateFeedbackInterconnection,
     StateSpace,
     StructuralAnalysis,
@@ -686,6 +687,202 @@ def test_siso_integral_state_feedback_rejects_invalid_integral_gain_type(
 
     with pytest.raises(TypeError, match="K_i must be a real numeric scalar"):
         system.siso_integral_state_feedback([[1.0, 2.0]], integral_gain)
+
+
+def test_place_siso_integral_poles_returns_analytic_gains_and_metadata():
+    system = StateSpace(*valid_matrices())
+    desired_poles = np.array([-4.0, -5.0, -6.0])
+
+    result = system.place_siso_integral_poles(desired_poles)
+
+    assert isinstance(result, SISOIntegralPolePlacement)
+    assert result.K.shape == (1, system.n_states)
+    assert result.K.dtype == float
+    assert np.isrealobj(result.K)
+    assert isinstance(result.K_i, float)
+    np.testing.assert_allclose(result.K, [[72.0, 12.0]])
+    assert result.K_i == pytest.approx(120.0)
+    np.testing.assert_array_equal(result.desired_poles, desired_poles)
+    np.testing.assert_allclose(
+        np.sort_complex(result.achieved_poles),
+        np.sort_complex(desired_poles),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_place_siso_integral_poles_maps_integral_gain_sign_and_interconnects():
+    system = StateSpace([[0.0]], [[1.0]], [[1.0]], [[0.0]])
+    desired_poles = np.array([-2.0, -3.0])
+
+    result = system.place_siso_integral_poles(desired_poles)
+    augmented_gain = np.hstack((result.K, [[-result.K_i]]))
+    interconnection = system.siso_integral_state_feedback(result.K, result.K_i)
+    design_A = np.array([[0.0, 0.0], [-1.0, 0.0]])
+    design_B = np.array([[1.0], [0.0]])
+
+    np.testing.assert_array_equal(result.K, [[5.0]])
+    assert result.K_i == pytest.approx(6.0)
+    np.testing.assert_array_equal(augmented_gain, [[5.0, -6.0]])
+    np.testing.assert_array_equal(
+        interconnection.system.A, design_A - design_B @ augmented_gain
+    )
+    np.testing.assert_allclose(
+        np.sort_complex(interconnection.system.eigenvalues()),
+        np.sort_complex(desired_poles),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        np.sort_complex(result.achieved_poles),
+        np.sort_complex(interconnection.system.eigenvalues()),
+    )
+
+
+def test_place_siso_integral_poles_returns_real_gains_for_conjugate_pair():
+    system = StateSpace([[0.0]], [[1.0]], [[1.0]], [[0.0]])
+    desired_poles = np.array([-1.0 + 2.0j, -1.0 - 2.0j])
+
+    result = system.place_siso_integral_poles(desired_poles)
+
+    assert np.isrealobj(result.K)
+    assert isinstance(result.K_i, float)
+    np.testing.assert_allclose(result.K, [[2.0]])
+    assert result.K_i == pytest.approx(5.0)
+    np.testing.assert_allclose(
+        np.sort_complex(result.achieved_poles),
+        np.sort_complex(desired_poles),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_place_siso_integral_poles_includes_nonzero_feedthrough_in_design_pair():
+    system = StateSpace([[0.0]], [[1.0]], [[1.0]], [[0.5]])
+    desired_poles = np.array([-2.0, -3.0])
+
+    result = system.place_siso_integral_poles(desired_poles)
+    augmented_gain = np.hstack((result.K, [[-result.K_i]]))
+    interconnection = system.siso_integral_state_feedback(result.K, result.K_i)
+    design_A = np.array([[0.0, 0.0], [-1.0, 0.0]])
+    design_B = np.array([[1.0], [-0.5]])
+
+    np.testing.assert_array_equal(result.K, [[2.0]])
+    assert result.K_i == pytest.approx(6.0)
+    np.testing.assert_array_equal(augmented_gain, [[2.0, -6.0]])
+    np.testing.assert_array_equal(
+        interconnection.system.A, design_A - design_B @ augmented_gain
+    )
+    np.testing.assert_allclose(
+        np.sort_complex(result.achieved_poles),
+        np.sort_complex(desired_poles),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_place_siso_integral_poles_accepts_deliberately_unstable_poles():
+    system = StateSpace([[0.0]], [[1.0]], [[1.0]], [[0.0]])
+    desired_poles = np.array([1.0, 2.0])
+
+    result = system.place_siso_integral_poles(desired_poles)
+    interconnection = system.siso_integral_state_feedback(result.K, result.K_i)
+
+    np.testing.assert_allclose(result.K, [[-3.0]])
+    assert result.K_i == pytest.approx(2.0)
+    np.testing.assert_allclose(
+        np.sort_complex(result.achieved_poles), desired_poles
+    )
+    assert interconnection.system.is_asymptotically_stable() is False
+
+
+def test_place_siso_integral_poles_does_not_mutate_plant_or_alias_pole_input():
+    system = StateSpace(*valid_matrices())
+    originals = tuple(
+        matrix.copy() for matrix in (system.A, system.B, system.C, system.D)
+    )
+    desired_poles = np.array([-4.0, -5.0, -6.0])
+
+    result = system.place_siso_integral_poles(desired_poles)
+    desired_poles[0] = 99.0
+
+    np.testing.assert_array_equal(result.desired_poles, [-4.0, -5.0, -6.0])
+    for matrix, original in zip(
+        (system.A, system.B, system.C, system.D), originals, strict=True
+    ):
+        np.testing.assert_array_equal(matrix, original)
+    with pytest.raises(AttributeError):
+        result.K_i = 0.0
+
+
+def test_place_siso_integral_poles_rejects_uncontrollable_augmented_system():
+    system = StateSpace([[-1.0]], [[1.0]], [[0.0]], [[0.0]])
+
+    assert system.is_fully_controllable() is True
+    with pytest.raises(ValueError, match="requires a controllable augmented system"):
+        system.place_siso_integral_poles([-2.0, -3.0])
+
+
+@pytest.mark.parametrize(
+    "system",
+    [
+        StateSpace([[-1.0]], [[1.0, 0.0]], [[1.0]], [[0.0, 0.0]]),
+        StateSpace([[-1.0]], [[1.0]], [[1.0], [0.0]], [[0.0], [0.0]]),
+        StateSpace([[-1.0]], [[1.0, 0.0]], [[1.0], [0.0]], np.zeros((2, 2))),
+    ],
+)
+def test_place_siso_integral_poles_rejects_non_siso_plants(system):
+    with pytest.raises(ValueError, match="requires exactly one input and one output"):
+        system.place_siso_integral_poles([-2.0, -3.0])
+
+
+@pytest.mark.parametrize(
+    "desired_poles",
+    [[], [-1.0, -2.0], [-1.0, -2.0, -3.0, -4.0]],
+)
+def test_place_siso_integral_poles_rejects_wrong_pole_count(desired_poles):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match=r"exactly n_states \+ 1 values"):
+        system.place_siso_integral_poles(desired_poles)
+
+
+@pytest.mark.parametrize(
+    "desired_poles",
+    [
+        [-1.0, -2.0, np.nan],
+        [-1.0, -2.0, np.inf],
+        [-1.0, -2.0, -np.inf],
+    ],
+)
+def test_place_siso_integral_poles_rejects_nonfinite_poles(desired_poles):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="only finite values"):
+        system.place_siso_integral_poles(desired_poles)
+
+
+@pytest.mark.parametrize("desired_poles", [-1.0, [[-1.0, -2.0, -3.0]]])
+def test_place_siso_integral_poles_rejects_nonvector_poles(desired_poles):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="must be a 1D sequence"):
+        system.place_siso_integral_poles(desired_poles)
+
+
+@pytest.mark.parametrize("desired_poles", ["poles", [object(), -2.0, -3.0]])
+def test_place_siso_integral_poles_rejects_invalid_pole_types(desired_poles):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(TypeError, match="must be a numeric 1D sequence"):
+        system.place_siso_integral_poles(desired_poles)
+
+
+def test_place_siso_integral_poles_rejects_unpaired_complex_pole():
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="must include matching conjugates"):
+        system.place_siso_integral_poles([-1.0 + 2.0j, -3.0, -4.0])
 
 
 def observer_mimo_system():

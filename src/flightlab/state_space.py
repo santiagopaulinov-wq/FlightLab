@@ -301,6 +301,21 @@ class SISOIntegralStateFeedbackInterconnection(NamedTuple):
     integral_gain: float
 
 
+class SISOIntegralPolePlacement(NamedTuple):
+    """Caller-specified pole placement for SISO integral state feedback.
+
+    ``K`` and ``K_i`` are directly accepted by
+    :meth:`StateSpace.siso_integral_state_feedback`. ``desired_poles`` retains
+    caller order, while ``achieved_poles`` uses the eigenvalue order of the
+    resulting augmented interconnection.
+    """
+
+    K: np.ndarray
+    K_i: float
+    desired_poles: np.ndarray
+    achieved_poles: np.ndarray
+
+
 class BalancedRealization(NamedTuple):
     """Full-order balanced system and its original-coordinate transformation.
 
@@ -897,6 +912,94 @@ class StateSpace:
             augmented_system,
             state_feedback_gain.copy(),
             integral_gain,
+        )
+
+    def place_siso_integral_poles(self, desired_poles):
+        """Place poles for the SISO integral state-feedback interconnection.
+
+        With ``xi_dot = r - y`` and ``y = C x + D u``, set ``r = 0`` for
+        autonomous pole placement and form the single-control-input pair::
+
+            A_i = [[ A, 0],       B_i = [[ B],
+                   [-C, 0]]              [-D]]
+
+        :meth:`place_siso_poles` returns ``K_aug`` for
+        ``u = -K_aug [x; xi]``. To preserve the established controller
+        convention ``u = -K x + K_i xi``, the exact mapping is
+        ``K_aug = [K, -K_i]``. Consequently,
+        ``K = K_aug[:, :n_states]`` and ``K_i = -K_aug[0, -1]``.
+
+        The plant must have exactly one input and one output, and the augmented
+        pair must be fully controllable under the existing numerical-rank
+        convention. Exactly ``n_states + 1`` finite desired poles are required;
+        complex values must satisfy the existing conjugate-closure tolerance.
+        Nonzero finite plant ``D`` is supported through the ``-D`` row of
+        ``B_i`` and requires no algebraic inversion.
+
+        The returned immutable :class:`SISOIntegralPolePlacement` contains the
+        finite real gains, desired poles, and achieved poles from the actual
+        interconnection. Achievement is verified using the existing
+        conjugacy tolerances. Requested poles need not be stable. The plant is
+        not mutated, and no pole selection, optimal design, tuning, or
+        aircraft-specific logic is performed.
+        """
+        if self.n_inputs != 1 or self.n_outputs != 1:
+            raise ValueError(
+                "SISO integral pole placement requires exactly one input "
+                "and one output"
+            )
+
+        state_count = self.n_states
+        augmented_system = StateSpace(
+            np.block(
+                [
+                    [self.A, np.zeros((state_count, 1))],
+                    [-self.C, np.zeros((1, 1))],
+                ]
+            ),
+            np.vstack((self.B, -self.D)),
+            np.empty((0, state_count + 1)),
+            np.empty((0, 1)),
+        )
+        if not augmented_system.is_fully_controllable():
+            raise ValueError(
+                "SISO integral pole placement requires a controllable "
+                "augmented system"
+            )
+
+        try:
+            augmented_gain = augmented_system.place_siso_poles(desired_poles)
+        except ValueError as error:
+            if str(error) == "desired poles must contain exactly n_states values":
+                raise ValueError(
+                    "desired poles must contain exactly n_states + 1 values"
+                ) from error
+            raise
+
+        state_feedback_gain = augmented_gain[:, :state_count].copy()
+        integral_gain = float(-augmented_gain[0, -1])
+        interconnection = self.siso_integral_state_feedback(
+            state_feedback_gain, integral_gain
+        )
+        desired_poles_array = np.asarray(desired_poles, dtype=complex).copy()
+        achieved_poles = np.asarray(
+            interconnection.system.eigenvalues(), dtype=complex
+        )
+        if not np.allclose(
+            np.sort_complex(achieved_poles),
+            np.sort_complex(desired_poles_array),
+            rtol=_CONJUGATE_RTOL,
+            atol=_CONJUGATE_ATOL,
+        ):
+            raise ValueError(
+                "SISO integral pole placement did not achieve the desired poles"
+            )
+
+        return SISOIntegralPolePlacement(
+            K=state_feedback_gain,
+            K_i=integral_gain,
+            desired_poles=desired_poles_array,
+            achieved_poles=achieved_poles,
         )
 
     def luenberger_observer(self, observer_gain):

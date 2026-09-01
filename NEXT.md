@@ -46,7 +46,9 @@ stable SISO full-state-feedback loops support nominal steady-state reference
 prefilter calculation. SISO plants can also be augmented with one explicit
 output-error integral state as an open controller-design model, and that model
 can now be closed with caller-supplied state and integral gains while retaining
-the scalar reference input and physical plant output.
+the scalar reference input and physical plant output. Explicit sets of
+`n_states + 1` poles can now also be placed for that integral interconnection
+through the existing NumPy-only SISO Ackermann implementation.
 Both aircraft models can filter these immutable interpreted families by their
 existing oscillatory status, mathematical stability, and exact dominant
 state/input/output labels, with configurable global or per-category ANY, ALL,
@@ -54,15 +56,15 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: caller-supplied SISO integral state feedback under
+- Completed capability: SISO integral state-feedback pole placement for
   `u = -K x + K_i xi` and `xi_dot = r - y`.
-- Focused checkpoint message: `feat: add SISO integral state feedback`.
+- Focused checkpoint message: `feat: add SISO integral pole placement`.
 - Previous checkpoint commit:
-  `43db0947ab23883d30b18827891dca627db3c653`.
+  `6f975baaf3b62dc428dda27a52a70badbe97bf82`.
 
 ## Current verification baseline
 
-- Test count: 782 tests.
+- Test count: 803 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -313,6 +315,27 @@ or EXACT set matching for both inclusions and exclusions.
   deliberately unstable supplied gains are both accepted, the original plant
   is not mutated, and no pole placement, LQR, gain tuning, anti-windup,
   saturation, observer, or aircraft-specific behavior is added.
+- `StateSpace.place_siso_integral_poles(desired_poles)` returns an immutable
+  `SISOIntegralPolePlacement` containing finite real `K`, scalar `K_i`, the
+  desired poles in caller order, and the achieved poles of the actual
+  integral-feedback interconnection.
+- Autonomous synthesis uses the augmented pair
+  `A_i = [[A, 0], [-C, 0]]`, `B_i = [[B], [-D]]`. The `-D` row follows
+  directly from `xi_dot = -C x - D u` when `r = 0`, so finite nonzero plant
+  feedthrough is supported without inversion or an algebraic loop.
+- The existing Ackermann API supplies `K_aug` for
+  `u = -K_aug [x; xi]`. The established integral-control convention therefore
+  maps exactly as `K_aug = [K, -K_i]`,
+  `K = K_aug[:, :n_states]`, and `K_i = -K_aug[0, -1]`.
+- Exactly `n_states + 1` desired poles are required. Existing finite-value,
+  one-dimensional, conjugate-closure, real-polynomial, linear-solve, and
+  nonfinite-gain validation is reused rather than reimplemented. The augmented
+  pair must be fully controllable under the existing numerical-rank convention.
+- The returned gains are passed through `siso_integral_state_feedback()`, and
+  achieved poles are checked against the desired multiset with the existing
+  conjugacy tolerances. Requested poles may be stable or unstable; no automatic
+  pole selection, LQR/LQI, optimization, gain scheduling, PID, or
+  aircraft-specific tuning is added.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -732,26 +755,27 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### SISO integral state-feedback pole placement
+### Caller-supplied SISO observer-based integral output feedback
 
-Synthesize `K` and `K_i` only from an explicit caller-supplied set of
-`n_states + 1` desired poles, reusing the existing NumPy-only SISO Ackermann
-machinery and the now-verified integral-control sign convention.
+Combine the verified integral state-feedback gains with a caller-supplied
+full-order observer gain, retaining scalar reference input and physical plant
+output without adding gain synthesis.
 
 ## Suggested implementation direction
 
-- Form the single-control-input augmented design pair
-  `A_i = [[A, 0], [-C, 0]]`, `B_i = [[B], [-D]]` with reference set to zero.
-  For Ackermann gain `K_aug` under `u = -K_aug [x; xi]`, return
-  `K = K_aug[:, :n_states]` and `K_i = -K_aug[0, -1]` so the result is accepted
-  directly by `siso_integral_state_feedback()`.
-- Require exactly one plant input and output, at least one augmented state,
-  full controllability of `(A_i, B_i)`, and exactly `n_states + 1` finite poles
-  with the existing conjugate-closure convention.
-- Reuse the existing pole-validation and Ackermann implementation rather than
-  duplicating polynomial evaluation or linear solves. Do not select poles,
-  require stable requested poles, or add LQR/LQG, anti-windup, saturation,
-  observers, or aircraft tuning.
+- Use state order `[x; x_hat; xi]`, controller
+  `u = -K x_hat + K_i xi`, observer
+  `x_hat_dot = A x_hat + B u + L(y-C x_hat-D u)`, and
+  `xi_dot = r-y`.
+- Derive the exact nonzero-`D` realization directly. In `[x; xi; e]`
+  coordinates with `e = x-x_hat`, preserve the block-triangular structure
+  whose diagonal blocks are the existing integral full-state closed loop and
+  `A-L C`, establishing the corresponding separation-principle pole union.
+- Accept only finite real caller-supplied `K`, `K_i`, and `L` with their
+  existing shapes and validation conventions. Reuse gains returned by
+  `place_siso_integral_poles()` and `place_siso_observer_poles()` directly.
+- Do not synthesize or select gains, add Kalman filtering, LQR/LQI, anti-windup,
+  saturation, optimization, gain scheduling, PID, or aircraft tuning.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -760,10 +784,10 @@ machinery and the now-verified integral-control sign convention.
 
 ## Focused tests to add
 
-- Verify exact `K_aug` sign conversion to `K` and `K_i`, achieved augmented
-  poles for both zero and nonzero `D`, direct compatibility with
-  `siso_integral_state_feedback()`, desired-pole validation, augmented
-  uncontrollability rejection, and non-mutation.
+- Verify exact augmented matrices and equations, reference/output ordering,
+  nonzero feedthrough, observer-error dynamics, separation-principle poles,
+  direct compatibility with both existing placement results, validation,
+  immutability, and non-mutation.
 
 ## Commands that must pass
 
