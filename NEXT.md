@@ -75,10 +75,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 - Completed capability: sequential execution of deterministic Cartesian
   experiment cases into immutable ordered `ExperimentRun` tuples.
-- Focused checkpoint message: `feat: add sequential Cartesian experiment execution`.
-- Previous checkpoint commit:
-  `332f217964bc3f9bdce04c875bf454449bfd941f`
-  (`feat: add deterministic Cartesian case expansion`).
+- Completed capability commit:
+  `f79b6bfc6d87dc1a1be05e6d1c3b170cf3417bd0`
+  (`feat: add sequential Cartesian experiment execution`).
+- Checkpoint documentation message:
+  `docs: checkpoint Cartesian experiment execution`.
 
 ## Current verification baseline
 
