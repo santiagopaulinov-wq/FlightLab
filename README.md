@@ -1021,6 +1021,42 @@ layouts, finite values, compatible metric rows, and nonzero representative
 parameter deltas. It performs no representative inference, sensitivity
 recalculation, normalization, ranking, regression, aggregation, or persistence.
 
+`project_campaign_metric_changes(matrix, parameter_changes)` applies one
+explicit named parameter-change vector to an existing sensitivity matrix:
+
+```python
+from flightlab.analysis import (
+    CampaignParameterChange,
+    project_campaign_metric_changes,
+)
+
+projection = project_campaign_metric_changes(
+    matrix,
+    (
+        CampaignParameterChange("gain", 0.5),
+        CampaignParameterChange("damping", -0.1),
+    ),
+)
+```
+
+The mathematical definition is
+`predicted_metric_changes = sensitivity_matrix @ parameter_changes`, or
+`Δm_hat = S_secant Δp`. Each metric change is the finite row sum of
+`sensitivity[i, j] * parameter_change[j]`. Parameter names and order must match
+the matrix columns exactly; metric output order matches the matrix rows.
+
+The frozen `CampaignMetricChangeProjection` retains parameter names, metric
+names, the detached numeric change vector, and ordered predicted metric
+changes. If any sensitivity in a metric row is `None`, that metric projection
+is `None`, even when the corresponding parameter change is zero; unavailable
+sensitivity is never treated as zero. Empty matrix plus empty vector returns an
+explicit empty projection.
+
+This is a linear projection built from sampled baseline-relative secant
+sensitivities. It is not a nonlinear simulation, local Jacobian, regression
+model, or guarantee of accuracy outside the sampled campaign region. The API
+performs no inference, reordering, rescaling, simulation, or persistence.
+
 An execution failure propagates unchanged and prevents all campaign
 persistence. Any run, manifest, or membership failure propagates after
 execution and rolls back every newly inserted campaign row. Existing records

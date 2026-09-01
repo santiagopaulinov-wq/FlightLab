@@ -54,6 +54,131 @@ class CampaignSensitivityMatrix:
     values: tuple[tuple[float | None, ...], ...]
 
 
+@dataclass(frozen=True, slots=True)
+class CampaignParameterChange:
+    """One explicit named parameter change in sensitivity-matrix column order."""
+
+    name: str
+    value: float
+
+
+@dataclass(frozen=True, slots=True)
+class CampaignMetricChangeProjection:
+    """Immutable linear projection from secant sensitivities."""
+
+    parameter_names: tuple[str, ...]
+    metric_names: tuple[str, ...]
+    parameter_changes: tuple[float, ...]
+    predicted_metric_changes: tuple[float | None, ...]
+
+
+def project_campaign_metric_changes(
+    matrix: CampaignSensitivityMatrix,
+    parameter_changes: Iterable[CampaignParameterChange],
+) -> CampaignMetricChangeProjection:
+    """Apply one explicit parameter-change vector to a secant matrix."""
+    _validate_sensitivity_matrix(matrix)
+    try:
+        change_iterator = iter(parameter_changes)
+    except TypeError as error:
+        raise TypeError("parameter_changes must be an iterable") from error
+    parameter_changes = tuple(change_iterator)
+    if len(parameter_changes) != len(matrix.parameter_names):
+        raise ValueError(
+            "parameter_changes must match the sensitivity matrix column count"
+        )
+
+    values = []
+    for index, (expected_name, change) in enumerate(
+        zip(matrix.parameter_names, parameter_changes)
+    ):
+        if not isinstance(change, CampaignParameterChange):
+            raise TypeError(
+                f"parameter_changes[{index}] must be a CampaignParameterChange"
+            )
+        if change.name != expected_name:
+            raise ValueError(
+                f"parameter_changes[{index}].name must be {expected_name!r}"
+            )
+        values.append(
+            _finite_numeric(f"parameter_changes[{index}].value", change.value)
+        )
+
+    predicted = []
+    for metric_name, row in zip(matrix.metric_names, matrix.values):
+        if any(sensitivity is None for sensitivity in row):
+            predicted.append(None)
+            continue
+        metric_change = 0.0
+        for sensitivity, change in zip(row, values):
+            term = float(sensitivity) * change
+            if not math.isfinite(term):
+                raise ValueError(
+                    f"predicted metric {metric_name!r} contribution must be finite"
+                )
+            metric_change += term
+            if not math.isfinite(metric_change):
+                raise ValueError(
+                    f"predicted metric change {metric_name!r} must be finite"
+                )
+        predicted.append(metric_change)
+
+    return CampaignMetricChangeProjection(
+        parameter_names=matrix.parameter_names,
+        metric_names=matrix.metric_names,
+        parameter_changes=tuple(values),
+        predicted_metric_changes=tuple(predicted),
+    )
+
+
+def _validate_sensitivity_matrix(matrix):
+    if not isinstance(matrix, CampaignSensitivityMatrix):
+        raise TypeError("matrix must be a CampaignSensitivityMatrix")
+    for name, value in (
+        ("parameter_names", matrix.parameter_names),
+        ("metric_names", matrix.metric_names),
+        ("representative_run_ids", matrix.representative_run_ids),
+        ("values", matrix.values),
+    ):
+        if type(value) is not tuple:
+            raise TypeError(f"matrix.{name} must be a tuple")
+    if len(matrix.representative_run_ids) != len(matrix.parameter_names):
+        raise ValueError("matrix representative IDs must match parameter columns")
+    if len(matrix.values) != len(matrix.metric_names):
+        raise ValueError("matrix value rows must match metric names")
+
+    _validate_unique_nonblank(matrix.parameter_names, "matrix parameter name")
+    _validate_unique_nonblank(matrix.metric_names, "matrix metric name")
+    _validate_unique_nonblank(
+        matrix.representative_run_ids, "matrix representative run_id"
+    )
+    for metric_name in matrix.metric_names:
+        if metric_name not in _METRIC_KEYS:
+            raise ValueError(f"matrix has unknown metric {metric_name!r}")
+    for row_index, row in enumerate(matrix.values):
+        if type(row) is not tuple:
+            raise TypeError(f"matrix.values[{row_index}] must be a tuple")
+        if len(row) != len(matrix.parameter_names):
+            raise ValueError(
+                f"matrix.values[{row_index}] must match parameter columns"
+            )
+        for column_index, sensitivity in enumerate(row):
+            if sensitivity is not None:
+                _finite_numeric(
+                    f"matrix.values[{row_index}][{column_index}]", sensitivity
+                )
+
+
+def _validate_unique_nonblank(values, name):
+    seen = set()
+    for index, value in enumerate(values):
+        if type(value) is not str or not value.strip():
+            raise ValueError(f"{name} at index {index} must be non-empty")
+        if value in seen:
+            raise ValueError(f"duplicate {name} {value!r}")
+        seen.add(value)
+
+
 def campaign_sensitivity_matrix(
     parameters: Iterable[SensitivityMatrixParameter],
 ) -> CampaignSensitivityMatrix:

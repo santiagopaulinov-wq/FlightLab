@@ -6,6 +6,8 @@ import pytest
 from flightlab.analysis import (
     CampaignComparisonEntry,
     CampaignDeltaEntry,
+    CampaignMetricChangeProjection,
+    CampaignParameterChange,
     CampaignSensitivityEntry,
     CampaignSensitivityMatrix,
     SensitivityMatrixParameter,
@@ -13,6 +15,7 @@ from flightlab.analysis import (
     campaign_secant_sensitivities,
     campaign_sensitivity_matrix,
     compare_campaign_runs,
+    project_campaign_metric_changes,
 )
 from flightlab.experiment import experiment_run
 from flightlab.persistence import (
@@ -607,3 +610,172 @@ def test_sensitivity_matrix_is_immutable_deterministic_and_detached():
         first.values = ()
     with pytest.raises(TypeError):
         first.values[0][0] = 9.0
+
+
+def test_projection_with_one_parameter_and_metric():
+    matrix = CampaignSensitivityMatrix(
+        ("gain",), ("iae",), ("gain-run",), ((2.5,),)
+    )
+
+    assert project_campaign_metric_changes(
+        matrix, (CampaignParameterChange("gain", -2.0),)
+    ) == CampaignMetricChangeProjection(
+        parameter_names=("gain",),
+        metric_names=("iae",),
+        parameter_changes=(-2.0,),
+        predicted_metric_changes=(-5.0,),
+    )
+
+
+def test_projection_preserves_order_and_computes_row_vector_products():
+    matrix = CampaignSensitivityMatrix(
+        parameter_names=("damping", "gain"),
+        metric_names=("iae", "ise"),
+        representative_run_ids=("damping-run", "gain-run"),
+        values=((2.0, -1.0), (-3.0, 4.0)),
+    )
+
+    projection = project_campaign_metric_changes(
+        matrix,
+        (
+            CampaignParameterChange("damping", 3.0),
+            CampaignParameterChange("gain", -2.0),
+        ),
+    )
+
+    assert projection.parameter_names == ("damping", "gain")
+    assert projection.metric_names == ("iae", "ise")
+    assert projection.parameter_changes == (3.0, -2.0)
+    assert projection.predicted_metric_changes == (8.0, -17.0)
+
+
+def test_zero_change_vector_produces_exact_numeric_zeros():
+    matrix = CampaignSensitivityMatrix(
+        ("first", "second"),
+        ("iae", "ise"),
+        ("first-run", "second-run"),
+        ((2.0, -1.0), (3.0, 4.0)),
+    )
+
+    projection = project_campaign_metric_changes(
+        matrix,
+        (CampaignParameterChange("first", 0.0), CampaignParameterChange("second", 0)),
+    )
+
+    assert projection.predicted_metric_changes == (0.0, 0.0)
+
+
+def test_projection_propagates_undefined_sensitivity_even_for_zero_change():
+    matrix = CampaignSensitivityMatrix(
+        ("gain",),
+        ("iae", "settling_time"),
+        ("gain-run",),
+        ((2.0,), (None,)),
+    )
+
+    projection = project_campaign_metric_changes(
+        matrix, (CampaignParameterChange("gain", 0.0),)
+    )
+
+    assert projection.predicted_metric_changes == (0.0, None)
+
+
+def test_empty_matrix_and_vector_produce_an_empty_projection():
+    matrix = CampaignSensitivityMatrix((), (), (), ())
+
+    assert project_campaign_metric_changes(matrix, ()) == (
+        CampaignMetricChangeProjection((), (), (), ())
+    )
+
+
+def test_projection_rejects_dimension_and_parameter_order_mismatches():
+    matrix = CampaignSensitivityMatrix(
+        ("first", "second"),
+        ("iae",),
+        ("first-run", "second-run"),
+        ((1.0, 2.0),),
+    )
+    with pytest.raises(ValueError, match="column count"):
+        project_campaign_metric_changes(
+            matrix, (CampaignParameterChange("first", 1.0),)
+        )
+    with pytest.raises(ValueError, match=r"parameter_changes\[0\].*'first'"):
+        project_campaign_metric_changes(
+            matrix,
+            (
+                CampaignParameterChange("second", 2.0),
+                CampaignParameterChange("first", 1.0),
+            ),
+        )
+
+
+@pytest.mark.parametrize("value", [True, "bad", None, float("inf"), float("nan")])
+def test_projection_rejects_nonnumeric_or_nonfinite_changes(value):
+    matrix = CampaignSensitivityMatrix(
+        ("gain",), ("iae",), ("gain-run",), ((1.0,),)
+    )
+
+    with pytest.raises(ValueError, match=r"parameter_changes\[0\].*(numeric|finite)"):
+        project_campaign_metric_changes(
+            matrix, (CampaignParameterChange("gain", value),)
+        )
+
+
+def test_projection_rejects_malformed_or_nonfinite_matrix_values():
+    malformed = CampaignSensitivityMatrix(
+        ("gain",), ("iae",), ("gain-run",), ((1.0, 2.0),)
+    )
+    with pytest.raises(ValueError, match="match parameter columns"):
+        project_campaign_metric_changes(
+            malformed, (CampaignParameterChange("gain", 1.0),)
+        )
+
+    nonfinite = CampaignSensitivityMatrix(
+        ("gain",), ("iae",), ("gain-run",), ((float("inf"),),)
+    )
+    with pytest.raises(ValueError, match=r"matrix.values\[0\]\[0\].*finite"):
+        project_campaign_metric_changes(
+            nonfinite, (CampaignParameterChange("gain", 1.0),)
+        )
+
+
+def test_projection_rejects_nonfinite_products_and_sums():
+    product_overflow = CampaignSensitivityMatrix(
+        ("gain",), ("iae",), ("gain-run",), ((1e308,),)
+    )
+    with pytest.raises(ValueError, match="contribution must be finite"):
+        project_campaign_metric_changes(
+            product_overflow, (CampaignParameterChange("gain", 1e308),)
+        )
+
+    sum_overflow = CampaignSensitivityMatrix(
+        ("first", "second"),
+        ("iae",),
+        ("first-run", "second-run"),
+        ((1e308, 1e308),),
+    )
+    with pytest.raises(ValueError, match="metric change 'iae' must be finite"):
+        project_campaign_metric_changes(
+            sum_overflow,
+            (
+                CampaignParameterChange("first", 1.0),
+                CampaignParameterChange("second", 1.0),
+            ),
+        )
+
+
+def test_projection_is_immutable_deterministic_and_detached():
+    matrix = CampaignSensitivityMatrix(
+        ("gain",), ("iae",), ("gain-run",), ((2.0,),)
+    )
+    changes = [CampaignParameterChange("gain", 3.0)]
+
+    first = project_campaign_metric_changes(matrix, changes)
+    repeated = project_campaign_metric_changes(matrix, changes)
+
+    assert first == repeated
+    changes[0] = CampaignParameterChange("gain", 99.0)
+    assert first.parameter_changes == (3.0,)
+    assert first.predicted_metric_changes == (6.0,)
+    with pytest.raises(FrozenInstanceError):
+        first.predicted_metric_changes = ()

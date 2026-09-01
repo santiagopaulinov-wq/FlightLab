@@ -43,6 +43,8 @@ fifteenth layer converts those deltas into immutable baseline-relative secant
 slopes while representing every exact zero denominator as unavailable. The
 sixteenth layer assembles explicit one-at-a-time representative secants into an
 immutable response-metric-row by varied-parameter-column sensitivity matrix.
+The seventeenth layer applies that matrix to one explicit aligned parameter-
+change vector to produce immutable linear predicted metric changes.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -88,14 +90,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: explicit immutable one-at-a-time campaign sensitivity
-  matrices with caller-ordered parameter columns and existing metric rows.
+- Completed capability: explicit immutable secant-matrix metric-change
+  projections with exact named parameter alignment and metric-row order.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add explicit campaign sensitivity matrices`).
+  (`feat: add explicit secant metric-change projections`).
 
 ## Current verification baseline
 
-- Test count: 1100 tests.
+- Test count: 1114 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -307,6 +309,14 @@ or EXACT set matching for both inclusions and exclusions.
   metrics, columns are varied parameters, and each element is the selected
   existing baseline-relative secant sensitivity; unavailable values remain
   `None`.
+- `project_campaign_metric_changes()` requires exactly one finite numeric
+  `CampaignParameterChange` per matrix column in exact name/order alignment and
+  computes each available prediction as the finite sensitivity-row/change-
+  vector dot product.
+- `CampaignMetricChangeProjection` retains parameter and metric order, detached
+  changes, and ordered predicted metric changes. Any unavailable sensitivity in
+  a row makes that metric prediction unavailable rather than treating missing
+  information as zero.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -1013,10 +1023,10 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next sensitivity layer limited to explicit metric-change projections
-  from one existing sensitivity matrix and one caller-ordered parameter-change
-  vector. Do not infer changes, add iterative simulation, regression, local
-  derivatives, uncertainty distributions, ranking, optimization, plotting,
+- Keep the next analysis layer limited to applying one existing sensitivity
+  matrix to a finite explicit caller-ordered collection of named parameter-
+  change scenarios. Do not generate scenarios, infer changes, add probability
+  distributions, Monte Carlo work, statistics, ranking, optimization, plotting,
   persistence, or CLI/UI workflows yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
@@ -1032,33 +1042,31 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Explicit secant-matrix metric-change projections
+### Explicit ordered campaign sensitivity-projection scenarios
 
-Add a small pure analysis API that multiplies one existing campaign sensitivity
-matrix by one explicit caller-ordered finite parameter-change vector to produce
-immutable predicted response-metric changes.
+Add a small pure analysis API that applies one existing campaign sensitivity
+matrix to a finite caller-ordered collection of explicitly named parameter-
+change vectors and returns immutable ordered scenario projections.
 
 ## Suggested implementation direction
 
-- Require the parameter-change names and order to match the matrix columns
-  exactly; infer no alignment or missing value.
-- Compute each available metric change as the finite row/vector dot product and
-  preserve metric order.
-- Define explicit propagation when any contributing matrix sensitivity is
-  unavailable, without silently treating it as zero.
-- Return frozen parameter-change metadata and ordered predicted metric changes,
-  rejecting nonfinite inputs or results.
-- Document that this is a linear secant-matrix projection, not a new simulation,
-  regression model, local derivative, or guaranteed nonlinear response.
-- Add no uncertainty model, ranking, optimization, plotting, persistence, or
-  controller synthesis.
+- Require unique nonblank scenario names and one explicit finite aligned change
+  vector per scenario; infer and generate nothing.
+- Delegate every vector application to the existing single-projection API and
+  preserve scenario order exactly.
+- Return frozen named scenario entries containing the existing immutable
+  projections without aggregating or comparing them.
+- Propagate the first existing projection validation error unchanged and return
+  no partial result.
+- Add no Cartesian generation, probability model, Monte Carlo work, statistics,
+  robustness envelope, ranking, optimization, plotting, or persistence.
 
 ## Focused tests to add
 
-- Verify one and multiple parameter changes, positive/negative cancellation,
-  exact name/order alignment, multiple metrics, unavailable sensitivity
-  propagation, empty matrices, nonfinite input/output rejection, deterministic
-  output, immutability, and source isolation.
+- Verify empty, one, and multiple scenarios; exact scenario order; unique names;
+  positive/negative/zero vectors; unavailable sensitivity propagation; invalid
+  vector failure without partial output; exactly-once delegation semantics;
+  deterministic output, immutability, and source isolation.
 
 ## Commands that must pass
 
