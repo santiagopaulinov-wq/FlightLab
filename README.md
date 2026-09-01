@@ -964,6 +964,28 @@ current or baseline value is `None`; otherwise both values must be finite
 numeric scalars. The transformation performs no metric recomputation, sorting,
 ranking, normalization, aggregation, persistence, or source mutation.
 
+`campaign_secant_sensitivities(deltas)` converts those absolute deltas into
+baseline-relative secant slopes:
+
+```python
+from flightlab.analysis import campaign_secant_sensitivities
+
+sensitivities = campaign_secant_sensitivities(deltas)
+```
+
+For each available metric on a run with nonzero parameter delta, the value is
+exactly `metric_delta / parameter_delta`. These are finite secant slopes between
+the selected baseline and each run—not local derivatives, regression
+coefficients, or finite-difference derivative estimates. Campaign order, metric
+order, run IDs, and parameter deltas are retained in frozen
+`CampaignSensitivityEntry` objects.
+
+No epsilon tolerance is used. The baseline has exactly zero parameter delta and
+therefore `None` sensitivity for every metric. Any non-baseline run with the
+same parameter value also has zero parameter delta and the same explicit `None`
+behavior. Optional `None` metric deltas remain `None`; nonnumeric, nonfinite,
+structurally inconsistent, or overflow-producing inputs are rejected.
+
 An execution failure propagates unchanged and prevents all campaign
 persistence. Any run, manifest, or membership failure propagates after
 execution and rolls back every newly inserted campaign row. Existing records

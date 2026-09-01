@@ -6,7 +6,9 @@ import pytest
 from flightlab.analysis import (
     CampaignComparisonEntry,
     CampaignDeltaEntry,
+    CampaignSensitivityEntry,
     campaign_metric_deltas,
+    campaign_secant_sensitivities,
     compare_campaign_runs,
 )
 from flightlab.experiment import experiment_run
@@ -310,6 +312,131 @@ def test_campaign_metric_deltas_is_immutable_deterministic_and_detached():
     assert first == repeated
     comparison.reverse()
     assert tuple(entry.run_id for entry in first) == ("first", "middle", "last")
+    with pytest.raises(TypeError):
+        first[0] = first[0]
+    with pytest.raises(FrozenInstanceError):
+        first[0].parameter_delta = 10.0
+
+
+def _deltas():
+    return (
+        CampaignDeltaEntry(
+            "positive",
+            2.0,
+            (("iae", 6.0), ("ise", -4.0)),
+        ),
+        CampaignDeltaEntry(
+            "baseline",
+            0.0,
+            (("iae", 0.0), ("ise", 0.0)),
+        ),
+        CampaignDeltaEntry(
+            "negative",
+            -4.0,
+            (("iae", 2.0), ("ise", -8.0)),
+        ),
+    )
+
+
+def test_campaign_secant_sensitivities_computes_signed_ordered_ratios():
+    assert campaign_secant_sensitivities(_deltas()) == (
+        CampaignSensitivityEntry(
+            "positive",
+            2.0,
+            (("iae", 3.0), ("ise", -2.0)),
+        ),
+        CampaignSensitivityEntry(
+            "baseline",
+            0.0,
+            (("iae", None), ("ise", None)),
+        ),
+        CampaignSensitivityEntry(
+            "negative",
+            -4.0,
+            (("iae", -0.5), ("ise", 2.0)),
+        ),
+    )
+
+
+def test_zero_parameter_delta_never_produces_a_secant_sensitivity():
+    deltas = (
+        CampaignDeltaEntry("baseline", 0.0, (("iae", 0.0),)),
+        CampaignDeltaEntry("repeated", 0.0, (("iae", 5.0),)),
+    )
+
+    result = campaign_secant_sensitivities(deltas)
+
+    assert result[0].metric_sensitivities == (("iae", None),)
+    assert result[1].metric_sensitivities == (("iae", None),)
+
+
+def test_optional_metric_delta_remains_none_for_nonzero_parameter_delta():
+    deltas = (
+        CampaignDeltaEntry("baseline", 0.0, (("settling_time", 0.0),)),
+        CampaignDeltaEntry("missing", 2.0, (("settling_time", None),)),
+    )
+
+    assert campaign_secant_sensitivities(deltas)[1].metric_sensitivities == (
+        ("settling_time", None),
+    )
+
+
+def test_empty_secant_sensitivity_input_returns_an_empty_tuple():
+    assert campaign_secant_sensitivities(()) == ()
+
+
+def test_secant_sensitivities_reject_inconsistent_and_malformed_entries():
+    inconsistent = (
+        CampaignDeltaEntry("baseline", 0.0, (("iae", 0.0), ("ise", 0.0))),
+        CampaignDeltaEntry("run", 1.0, (("ise", 1.0), ("iae", 2.0))),
+    )
+    with pytest.raises(ValueError, match="matching metric layouts"):
+        campaign_secant_sensitivities(inconsistent)
+
+    with pytest.raises(TypeError, match=r"deltas\[0\].*CampaignDeltaEntry"):
+        campaign_secant_sensitivities((object(),))
+
+    without_baseline = (CampaignDeltaEntry("run", 1.0, (("iae", 2.0),)),)
+    with pytest.raises(ValueError, match="zero-delta baseline"):
+        campaign_secant_sensitivities(without_baseline)
+
+
+@pytest.mark.parametrize(
+    ("entry", "message"),
+    [
+        (CampaignDeltaEntry("run", float("inf"), (("iae", 0.0),)), "finite"),
+        (CampaignDeltaEntry("run", True, (("iae", 0.0),)), "numeric"),
+        (CampaignDeltaEntry("run", 0.0, (("iae", float("nan")),)), "finite"),
+        (CampaignDeltaEntry("run", 0.0, (("iae", "bad"),)), "numeric"),
+    ],
+)
+def test_secant_sensitivities_reject_nonnumeric_or_nonfinite_values(entry, message):
+    with pytest.raises(ValueError, match=message):
+        campaign_secant_sensitivities((entry,))
+
+
+def test_secant_sensitivities_reject_nonfinite_computed_ratio():
+    deltas = (
+        CampaignDeltaEntry("baseline", 0.0, (("iae", 0.0),)),
+        CampaignDeltaEntry("run", 1e-308, (("iae", 1e308),)),
+    )
+
+    with pytest.raises(ValueError, match="sensitivity must be finite"):
+        campaign_secant_sensitivities(deltas)
+
+
+def test_secant_sensitivities_are_immutable_deterministic_and_detached():
+    source = list(_deltas())
+    first = campaign_secant_sensitivities(source)
+    repeated = campaign_secant_sensitivities(source)
+
+    assert first == repeated
+    source.reverse()
+    assert tuple(entry.run_id for entry in first) == (
+        "positive",
+        "baseline",
+        "negative",
+    )
     with pytest.raises(TypeError):
         first[0] = first[0]
     with pytest.raises(FrozenInstanceError):

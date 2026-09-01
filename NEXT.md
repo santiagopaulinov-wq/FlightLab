@@ -38,7 +38,9 @@ that bundle into a fresh deterministic JSON-compatible plain record without
 performing I/O. The thirteenth layer extracts one explicit provenance parameter
 and caller-selected existing response metrics into immutable campaign-ordered
 comparison entries. The fourteenth layer transforms those entries into signed
-absolute parameter and metric deltas from one explicit baseline run.
+absolute parameter and metric deltas from one explicit baseline run. The
+fifteenth layer converts those deltas into immutable baseline-relative secant
+slopes while representing every exact zero denominator as unavailable.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -84,14 +86,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: immutable explicit-baseline campaign parameter and
-  metric deltas in exact campaign and metric order.
+- Completed capability: immutable baseline-relative campaign secant
+  sensitivities in exact campaign and metric order.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add explicit-baseline campaign metric deltas`).
+  (`feat: add baseline-relative campaign secant sensitivities`).
 
 ## Current verification baseline
 
-- Test count: 1077 tests.
+- Test count: 1088 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -288,6 +290,13 @@ or EXACT set matching for both inclusions and exclusions.
   signed `current - baseline` parameter and metric deltas. Numeric baseline
   values produce exact zeros; an optional metric delta is `None` whenever the
   current or baseline metric is unavailable.
+- `campaign_secant_sensitivities()` validates an ordered delta result and
+  computes every available baseline-relative slope exactly as
+  `metric_delta / parameter_delta`, without revisiting source records.
+- Each frozen `CampaignSensitivityEntry` retains run ID, parameter delta, and
+  ordered metric sensitivities. Exact zero parameter deltas—including the
+  baseline and repeated parameter values—produce `None` sensitivities without
+  epsilon tolerances; optional metric deltas also remain unavailable.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -994,11 +1003,12 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next analysis layer limited to baseline-relative secant sensitivities
-  derived from one existing ordered delta result. Do not add derivatives from
-  simulation, implicit baseline selection, interpolation, ranking, composite
-  scoring, aggregation, statistics, robustness analysis, optimization,
-  plotting, persistence, or CLI/UI workflows yet.
+- Keep the next sensitivity layer limited to an explicitly assembled
+  one-at-a-time parameter/metric sensitivity matrix from existing secant
+  results and caller-selected representative run IDs. Do not infer
+  representative runs, add regression or derivative simulation, ranking,
+  statistics, robustness analysis, optimization, plotting, persistence, or
+  CLI/UI workflows yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -1013,30 +1023,31 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Baseline-relative campaign secant sensitivities
+### Explicit one-at-a-time campaign sensitivity matrices
 
-Add a small pure analysis API that converts one existing ordered campaign delta
-result into immutable per-run metric-change/parameter-change ratios relative to
-the already-selected baseline.
+Add a small pure analysis API that assembles caller-ordered existing secant
+results into an immutable metric-by-parameter sensitivity matrix using one
+explicit caller-selected representative run ID for each named parameter.
 
 ## Suggested implementation direction
 
-- Reuse the validated immutable delta entries without revisiting bundle records
-  or response metrics.
-- Preserve campaign and metric order and compute each available ratio as
-  `metric_delta / parameter_delta`.
-- Require an explicit policy for the baseline and any other zero parameter
-  delta so division by zero never implies a sensitivity value.
-- Propagate unavailable optional metric deltas without inventing measurements
-  and reject nonfinite ratios clearly.
-- Add no interpolation, derivative simulation, aggregation, statistics,
-  ranking, scoring, robustness analysis, optimization, or SQLite access.
+- Require an explicit finite ordered collection of unique parameter names,
+  secant results, and representative run IDs; infer none of them.
+- Select exactly one existing nonzero-parameter-delta sensitivity entry for each
+  parameter and require identical ordered metric layouts.
+- Return frozen matrix metadata and rows preserving caller parameter order and
+  existing metric order, including unavailable optional sensitivities.
+- Reuse existing sensitivity values without recomputation, normalization,
+  aggregation, regression, or SQLite access.
+- Add no implicit run selection, rankings, scores, statistics, robustness
+  analysis, optimization, plotting, or aircraft-specific interpretation.
 
 ## Focused tests to add
 
-- Verify positive and negative secants, exact run and metric order, baseline and
-  repeated-parameter behavior, optional metrics, nonfinite rejection,
-  deterministic output, immutability, and source isolation.
+- Verify multiple parameters and metrics, exact row/column order, explicit run
+  selection, positive/negative/optional values, duplicate names, unknown or
+  zero-delta representative runs, mismatched layouts, deterministic output,
+  immutability, and source isolation.
 
 ## Commands that must pass
 

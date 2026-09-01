@@ -26,6 +26,107 @@ class CampaignDeltaEntry:
     metric_deltas: tuple[tuple[str, float | None], ...]
 
 
+@dataclass(frozen=True, slots=True)
+class CampaignSensitivityEntry:
+    """One immutable run entry containing baseline-relative secant slopes."""
+
+    run_id: str
+    parameter_delta: float
+    metric_sensitivities: tuple[tuple[str, float | None], ...]
+
+
+def campaign_secant_sensitivities(
+    deltas: Iterable[CampaignDeltaEntry],
+) -> tuple[CampaignSensitivityEntry, ...]:
+    """Compute ordered baseline-relative metric-delta/parameter-delta ratios."""
+    try:
+        delta_iterator = iter(deltas)
+    except TypeError as error:
+        raise TypeError("deltas must be an iterable of entries") from error
+    deltas = tuple(delta_iterator)
+    _validate_delta_entries(deltas)
+
+    sensitivities = []
+    for entry in deltas:
+        metric_sensitivities = []
+        for metric_name, metric_delta in entry.metric_deltas:
+            if entry.parameter_delta == 0.0 or metric_delta is None:
+                sensitivity = None
+            else:
+                sensitivity = metric_delta / entry.parameter_delta
+                if not math.isfinite(sensitivity):
+                    raise ValueError(
+                        f"run_id {entry.run_id!r} metric {metric_name!r} "
+                        "sensitivity must be finite"
+                    )
+            metric_sensitivities.append((metric_name, sensitivity))
+        sensitivities.append(
+            CampaignSensitivityEntry(
+                run_id=entry.run_id,
+                parameter_delta=float(entry.parameter_delta),
+                metric_sensitivities=tuple(metric_sensitivities),
+            )
+        )
+    return tuple(sensitivities)
+
+
+def _validate_delta_entries(deltas):
+    run_ids = set()
+    expected_metric_names = None
+    has_baseline = False
+    for index, entry in enumerate(deltas):
+        if not isinstance(entry, CampaignDeltaEntry):
+            raise TypeError(f"deltas[{index}] must be a CampaignDeltaEntry")
+        if type(entry.run_id) is not str or not entry.run_id.strip():
+            raise ValueError(f"deltas[{index}].run_id must be non-empty")
+        if entry.run_id in run_ids:
+            raise ValueError(f"duplicate run_id {entry.run_id!r} in deltas")
+        run_ids.add(entry.run_id)
+        parameter_delta = _finite_numeric(
+            f"deltas[{index}].parameter_delta", entry.parameter_delta
+        )
+        if type(entry.metric_deltas) is not tuple:
+            raise TypeError(f"deltas[{index}].metric_deltas must be a tuple")
+        if not entry.metric_deltas:
+            raise ValueError(f"deltas[{index}].metric_deltas must not be empty")
+
+        metric_names = []
+        baseline_candidate = parameter_delta == 0.0
+        for metric_index, metric_item in enumerate(entry.metric_deltas):
+            if type(metric_item) is not tuple or len(metric_item) != 2:
+                raise ValueError(
+                    f"deltas[{index}].metric_deltas[{metric_index}] "
+                    "must be a name/value pair"
+                )
+            metric_name, metric_delta = metric_item
+            if type(metric_name) is not str or not metric_name:
+                raise ValueError(
+                    f"deltas[{index}] metric name must be a non-empty string"
+                )
+            if metric_name not in _METRIC_KEYS:
+                raise ValueError(f"deltas[{index}] has unknown metric {metric_name!r}")
+            if metric_name in metric_names:
+                raise ValueError(
+                    f"deltas[{index}] has duplicate metric {metric_name!r}"
+                )
+            metric_names.append(metric_name)
+            if metric_delta is not None:
+                metric_delta = _finite_numeric(
+                    f"deltas[{index}] metric {metric_name!r}", metric_delta
+                )
+                if metric_delta != 0.0:
+                    baseline_candidate = False
+        metric_names = tuple(metric_names)
+        if expected_metric_names is None:
+            expected_metric_names = metric_names
+        elif metric_names != expected_metric_names:
+            raise ValueError("delta entries must have matching metric layouts")
+        has_baseline = has_baseline or baseline_candidate
+
+    if deltas and not has_baseline:
+        raise ValueError("deltas must contain a zero-delta baseline entry")
+
+
 def campaign_metric_deltas(
     comparison: Iterable[CampaignComparisonEntry],
     baseline_run_id: str,
