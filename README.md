@@ -586,6 +586,52 @@ fresh JSON-compatible dictionary with the identity, timestamp, timing data,
 initial state, metadata, and every scalar response metric. It deliberately
 omits trajectory arrays and performs no filesystem or database operation.
 
+## Experimental Platform: generic experiment execution
+
+`execute_experiment(...)` invokes one caller-supplied zero-argument simulation
+callable exactly once and returns one validated `ExperimentRun`:
+
+```python
+from flightlab.experiment import SISOSimulationResult, execute_experiment
+
+
+def simulate():
+    return SISOSimulationResult(
+        time=[0.0, 0.5, 1.0, 2.0],
+        output=[0.0, 0.7, 1.1, 1.0],
+        reference=[1.0, 1.0, 1.0, 1.0],
+    )
+
+
+run = execute_experiment(
+    simulate,
+    initial_state=[0.0, 0.0],
+    method="exact",
+    system={"name": "demo", "order": 2},
+    controller={"type": "integral_state_feedback"},
+    reference={"type": "step", "value": 1.0},
+    user_metadata={"seed": 7},
+)
+```
+
+The immutable `SISOSimulationResult` is the complete callable return contract:
+sample time, one-dimensional SISO output, and the sampled reference trajectory.
+Callers bind any plant, controller, input, or integration arguments themselves
+through a closure or `functools.partial`; the execution layer imposes no model
+or simulator signature. For an existing `StateSpace` simulation, the caller
+must explicitly select its intended SISO output channel.
+
+The sampled `SISOSimulationResult.reference` trajectory is distinct from the
+`reference` mapping passed to `execute_experiment()`: the former is evaluated
+numerically while the latter is descriptive reproducibility metadata.
+
+The sampled result is passed directly to `response_metrics()`, including an
+optional settling tolerance, and the resulting metrics and explicit provenance
+are passed to `experiment_run()`. Those existing APIs remain the validation,
+copying, immutability, and reproducibility boundaries. Simulation exceptions
+propagate unchanged. Execution does not save the run, access SQLite, retry,
+batch, sweep, parallelize, or synthesize a controller.
+
 ## Experimental Platform: SQLite experiment storage
 
 `SQLiteExperimentStore` persists the existing reproducibility record without

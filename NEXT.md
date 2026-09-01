@@ -17,7 +17,9 @@ aircraft model, or a controller implementation. The second layer now records
 one completed computational experiment as immutable simulation provenance plus
 those existing metrics, without executing the experiment. The third layer now
 persists those deterministic reproducibility records in SQLite through a
-generic store with explicit connection and transaction ownership.
+generic store with explicit connection and transaction ownership. The fourth
+layer executes exactly one caller-supplied generic SISO simulation, evaluates
+it through the existing metrics API, and returns one validated immutable run.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -63,15 +65,16 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: generic SQLite persistence of immutable experiment/run
-  reproducibility records.
-- Focused checkpoint message: `feat: add SQLite experiment persistence`.
+- Completed capability: generic single-experiment execution producing one
+  validated immutable `ExperimentRun`.
+- Focused checkpoint message: `feat: add generic experiment execution`.
 - Previous checkpoint commit:
-  `5cb03db` (`feat: add immutable experiment runs`).
+  `c3b01262c13c5ffc0680c4ae1b1a85b8812c270b`
+  (`feat: finalize SQLite experiment persistence`).
 
 ## Current verification baseline
 
-- Test count: 907 tests.
+- Test count: 933 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -105,8 +108,8 @@ or EXACT set matching for both inclusions and exclusions.
   The settling tolerance must be a finite positive real scalar. Finite inputs
   whose arithmetic would overflow to nonfinite metrics are rejected clearly.
 - This first Experimental Platform capability is generic and NumPy-only. It
-  adds no experiment runner, persistence, SQL, sweep execution, ML, controller,
-  observer, or aircraft-specific scoring behavior.
+  performs no experiment execution, persistence, SQL, sweep execution, ML,
+  controller, observer, or aircraft-specific scoring behavior itself.
 - `flightlab.experiment.experiment_run(...)` returns a frozen, slotted
   `ExperimentRun` for one already-completed response. It composes the existing
   `SISOResponseMetrics` by identity and performs no metric recalculation or
@@ -145,6 +148,22 @@ or EXACT set matching for both inclusions and exclusions.
 - This third layer adds no experiment execution, sweeps, multiprocessing,
   dataset export, ML, observer, controller, or aircraft-specific persistence
   behavior.
+- `SISOSimulationResult` is an immutable three-field return contract containing
+  sampled time, one-dimensional SISO output, and sampled reference trajectory.
+- `execute_experiment()` invokes one caller-supplied zero-argument callable
+  exactly once, requires that result contract, delegates evaluation to
+  `response_metrics()`, and delegates provenance construction and validation to
+  `experiment_run()`.
+- Initial state, method, system, controller, descriptive reference, user
+  metadata, optional settling tolerance, run ID, and creation timestamp remain
+  explicit. Sampled reference data and descriptive reference metadata remain
+  intentionally distinct.
+- Invalid sampled results retain the existing metrics errors, invalid
+  provenance retains the existing experiment-run errors, and exceptions from
+  the caller's simulation propagate unchanged.
+- This fourth layer performs no persistence or automatic save, retry, batch,
+  sweep, parallel execution, optimization, controller synthesis, CLI workflow,
+  or aircraft-specific behavior.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -781,6 +800,10 @@ or EXACT set matching for both inclusions and exclusions.
   reproducibility-record format.
 - Add persistence by consuming reproducibility records; do not make the run
   abstraction execute simulations or perform its own disk I/O.
+- Keep generic single-experiment execution as a thin composition of
+  `SISOSimulationResult`, `response_metrics()`, and `experiment_run()`. Do not
+  duplicate sampled-response or provenance validation, interpret model-specific
+  outputs, or couple execution to persistence.
 - Preserve the existing eigenvalue ordering and individual
   `ModalStateCharacterization` results.
 - Preserve deterministic modal-family ordering, canonical family members, and
@@ -833,9 +856,10 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next generic experiment-execution layer limited to producing one
-  `ExperimentRun`. Do not add parameter sweeps, parallel execution, dataset
-  generation, persistence orchestration, or Scientific ML yet.
+- Keep the next generic sequential-batch layer limited to explicit caller-
+  supplied experiment cases. Do not add parameter-grid generation, parallel
+  execution, persistence orchestration, optimization, dataset generation, or
+  Scientific ML yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -850,27 +874,30 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Generic experiment execution producing `ExperimentRun` objects
+### Generic sequential execution of explicit experiment cases
 
-Add the smallest generic experiment-execution API that runs one caller-supplied
-simulation and produces one validated `ExperimentRun`, without persistence
-orchestration or parameter sweeps.
+Add the smallest generic sequential-batch API that executes a finite ordered
+collection of explicit caller-supplied experiment cases through
+`execute_experiment()` and returns an immutable tuple of `ExperimentRun`
+objects, without parameter-grid generation or persistence orchestration.
 
 ## Suggested implementation direction
 
-- Keep execution generic and independent of aircraft-specific models.
-- Reuse `response_metrics()` and `experiment_run()` as the existing validation
-  and construction boundaries rather than duplicating their logic.
-- Execute exactly one explicitly supplied simulation configuration and return
-  its immutable `ExperimentRun`; do not couple execution to SQLite.
-- Add no sweep logic, multiprocessing, dataset export, ML, observer, controller,
-  or aircraft-specific experiment behavior.
+- Keep case representation and sequential execution generic and independent of
+  aircraft-specific models.
+- Reuse `execute_experiment()` for every case rather than duplicating its
+  metrics, validation, or provenance composition.
+- Preserve caller order and execute each explicit case exactly once; return an
+  immutable tuple and define clear empty-input and partial-failure behavior.
+- Add no parameter-grid generation, multiprocessing, persistence orchestration,
+  dataset export, optimization, ML, observer, controller, or aircraft-specific
+  experiment behavior.
 
 ## Focused tests to add
 
-- Verify one successful execution, exact provenance and metric composition,
-  validation delegation, failure propagation, and that caller inputs are not
-  mutated.
+- Verify empty and multiple-case execution, caller-order preservation,
+  exactly-once delegation, immutable results, deterministic fixed inputs,
+  failure propagation, and explicit partial-failure semantics.
 
 ## Commands that must pass
 

@@ -2,11 +2,20 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import MappingProxyType
+from typing import NamedTuple
 from uuid import uuid4
 
 import numpy as np
 
-from flightlab.response import SISOResponseMetrics
+from flightlab.response import SISOResponseMetrics, response_metrics
+
+
+class SISOSimulationResult(NamedTuple):
+    """Sampled result returned by one caller-supplied SISO simulation."""
+
+    time: object
+    output: object
+    reference: object
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -218,4 +227,50 @@ def experiment_run(
         reference=_frozen_metadata("reference", reference),
         user_metadata=_frozen_metadata("user", user_metadata),
         metrics=metrics,
+    )
+
+
+def execute_experiment(
+    simulation,
+    initial_state,
+    method,
+    system,
+    controller,
+    reference,
+    *,
+    user_metadata=None,
+    settling_tolerance=0.02,
+    run_id=None,
+    created_at=None,
+):
+    """Execute one zero-argument SISO simulation and return one experiment run.
+
+    The callable is invoked exactly once and must return a
+    ``SISOSimulationResult``. Its sampled reference trajectory is distinct from
+    the ``reference`` provenance mapping recorded on the returned run.
+    """
+    if not callable(simulation):
+        raise TypeError("simulation must be callable")
+
+    result = simulation()
+    if not isinstance(result, SISOSimulationResult):
+        raise TypeError("simulation must return a SISOSimulationResult")
+
+    metrics = response_metrics(
+        result.time,
+        result.output,
+        result.reference,
+        settling_tolerance=settling_tolerance,
+    )
+    return experiment_run(
+        time=result.time,
+        initial_state=initial_state,
+        metrics=metrics,
+        method=method,
+        system=system,
+        controller=controller,
+        reference=reference,
+        user_metadata=user_metadata,
+        run_id=run_id,
+        created_at=created_at,
     )
