@@ -542,3 +542,46 @@ reference and is the earliest sampled time after which every remaining output
 sample stays in that band. It does not interpolate. When the final reference
 magnitude is at most `100 * machine epsilon`, both percentage overshoot and the
 relative settling band are undefined and their results are `None`.
+
+## Experimental Platform: immutable experiment runs
+
+`experiment_run(...)` combines one existing response result with the metadata
+needed to describe a completed computational experiment. It records data only;
+it does not execute a simulation or persist anything.
+
+```python
+from flightlab.experiment import experiment_run
+from flightlab.response import response_metrics
+
+time = [0.0, 0.5, 1.0, 2.0]
+metrics = response_metrics(
+    time=time,
+    y=[0.0, 0.7, 1.1, 1.0],
+    reference=[1.0, 1.0, 1.0, 1.0],
+)
+run = experiment_run(
+    time=time,
+    initial_state=[0.0, 0.0],
+    metrics=metrics,
+    method="exact",
+    system={"name": "demo", "order": 2},
+    controller={"type": "integral_state_feedback"},
+    reference={"type": "step", "value": 1.0},
+    user_metadata={"seed": 7},
+)
+record = run.reproducibility_record()
+```
+
+The immutable run derives start time, end time, duration, and sample count from
+the validated time vector, which must exactly match `metrics.time`. Its initial
+state is a defensive read-only copy. System, controller, reference, and user
+metadata are defensively copied into key-sorted read-only mappings. Values may
+be `None`, booleans, integers, finite floats, strings, or one-level tuples of
+those scalar types; mutable, nested, and opaque values are rejected.
+
+By default each run receives a UUID4 string and a timezone-aware UTC creation
+timestamp; callers may instead supply a nonblank stable identifier and an aware
+timestamp, which is normalized to UTC. `reproducibility_record()` returns a
+fresh JSON-compatible dictionary with the identity, timestamp, timing data,
+initial state, metadata, and every scalar response metric. It deliberately
+omits trajectory arrays and performs no filesystem or database operation.

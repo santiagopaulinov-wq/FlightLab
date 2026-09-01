@@ -13,7 +13,9 @@ complete at their verified conservative baselines. FlightLab has now
 deliberately begun the Experimental Platform phase. Its first layer is a
 generic, reproducible SISO response-result abstraction that evaluates sampled
 output and reference trajectories without depending on `StateSpace`, an
-aircraft model, or a controller implementation.
+aircraft model, or a controller implementation. The second layer now records
+one completed computational experiment as immutable simulation provenance plus
+those existing metrics, without executing or persisting the experiment.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -59,15 +61,15 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: immutable generic SISO response results with validated
-  sampled trajectories and basic tracking-performance metrics.
-- Focused checkpoint message: `feat: add SISO response metrics`.
+- Completed capability: generic immutable experiment/run results combining
+  reproducible simulation metadata with existing `SISOResponseMetrics`.
+- Focused checkpoint message: `feat: add immutable experiment runs`.
 - Previous checkpoint commit:
-  `c3a9ac1d6bea1f2568990e37c659675254745632`.
+  `895c72c28a9c65d0f543b55520e6d2fd14d524c1`.
 
 ## Current verification baseline
 
-- Test count: 829 tests.
+- Test count: 883 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -103,6 +105,32 @@ or EXACT set matching for both inclusions and exclusions.
 - This first Experimental Platform capability is generic and NumPy-only. It
   adds no experiment runner, persistence, SQL, sweep execution, ML, controller,
   observer, or aircraft-specific scoring behavior.
+- `flightlab.experiment.experiment_run(...)` returns a frozen, slotted
+  `ExperimentRun` for one already-completed response. It composes the existing
+  `SISOResponseMetrics` by identity and performs no metric recalculation or
+  simulation execution.
+- Each run records a stable string ID, aware UTC creation timestamp, simulation
+  method, derived start/end/duration/sample-count values, a defensive read-only
+  initial-state copy, system/controller/reference/user metadata, and metrics.
+  The supplied validated time grid must exactly equal `metrics.time`, preventing
+  contradictory timing provenance without storing a duplicate time vector.
+- Automatic IDs are canonical UUID4 strings. Explicit IDs may be any nonblank
+  caller-supplied string. Automatic timestamps use the current aware UTC time;
+  explicit aware datetimes are normalized to UTC, and naive datetimes are
+  rejected.
+- Each metadata category is defensively copied, sorted lexically by string key,
+  and exposed through a read-only mapping. Values are restricted to `None`,
+  booleans, integers, finite floats, strings, or one-level tuples of those
+  scalar values. NumPy scalar equivalents are normalized to Python scalars;
+  mutable, nested, nonfinite, and opaque values are rejected.
+- `ExperimentRun.reproducibility_record()` returns a new deterministic,
+  JSON-compatible dictionary on every call. It contains run identity, an ISO
+  UTC timestamp, timing data, a list-valued initial state, sorted plain metadata
+  dictionaries, and all eleven scalar response metrics. Trajectory arrays are
+  deliberately omitted, and mutating a returned record cannot affect the run.
+- This second layer adds no SQLite, SQL, schema, disk I/O, experiment execution,
+  sweeps, multiprocessing, dataset export, ML, observer, or aircraft-specific
+  experiment behavior.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -733,6 +761,12 @@ or EXACT set matching for both inclusions and exclusions.
   validation, and read-only trajectory snapshots.
 - Build later experiment capabilities by composing this metrics layer rather
   than introducing a parallel trajectory-evaluation implementation.
+- Preserve the immutable `ExperimentRun` field meanings, exact time/metrics
+  consistency check, UUID/string identity convention, aware UTC timestamp
+  convention, sorted simple metadata grammar, and detached JSON-compatible
+  reproducibility-record format.
+- Add persistence by consuming reproducibility records; do not make the run
+  abstraction execute simulations or perform its own disk I/O.
 - Preserve the existing eigenvalue ordering and individual
   `ModalStateCharacterization` results.
 - Preserve deterministic modal-family ordering, canonical family members, and
@@ -785,8 +819,9 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Do not add SQL, SQLite, schemas, persistence, parameter sweeps, parallel
-  execution, dataset generation, or Scientific ML in the next layer.
+- Keep the next SQLite layer limited to persistence of the existing
+  experiment/run record. Do not add experiment execution, parameter sweeps,
+  parallel execution, dataset generation, or Scientific ML yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -801,33 +836,36 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Generic experiment/run result abstraction
+### SQLite persistence of experiment/run records
 
-Create a small immutable generic experiment/run result that combines explicit,
-reproducible simulation metadata with the existing `SISOResponseMetrics`
-result. Keep it independent of aircraft models, controllers, storage, and
-execution orchestration.
+Add the smallest generic persistence layer that stores and retrieves the
+existing deterministic `ExperimentRun.reproducibility_record()` representation
+in SQLite, without executing experiments or introducing sweep orchestration.
 
 ## Suggested implementation direction
 
-- Define the smallest useful metadata contract for identifying and reproducing
-  a simulation run, with explicit caller-supplied values and deterministic,
-  immutable storage.
-- Compose one existing `SISOResponseMetrics` result without duplicating or
-  changing metric calculations.
-- Keep construction separate from simulation execution so existing and future
-  trajectory sources can produce the same run result.
-- Add no database identifiers, implicit timestamps, filesystem output,
-  persistence, schema, sweep logic, multiprocessing, or aircraft-specific
-  fields yet.
-- Preserve every existing state-space, control-design, modal, aircraft, and
-  response-metric result unchanged.
+- Use the Python standard library `sqlite3`; add no dependency or ORM.
+- Define one minimal, explicit schema for the current reproducibility-record
+  fields. Preserve the run ID as the stable unique identity and the aware UTC
+  timestamp as deterministic text.
+- Serialize structured initial-state and metadata fields deterministically,
+  using standard-library JSON where appropriate, and preserve all scalar metric
+  `None`, boolean, integer, float, and string values on round trip.
+- Provide explicit create/insert/fetch operations with clear duplicate-ID,
+  malformed-record, and database-error behavior. Do not hide transaction or
+  connection ownership semantics.
+- Persist records only; do not reconstruct trajectory arrays that are not part
+  of the current record, execute simulations, add automatic timestamps/IDs, or
+  mutate an `ExperimentRun`.
+- Add no sweep logic, multiprocessing, dataset export, ML, observer, controller,
+  or aircraft-specific persistence behavior.
 
 ## Focused tests to add
 
-- Verify metadata and metric composition, immutability and defensive copying,
-  deterministic equality/representation where appropriate, validation, and
-  independence from `StateSpace` and aircraft-specific types.
+- Verify schema creation in a temporary database, one-record insertion and
+  exact retrieval, deterministic structured-field round trips, optional metric
+  values, multiple records, duplicate IDs, invalid records, transaction/error
+  behavior, and that persistence does not mutate the source run or record.
 
 ## Commands that must pass
 
