@@ -8,6 +8,8 @@ from flightlab.analysis import (
     CampaignDeltaEntry,
     CampaignMetricChangeProjection,
     CampaignParameterChange,
+    CampaignProjectionScenario,
+    CampaignProjectionScenarioResult,
     CampaignSensitivityEntry,
     CampaignSensitivityMatrix,
     SensitivityMatrixParameter,
@@ -16,6 +18,7 @@ from flightlab.analysis import (
     campaign_sensitivity_matrix,
     compare_campaign_runs,
     project_campaign_metric_changes,
+    project_campaign_scenarios,
 )
 from flightlab.experiment import experiment_run
 from flightlab.persistence import (
@@ -779,3 +782,220 @@ def test_projection_is_immutable_deterministic_and_detached():
     assert first.predicted_metric_changes == (6.0,)
     with pytest.raises(FrozenInstanceError):
         first.predicted_metric_changes = ()
+
+
+def _projection_matrix():
+    return CampaignSensitivityMatrix(
+        parameter_names=("damping", "gain"),
+        metric_names=("iae", "settling_time"),
+        representative_run_ids=("damping-run", "gain-run"),
+        values=((2.0, -1.0), (None, 4.0)),
+    )
+
+
+def test_one_projection_scenario_retains_its_name_and_projection():
+    scenario = CampaignProjectionScenario(
+        "candidate",
+        (
+            CampaignParameterChange("damping", 1.0),
+            CampaignParameterChange("gain", -2.0),
+        ),
+    )
+
+    assert project_campaign_scenarios(_projection_matrix(), (scenario,)) == (
+        CampaignProjectionScenarioResult(
+            name="candidate",
+            projection=CampaignMetricChangeProjection(
+                parameter_names=("damping", "gain"),
+                metric_names=("iae", "settling_time"),
+                parameter_changes=(1.0, -2.0),
+                predicted_metric_changes=(4.0, None),
+            ),
+        ),
+    )
+
+
+def test_multiple_projection_scenarios_preserve_exact_caller_order():
+    scenarios = (
+        CampaignProjectionScenario(
+            "negative",
+            (
+                CampaignParameterChange("damping", -1.0),
+                CampaignParameterChange("gain", -1.0),
+            ),
+        ),
+        CampaignProjectionScenario(
+            "zero",
+            (
+                CampaignParameterChange("damping", 0.0),
+                CampaignParameterChange("gain", 0.0),
+            ),
+        ),
+        CampaignProjectionScenario(
+            "positive",
+            (
+                CampaignParameterChange("damping", 2.0),
+                CampaignParameterChange("gain", 1.0),
+            ),
+        ),
+    )
+
+    results = project_campaign_scenarios(_projection_matrix(), scenarios)
+
+    assert tuple(result.name for result in results) == (
+        "negative",
+        "zero",
+        "positive",
+    )
+    assert tuple(
+        result.projection.predicted_metric_changes[0] for result in results
+    ) == (-1.0, 0.0, 3.0)
+    assert all(
+        result.projection.predicted_metric_changes[1] is None for result in results
+    )
+
+
+def test_empty_scenario_collection_returns_an_empty_tuple():
+    assert project_campaign_scenarios(_projection_matrix(), ()) == ()
+
+
+def test_scenario_generator_is_snapshotted_and_preserves_order():
+    definitions = [
+        ("first", 1.0),
+        ("second", 2.0),
+    ]
+    scenarios = (
+        CampaignProjectionScenario(
+            name,
+            (
+                CampaignParameterChange("damping", change),
+                CampaignParameterChange("gain", 0.0),
+            ),
+        )
+        for name, change in definitions
+    )
+
+    results = project_campaign_scenarios(_projection_matrix(), scenarios)
+
+    assert tuple(result.name for result in results) == ("first", "second")
+    assert tuple(result.projection.parameter_changes for result in results) == (
+        (1.0, 0.0),
+        (2.0, 0.0),
+    )
+
+
+def test_scenarios_reject_blank_and_duplicate_names_before_projection():
+    changes = (
+        CampaignParameterChange("damping", 1.0),
+        CampaignParameterChange("gain", 1.0),
+    )
+    with pytest.raises(ValueError, match="name must be non-empty"):
+        project_campaign_scenarios(
+            _projection_matrix(), (CampaignProjectionScenario(" ", changes),)
+        )
+    with pytest.raises(ValueError, match="duplicate scenario name 'same'"):
+        project_campaign_scenarios(
+            _projection_matrix(),
+            (
+                CampaignProjectionScenario("same", changes),
+                CampaignProjectionScenario("same", changes),
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ((CampaignParameterChange("damping", 1.0),), "column count"),
+        (
+            (
+                CampaignParameterChange("gain", 1.0),
+                CampaignParameterChange("damping", 1.0),
+            ),
+            r"parameter_changes\[0\].*'damping'",
+        ),
+        (
+            (CampaignParameterChange("damping", 1.0), object()),
+            r"parameter_changes\[1\].*CampaignParameterChange",
+        ),
+    ],
+)
+def test_malformed_scenario_vectors_propagate_projection_errors(changes, message):
+    with pytest.raises((TypeError, ValueError), match=message):
+        project_campaign_scenarios(
+            _projection_matrix(),
+            (CampaignProjectionScenario("invalid", changes),),
+        )
+
+
+def test_scenarios_validate_complete_collection_before_any_projection(monkeypatch):
+    calls = []
+
+    def projection(*args):
+        calls.append(args)
+        raise AssertionError("projection must not run")
+
+    monkeypatch.setattr("flightlab.analysis.project_campaign_metric_changes", projection)
+    valid = CampaignProjectionScenario(
+        "valid",
+        (
+            CampaignParameterChange("damping", 1.0),
+            CampaignParameterChange("gain", 1.0),
+        ),
+    )
+
+    with pytest.raises(TypeError, match=r"scenarios\[1\].*CampaignProjectionScenario"):
+        project_campaign_scenarios(_projection_matrix(), (valid, object()))
+    assert calls == []
+
+
+def test_scenarios_delegate_each_projection_exactly_once(monkeypatch):
+    calls = []
+    expected = CampaignMetricChangeProjection(
+        ("damping", "gain"), ("iae", "settling_time"), (1.0, 2.0), (0.0, None)
+    )
+
+    def projection(matrix, changes):
+        calls.append((matrix, changes))
+        return expected
+
+    monkeypatch.setattr("flightlab.analysis.project_campaign_metric_changes", projection)
+    scenarios = tuple(
+        CampaignProjectionScenario(
+            name,
+            (
+                CampaignParameterChange("damping", 1.0),
+                CampaignParameterChange("gain", 2.0),
+            ),
+        )
+        for name in ("first", "second")
+    )
+
+    results = project_campaign_scenarios(_projection_matrix(), scenarios)
+
+    assert len(calls) == 2
+    assert tuple(result.name for result in results) == ("first", "second")
+    assert all(result.projection is expected for result in results)
+
+
+def test_scenario_results_are_immutable_deterministic_and_detached():
+    source = [
+        CampaignProjectionScenario(
+            "scenario",
+            (
+                CampaignParameterChange("damping", 1.0),
+                CampaignParameterChange("gain", 2.0),
+            ),
+        )
+    ]
+    first = project_campaign_scenarios(_projection_matrix(), source)
+    repeated = project_campaign_scenarios(_projection_matrix(), source)
+
+    assert first == repeated
+    source.clear()
+    assert first[0].name == "scenario"
+    assert first[0].projection.parameter_changes == (1.0, 2.0)
+    with pytest.raises(FrozenInstanceError):
+        first[0].name = "changed"
+    with pytest.raises(TypeError):
+        first[0] = first[0]

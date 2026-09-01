@@ -1057,6 +1057,38 @@ sensitivities. It is not a nonlinear simulation, local Jacobian, regression
 model, or guarantee of accuracy outside the sampled campaign region. The API
 performs no inference, reordering, rescaling, simulation, or persistence.
 
+`project_campaign_scenarios(matrix, scenarios)` applies the same matrix to a
+finite explicit ordered collection of named change vectors. Each frozen
+`CampaignProjectionScenario` contains one unique nonblank name and one immutable
+parameter-change tuple in matrix column order:
+
+```python
+from flightlab.analysis import (
+    CampaignProjectionScenario,
+    project_campaign_scenarios,
+)
+
+results = project_campaign_scenarios(
+    matrix,
+    (
+        CampaignProjectionScenario("nominal", nominal_changes),
+        CampaignProjectionScenario("stress", stress_changes),
+    ),
+)
+```
+
+The scenario iterable is fully materialized, and every scenario definition and
+change vector is validated before projection begins. Each scenario then
+delegates exactly once to `project_campaign_metric_changes()`. Returned frozen
+`CampaignProjectionScenarioResult` objects preserve scenario order and retain
+the scenario name plus its detached immutable projection. Empty scenario input
+returns `()` after validating the matrix.
+
+The API generates or infers no scenario, silently skips no failure, and performs
+no aggregation, comparison, ranking, probability modeling, Monte Carlo work,
+simulation, or persistence. The first validation or projection error propagates
+and no partial result is returned.
+
 An execution failure propagates unchanged and prevents all campaign
 persistence. Any run, manifest, or membership failure propagates after
 execution and rolls back every newly inserted campaign row. Existing records

@@ -72,12 +72,96 @@ class CampaignMetricChangeProjection:
     predicted_metric_changes: tuple[float | None, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class CampaignProjectionScenario:
+    """One explicit named sensitivity-projection change vector."""
+
+    name: str
+    parameter_changes: tuple[CampaignParameterChange, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CampaignProjectionScenarioResult:
+    """One immutable named sensitivity-projection scenario result."""
+
+    name: str
+    projection: CampaignMetricChangeProjection
+
+
+def project_campaign_scenarios(
+    matrix: CampaignSensitivityMatrix,
+    scenarios: Iterable[CampaignProjectionScenario],
+) -> tuple[CampaignProjectionScenarioResult, ...]:
+    """Apply one secant matrix to explicit named change scenarios in order."""
+    _validate_sensitivity_matrix(matrix)
+    try:
+        scenario_iterator = iter(scenarios)
+    except TypeError as error:
+        raise TypeError("scenarios must be an iterable") from error
+    scenarios = tuple(scenario_iterator)
+
+    names = set()
+    for index, scenario in enumerate(scenarios):
+        if not isinstance(scenario, CampaignProjectionScenario):
+            raise TypeError(
+                f"scenarios[{index}] must be a CampaignProjectionScenario"
+            )
+        if type(scenario.name) is not str or not scenario.name.strip():
+            raise ValueError(f"scenarios[{index}].name must be non-empty")
+        if scenario.name in names:
+            raise ValueError(f"duplicate scenario name {scenario.name!r}")
+        names.add(scenario.name)
+        if type(scenario.parameter_changes) is not tuple:
+            raise TypeError(f"scenarios[{index}].parameter_changes must be a tuple")
+        _validated_parameter_changes(matrix, scenario.parameter_changes)
+
+    return tuple(
+        CampaignProjectionScenarioResult(
+            name=scenario.name,
+            projection=project_campaign_metric_changes(
+                matrix, scenario.parameter_changes
+            ),
+        )
+        for scenario in scenarios
+    )
+
+
 def project_campaign_metric_changes(
     matrix: CampaignSensitivityMatrix,
     parameter_changes: Iterable[CampaignParameterChange],
 ) -> CampaignMetricChangeProjection:
     """Apply one explicit parameter-change vector to a secant matrix."""
     _validate_sensitivity_matrix(matrix)
+    values = _validated_parameter_changes(matrix, parameter_changes)
+
+    predicted = []
+    for metric_name, row in zip(matrix.metric_names, matrix.values):
+        if any(sensitivity is None for sensitivity in row):
+            predicted.append(None)
+            continue
+        metric_change = 0.0
+        for sensitivity, change in zip(row, values):
+            term = float(sensitivity) * change
+            if not math.isfinite(term):
+                raise ValueError(
+                    f"predicted metric {metric_name!r} contribution must be finite"
+                )
+            metric_change += term
+            if not math.isfinite(metric_change):
+                raise ValueError(
+                    f"predicted metric change {metric_name!r} must be finite"
+                )
+        predicted.append(metric_change)
+
+    return CampaignMetricChangeProjection(
+        parameter_names=matrix.parameter_names,
+        metric_names=matrix.metric_names,
+        parameter_changes=values,
+        predicted_metric_changes=tuple(predicted),
+    )
+
+
+def _validated_parameter_changes(matrix, parameter_changes):
     try:
         change_iterator = iter(parameter_changes)
     except TypeError as error:
@@ -103,32 +187,7 @@ def project_campaign_metric_changes(
         values.append(
             _finite_numeric(f"parameter_changes[{index}].value", change.value)
         )
-
-    predicted = []
-    for metric_name, row in zip(matrix.metric_names, matrix.values):
-        if any(sensitivity is None for sensitivity in row):
-            predicted.append(None)
-            continue
-        metric_change = 0.0
-        for sensitivity, change in zip(row, values):
-            term = float(sensitivity) * change
-            if not math.isfinite(term):
-                raise ValueError(
-                    f"predicted metric {metric_name!r} contribution must be finite"
-                )
-            metric_change += term
-            if not math.isfinite(metric_change):
-                raise ValueError(
-                    f"predicted metric change {metric_name!r} must be finite"
-                )
-        predicted.append(metric_change)
-
-    return CampaignMetricChangeProjection(
-        parameter_names=matrix.parameter_names,
-        metric_names=matrix.metric_names,
-        parameter_changes=tuple(values),
-        predicted_metric_changes=tuple(predicted),
-    )
+    return tuple(values)
 
 
 def _validate_sensitivity_matrix(matrix):

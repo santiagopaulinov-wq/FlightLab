@@ -45,6 +45,9 @@ sixteenth layer assembles explicit one-at-a-time representative secants into an
 immutable response-metric-row by varied-parameter-column sensitivity matrix.
 The seventeenth layer applies that matrix to one explicit aligned parameter-
 change vector to produce immutable linear predicted metric changes.
+The eighteenth layer applies the same matrix to a finite explicit ordered
+collection of named change scenarios while retaining one immutable projection
+per scenario.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -90,14 +93,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: explicit immutable secant-matrix metric-change
-  projections with exact named parameter alignment and metric-row order.
+- Completed capability: explicit ordered named campaign sensitivity-projection
+  scenarios with complete prevalidation and delegated single-vector projection.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add explicit secant metric-change projections`).
+  (`feat: add ordered campaign projection scenarios`).
 
 ## Current verification baseline
 
-- Test count: 1114 tests.
+- Test count: 1125 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -317,6 +320,12 @@ or EXACT set matching for both inclusions and exclusions.
   changes, and ordered predicted metric changes. Any unavailable sensitivity in
   a row makes that metric prediction unavailable rather than treating missing
   information as zero.
+- `project_campaign_scenarios()` snapshots and prevalidates a finite explicit
+  collection of unique named `CampaignProjectionScenario` definitions, then
+  delegates each aligned vector exactly once to the existing projection API.
+- Each frozen `CampaignProjectionScenarioResult` preserves caller scenario
+  order and contains its name plus the existing immutable detached projection.
+  Empty input returns `()`; failures produce no partial returned collection.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -1023,11 +1032,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next analysis layer limited to applying one existing sensitivity
-  matrix to a finite explicit caller-ordered collection of named parameter-
-  change scenarios. Do not generate scenarios, infer changes, add probability
-  distributions, Monte Carlo work, statistics, ranking, optimization, plotting,
-  persistence, or CLI/UI workflows yet.
+- Keep the next robustness layer limited to deterministic per-metric min/max
+  envelopes over one existing explicit ordered scenario-projection result. Do
+  not add probabilities, sampling, Monte Carlo work, percentiles, distributions,
+  scenario ranking, optimization, plotting, persistence, or CLI/UI workflows
+  yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -1042,31 +1051,31 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Explicit ordered campaign sensitivity-projection scenarios
+### Deterministic campaign projection envelopes
 
-Add a small pure analysis API that applies one existing campaign sensitivity
-matrix to a finite caller-ordered collection of explicitly named parameter-
-change vectors and returns immutable ordered scenario projections.
+Add a small pure analysis API that summarizes one existing ordered collection
+of named scenario projections as immutable per-metric minimum and maximum
+predicted changes with the scenario names attaining each bound.
 
 ## Suggested implementation direction
 
-- Require unique nonblank scenario names and one explicit finite aligned change
-  vector per scenario; infer and generate nothing.
-- Delegate every vector application to the existing single-projection API and
-  preserve scenario order exactly.
-- Return frozen named scenario entries containing the existing immutable
-  projections without aggregating or comparing them.
-- Propagate the first existing projection validation error unchanged and return
-  no partial result.
-- Add no Cartesian generation, probability model, Monte Carlo work, statistics,
-  robustness envelope, ranking, optimization, plotting, or persistence.
+- Reuse existing immutable scenario projections without revisiting the matrix
+  or parameter vectors.
+- Require unique scenario names and identical parameter/metric metadata and
+  ordering across all projections.
+- For each metric, preserve metric order and report finite minimum/maximum
+  predicted changes plus all exactly tied scenario names in scenario order.
+- Define explicit whole-metric behavior for unavailable `None` predictions;
+  never treat them as zero or silently omit them.
+- Add no probability model, sampling, percentile, distribution, scenario
+  ranking, scoring, optimization, plotting, or persistence.
 
 ## Focused tests to add
 
-- Verify empty, one, and multiple scenarios; exact scenario order; unique names;
-  positive/negative/zero vectors; unavailable sensitivity propagation; invalid
-  vector failure without partial output; exactly-once delegation semantics;
-  deterministic output, immutability, and source isolation.
+- Verify empty, one, and multiple scenarios; positive/negative bounds; exact
+  metric and tied-name order; unavailable metrics; duplicate names; mismatched
+  metadata/layouts; nonfinite rejection; deterministic output, immutability,
+  and source isolation.
 
 ## Commands that must pass
 
