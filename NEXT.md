@@ -35,7 +35,9 @@ completed runs, and their exact ordered membership. The eleventh layer
 retrieves one persisted campaign as an immutable manifest plus its detached
 reproducibility records in exact membership order. The twelfth layer converts
 that bundle into a fresh deterministic JSON-compatible plain record without
-performing I/O.
+performing I/O. The thirteenth layer extracts one explicit provenance parameter
+and caller-selected existing response metrics into immutable campaign-ordered
+comparison entries.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -81,14 +83,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: deterministic JSON-compatible plain campaign-bundle
-  records with full deep detachment and exact membership order.
+- Completed capability: immutable ordered campaign comparisons using one
+  explicit provenance parameter and selected existing scalar response metrics.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add deterministic campaign bundle records`).
+  (`feat: add ordered campaign metric comparisons`).
 
 ## Current verification baseline
 
-- Test count: 1043 tests.
+- Test count: 1059 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -271,6 +273,13 @@ or EXACT set matching for both inclusions and exclusions.
   booleans, finite numbers, and null values. Every conversion is deeply
   detached and preserves the existing run-record representation without metric
   recomputation or normalization duplication.
+- `compare_campaign_runs()` validates one deterministic campaign bundle record,
+  one explicit provenance category/key, and one nonempty duplicate-free ordered
+  selection of existing response metric names.
+- Each frozen `CampaignComparisonEntry` contains run ID, a detached scalar
+  parameter value, and immutable ordered metric-name/value pairs. Comparison
+  entries preserve campaign order and optional metric values without inference,
+  recomputation, sorting, ranking, aggregation, or normalization.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -977,12 +986,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Move beyond serialization and persistence increments. Keep the next analysis
-  layer limited to ordered quantitative comparison of existing campaign run
-  records through one explicit provenance parameter and caller-selected
-  existing response metrics. Do not add ranking, aggregation, statistics,
-  optimization, plotting, parallel work, cross-campaign queries, CLI/UI
-  workflows, or Scientific ML yet.
+- Keep the next analysis layer limited to explicit-baseline absolute deltas over
+  an existing ordered campaign comparison. Do not add implicit baseline or
+  best-run selection, percentage changes, ranking, composite scoring,
+  aggregation, statistics, normalization, sensitivity estimation, robustness
+  analysis, optimization, plotting, persistence, or CLI/UI workflows yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -997,32 +1005,31 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Ordered campaign parameter/metric comparisons
+### Explicit-baseline campaign metric deltas
 
-Add a small pure analysis API that converts one campaign bundle record into an
-immutable ordered comparison of runs using one caller-selected explicit
-provenance parameter and caller-selected existing scalar response metrics.
+Add a small pure analysis API that compares one existing ordered campaign
+comparison against one caller-selected baseline run ID and returns immutable
+campaign-ordered absolute parameter and metric deltas.
 
 ## Suggested implementation direction
 
-- Require the caller to identify one existing provenance metadata category and
-  key; do not infer parameters from run IDs or other values.
-- Require an explicit finite selection of existing scalar metric names and
-  preserve both campaign run order and requested metric order.
-- Return frozen lightweight comparison rows containing run ID, the selected
-  parameter value, and finite/optional scalar metric values without ranking or
-  aggregation.
-- Reuse the validated campaign-bundle record and its existing metric values;
-  do not recompute response metrics or access SQLite.
-- Add no statistical summaries, scoring, optimization, plotting, persistence,
-  execution, parameter inference, or aircraft-specific interpretation.
+- Require an explicit baseline run ID present exactly once; do not infer a
+  baseline from order or metric values.
+- Require numeric finite parameter values for delta analysis while retaining
+  the existing generic comparison API for categorical parameters.
+- Subtract baseline values in existing metric-selection order and preserve
+  campaign order, with the baseline row producing exact zero deltas.
+- Define clear propagation for optional metric values without inventing missing
+  measurements.
+- Add no percentage change, ranking, scoring, aggregation, statistics,
+  normalization, sensitivity estimates, robustness analysis, or SQLite access.
 
 ## Focused tests to add
 
-- Verify empty and populated comparisons, exact run/metric order, parameter
-  extraction from each allowed metadata category, optional metrics, missing or
-  nonscalar parameters, invalid metric selections, deterministic results, and
-  source isolation.
+- Verify explicit baseline selection, exact run and metric order, signed
+  parameter/metric deltas, baseline zeros, optional metrics, categorical or
+  nonfinite rejection, unknown/duplicate baseline IDs, deterministic output,
+  immutability, and source isolation.
 
 ## Commands that must pass
 

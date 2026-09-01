@@ -914,6 +914,35 @@ manifest metadata, record structure, collection lengths, and positional run-ID
 agreement. It performs no SQLite access, execution, persistence, JSON writing,
 or file I/O.
 
+## Experimental Platform: ordered campaign comparisons
+
+`compare_campaign_runs(...)` extracts one explicitly selected provenance
+parameter and one or more explicitly selected existing response metrics from a
+campaign bundle record:
+
+```python
+from flightlab.analysis import compare_campaign_runs
+
+comparison = compare_campaign_runs(
+    plain_record,
+    parameter_category="controller",
+    parameter_key="gain",
+    metric_names=("iae", "overshoot_percent"),
+)
+```
+
+The parameter category must be exactly `system`, `controller`, `reference`, or
+`user_metadata`, and the key must exist in every run with a JSON scalar value.
+Metric names form a nonempty, duplicate-free ordered selection from the eleven
+existing response metrics; optional metrics retain `None`.
+
+The result is an immutable tuple of frozen `CampaignComparisonEntry` objects in
+exact campaign order. Each entry contains `run_id`, the selected
+`parameter_value`, and ordered `(metric_name, value)` pairs. Values are copied
+from existing provenance and metric records without inference, recomputation,
+normalization, ranking, aggregation, or sorting. The operation is deterministic,
+pure, and independent of subsequent source-record mutation.
+
 An execution failure propagates unchanged and prevents all campaign
 persistence. Any run, manifest, or membership failure propagates after
 execution and rolls back every newly inserted campaign row. Existing records
