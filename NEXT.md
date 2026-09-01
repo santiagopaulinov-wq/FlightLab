@@ -20,6 +20,8 @@ persists those deterministic reproducibility records in SQLite through a
 generic store with explicit connection and transaction ownership. The fourth
 layer executes exactly one caller-supplied generic SISO simulation, evaluates
 it through the existing metrics API, and returns one validated immutable run.
+The fifth layer executes a finite ordered collection of explicit experiment
+cases sequentially through that same single-run boundary.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -65,16 +67,16 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: generic single-experiment execution producing one
-  validated immutable `ExperimentRun`.
-- Focused checkpoint message: `feat: add generic experiment execution`.
+- Completed capability: generic sequential execution of explicit experiment
+  cases producing an immutable ordered tuple of validated runs.
+- Focused checkpoint message: `feat: add sequential experiment execution`.
 - Previous checkpoint commit:
-  `c3b01262c13c5ffc0680c4ae1b1a85b8812c270b`
-  (`feat: finalize SQLite experiment persistence`).
+  `2e85531e40754f45f4c25c0bebb26bc549d9c521`
+  (`feat: add generic experiment execution`).
 
 ## Current verification baseline
 
-- Test count: 933 tests.
+- Test count: 954 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -164,6 +166,24 @@ or EXACT set matching for both inclusions and exclusions.
 - This fourth layer performs no persistence or automatic save, retry, batch,
   sweep, parallel execution, optimization, controller synthesis, CLI workflow,
   or aircraft-specific behavior.
+- `ExperimentCase` is a frozen, slotted, keyword-only, identity-based shallow
+  container with every required and optional argument for one explicit
+  `execute_experiment()` call.
+- `execute_experiments()` snapshots one finite ordered iterable of cases,
+  verifies every element before any simulation starts, delegates each case to
+  `execute_experiment()` exactly once and sequentially in caller order, and
+  returns the runs as an immutable tuple. Empty input returns `()`.
+- Each returned run retains the existing defensive copies and deterministic
+  reproducibility semantics. Case payloads remain caller-owned until their
+  delegated execution so validation and copying are not duplicated or moved.
+- Batch-specific malformed inputs are rejected before execution. During
+  execution, the first existing validation or caller simulation exception
+  propagates unchanged; earlier cases have completed, later cases do not run,
+  and no partial tuple, rollback, or retry is provided.
+- This fifth layer performs no case generation, parameter grids, Cartesian
+  products, persistence orchestration, automatic save, concurrency,
+  optimization, CLI workflow, controller synthesis, or aircraft-specific
+  behavior.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -804,6 +824,10 @@ or EXACT set matching for both inclusions and exclusions.
   `SISOSimulationResult`, `response_metrics()`, and `experiment_run()`. Do not
   duplicate sampled-response or provenance validation, interpret model-specific
   outputs, or couple execution to persistence.
+- Keep sequential batch execution as ordered delegation through
+  `execute_experiment()`. Preserve full case preflight, input-order snapshotting,
+  immutable tuple results, empty behavior, and fail-fast partial-execution
+  semantics without rollback or retry.
 - Preserve the existing eigenvalue ordering and individual
   `ModalStateCharacterization` results.
 - Preserve deterministic modal-family ordering, canonical family members, and
@@ -856,10 +880,10 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next generic sequential-batch layer limited to explicit caller-
-  supplied experiment cases. Do not add parameter-grid generation, parallel
-  execution, persistence orchestration, optimization, dataset generation, or
-  Scientific ML yet.
+- Keep the next generic case-generation layer limited to mapping one explicit
+  ordered parameter-value collection through one caller-supplied case factory.
+  Do not add Cartesian products, execution, persistence orchestration, parallel
+  work, optimization, dataset generation, or Scientific ML yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -874,30 +898,30 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Generic sequential execution of explicit experiment cases
+### Deterministic expansion of explicit parameter values into experiment cases
 
-Add the smallest generic sequential-batch API that executes a finite ordered
-collection of explicit caller-supplied experiment cases through
-`execute_experiment()` and returns an immutable tuple of `ExperimentRun`
-objects, without parameter-grid generation or persistence orchestration.
+Add the smallest generic API that maps a finite ordered collection of explicit
+caller-supplied parameter values through one caller-supplied case factory and
+returns an immutable tuple of `ExperimentCase` objects, without executing or
+persisting them and without Cartesian-product generation.
 
 ## Suggested implementation direction
 
-- Keep case representation and sequential execution generic and independent of
+- Keep parameter values and the case factory generic and independent of
   aircraft-specific models.
-- Reuse `execute_experiment()` for every case rather than duplicating its
-  metrics, validation, or provenance composition.
-- Preserve caller order and execute each explicit case exactly once; return an
-  immutable tuple and define clear empty-input and partial-failure behavior.
-- Add no parameter-grid generation, multiprocessing, persistence orchestration,
-  dataset export, optimization, ML, observer, controller, or aircraft-specific
-  experiment behavior.
+- Invoke the factory exactly once per explicit value in caller order and require
+  each result to be an `ExperimentCase` without executing its simulation.
+- Snapshot the finite input order, return an immutable tuple, and define clear
+  empty-input, malformed-result, and factory-failure behavior.
+- Add no Cartesian products, execution, multiprocessing, persistence
+  orchestration, dataset export, optimization, ML, observer, controller, or
+  aircraft-specific experiment behavior.
 
 ## Focused tests to add
 
-- Verify empty and multiple-case execution, caller-order preservation,
-  exactly-once delegation, immutable results, deterministic fixed inputs,
-  failure propagation, and explicit partial-failure semantics.
+- Verify empty and multiple-value expansion, caller-order preservation,
+  exactly-once factory calls, immutable results, deterministic explicit inputs,
+  malformed factory results, failure propagation, and no simulation execution.
 
 ## Commands that must pass
 

@@ -632,6 +632,46 @@ copying, immutability, and reproducibility boundaries. Simulation exceptions
 propagate unchanged. Execution does not save the run, access SQLite, retry,
 batch, sweep, parallelize, or synthesize a controller.
 
+## Experimental Platform: sequential experiment cases
+
+`ExperimentCase` explicitly describes every argument for one
+`execute_experiment()` call. `execute_experiments(cases)` executes a finite
+ordered iterable of those cases sequentially and returns an immutable tuple of
+`ExperimentRun` objects:
+
+```python
+from flightlab.experiment import ExperimentCase, execute_experiments
+
+cases = (
+    ExperimentCase(
+        simulation=simulate,
+        initial_state=[0.0, 0.0],
+        method="exact",
+        system={"name": "demo", "order": 2},
+        controller={"type": "integral_state_feedback"},
+        reference={"type": "step", "value": 1.0},
+        user_metadata={"case": "baseline"},
+        run_id="baseline",
+    ),
+)
+runs = execute_experiments(cases)
+```
+
+The case container is frozen, slotted, keyword-only, and intentionally shallow:
+each case retains its explicit caller-owned configuration until execution.
+`execute_experiment()` remains the sole validation and construction boundary,
+and each returned run therefore receives the existing defensive snapshots of
+sampled arrays, initial state, and metadata.
+
+The input iterable is materialized before execution so its membership and order
+cannot change between cases. Every element is verified as an `ExperimentCase`
+before any simulation starts. Cases then execute exactly once each in caller
+order. Empty input returns `()`. On the first simulation or validation failure,
+the original exception propagates unchanged: earlier cases have completed, no
+partial tuple is returned, later cases do not run, and there is no rollback or
+retry. Batch execution performs no case generation, Cartesian product,
+persistence, automatic saving, concurrency, or optimization.
+
 ## Experimental Platform: SQLite experiment storage
 
 `SQLiteExperimentStore` persists the existing reproducibility record without

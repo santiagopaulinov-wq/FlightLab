@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import MappingProxyType
@@ -16,6 +16,22 @@ class SISOSimulationResult(NamedTuple):
     time: object
     output: object
     reference: object
+
+
+@dataclass(frozen=True, slots=True, eq=False, kw_only=True)
+class ExperimentCase:
+    """Describe one explicit call to ``execute_experiment``."""
+
+    simulation: Callable[[], SISOSimulationResult]
+    initial_state: object
+    method: str
+    system: Mapping[str, object]
+    controller: Mapping[str, object]
+    reference: Mapping[str, object]
+    user_metadata: Mapping[str, object] | None = None
+    settling_tolerance: float = 0.02
+    run_id: str | None = None
+    created_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -273,4 +289,43 @@ def execute_experiment(
         user_metadata=user_metadata,
         run_id=run_id,
         created_at=created_at,
+    )
+
+
+def execute_experiments(
+    cases: Iterable[ExperimentCase],
+) -> tuple[ExperimentRun, ...]:
+    """Execute an ordered finite collection of explicit cases sequentially.
+
+    The collection is snapshotted before execution. Each case delegates to
+    ``execute_experiment`` in caller order. Execution stops at the first raised
+    exception; completed earlier calls are not rolled back and later cases are
+    not invoked.
+    """
+    try:
+        case_iterator = iter(cases)
+    except TypeError as error:
+        raise TypeError(
+            "cases must be an iterable of ExperimentCase objects"
+        ) from error
+    cases = tuple(case_iterator)
+
+    for index, case in enumerate(cases):
+        if not isinstance(case, ExperimentCase):
+            raise TypeError(f"cases[{index}] must be an ExperimentCase")
+
+    return tuple(
+        execute_experiment(
+            case.simulation,
+            initial_state=case.initial_state,
+            method=case.method,
+            system=case.system,
+            controller=case.controller,
+            reference=case.reference,
+            user_metadata=case.user_metadata,
+            settling_tolerance=case.settling_tolerance,
+            run_id=case.run_id,
+            created_at=case.created_at,
+        )
+        for case in cases
     )
