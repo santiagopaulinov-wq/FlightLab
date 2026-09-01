@@ -33,7 +33,9 @@ minimal immutable completed-campaign result. The tenth layer assigns explicit
 campaign identity and atomically persists a campaign manifest, its newly
 completed runs, and their exact ordered membership. The eleventh layer
 retrieves one persisted campaign as an immutable manifest plus its detached
-reproducibility records in exact membership order.
+reproducibility records in exact membership order. The twelfth layer converts
+that bundle into a fresh deterministic JSON-compatible plain record without
+performing I/O.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -79,14 +81,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: deterministic read-only persisted-campaign
-  reproducibility bundles with exact ordered detached run records.
+- Completed capability: deterministic JSON-compatible plain campaign-bundle
+  records with full deep detachment and exact membership order.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add persisted campaign reproducibility bundles`).
+  (`feat: add deterministic campaign bundle records`).
 
 ## Current verification baseline
 
-- Test count: 1036 tests.
+- Test count: 1043 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -262,6 +264,13 @@ or EXACT set matching for both inclusions and exclusions.
   runs raise a clear stored-state error without making the store unusable.
 - Bundle retrieval reconstructs no `ExperimentRun`, performs no writes, and
   returns fresh record dictionaries on every deterministic read.
+- `campaign_bundle_record()` is a pure conversion boundary that validates an
+  `ExperimentCampaignBundle` and returns an exact-key plain dictionary with
+  manifest metadata and ordered run reproducibility records.
+- Bundle records contain only JSON-compatible dictionaries, lists, strings,
+  booleans, finite numbers, and null values. Every conversion is deeply
+  detached and preserves the existing run-record representation without metric
+  recomputation or normalization duplication.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -968,11 +977,12 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next bundle-record layer limited to a deterministic JSON-compatible
-  plain representation of one already-retrieved campaign bundle. Do not add
-  filesystem export, hashing, signing, cross-campaign queries, analytics,
-  parallel work, retries, resumption, optimization, distributed execution,
-  CLI/UI workflows, or Scientific ML yet.
+- Move beyond serialization and persistence increments. Keep the next analysis
+  layer limited to ordered quantitative comparison of existing campaign run
+  records through one explicit provenance parameter and caller-selected
+  existing response metrics. Do not add ranking, aggregation, statistics,
+  optimization, plotting, parallel work, cross-campaign queries, CLI/UI
+  workflows, or Scientific ML yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -987,28 +997,32 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Deterministic JSON-compatible campaign-bundle records
+### Ordered campaign parameter/metric comparisons
 
-Add the smallest pure API that converts one `ExperimentCampaignBundle` into a
-fresh deterministic JSON-compatible plain dictionary containing its manifest
-metadata and ordered detached run records.
+Add a small pure analysis API that converts one campaign bundle record into an
+immutable ordered comparison of runs using one caller-selected explicit
+provenance parameter and caller-selected existing scalar response metrics.
 
 ## Suggested implementation direction
 
-- Mirror the established `ExperimentRun.reproducibility_record()` detachment
-  convention without revalidating or recomputing run data.
-- Include campaign ID, ISO UTC creation timestamp, ordered run IDs, and ordered
-  run records with an explicit exact-key structure.
-- Ensure every call returns fully detached nested lists and dictionaries while
-  preserving deterministic key and membership order.
-- Add no SQLite access, writes, hashing, signing, filesystem export, analytics,
-  cross-campaign queries, or full-run reconstruction.
+- Require the caller to identify one existing provenance metadata category and
+  key; do not infer parameters from run IDs or other values.
+- Require an explicit finite selection of existing scalar metric names and
+  preserve both campaign run order and requested metric order.
+- Return frozen lightweight comparison rows containing run ID, the selected
+  parameter value, and finite/optional scalar metric values without ranking or
+  aggregation.
+- Reuse the validated campaign-bundle record and its existing metric values;
+  do not recompute response metrics or access SQLite.
+- Add no statistical summaries, scoring, optimization, plotting, persistence,
+  execution, parameter inference, or aircraft-specific interpretation.
 
 ## Focused tests to add
 
-- Verify empty and populated bundles, exact keys, exact order, deterministic
-  repeated conversion, deep detachment, source isolation, and malformed bundle
-  rejection if direct construction remains public.
+- Verify empty and populated comparisons, exact run/metric order, parameter
+  extraction from each allowed metadata category, optional metrics, missing or
+  nonscalar parameters, invalid metric selections, deterministic results, and
+  source isolation.
 
 ## Commands that must pass
 

@@ -1,3 +1,4 @@
+import json
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 
@@ -11,6 +12,7 @@ from flightlab.persistence import (
     ExperimentCampaignBundle,
     ExperimentCampaignManifest,
     SQLiteExperimentStore,
+    campaign_bundle_record,
 )
 
 _CREATED_AT = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
@@ -378,3 +380,94 @@ def test_missing_referenced_run_is_reported_and_store_remains_usable(tmp_path):
         assert store.get_campaign("inconsistent").run_ids == ("missing-run",)
         assert store.get("missing-run") is None
         assert store.get_campaign_bundle("unknown") is None
+
+
+def test_campaign_bundle_record_has_exact_json_compatible_structure(tmp_path):
+    with SQLiteExperimentStore(tmp_path / "experiments.sqlite3") as store:
+        result = run_experiment_campaign(
+            (_case("second", []), _case("first", [])),
+            store=store,
+            campaign_id="record-campaign",
+            created_at=_CREATED_AT,
+        )
+        bundle = store.get_campaign_bundle("record-campaign")
+
+    record = campaign_bundle_record(bundle)
+
+    assert tuple(record) == ("manifest", "records")
+    assert record["manifest"] == {
+        "campaign_id": "record-campaign",
+        "created_at": "2026-09-01T12:00:00+00:00",
+        "run_ids": ["second", "first"],
+    }
+    assert [item["run_id"] for item in record["records"]] == ["second", "first"]
+    assert record["records"] == [
+        run.reproducibility_record() for run in result.runs
+    ]
+    assert json.loads(
+        json.dumps(record, sort_keys=True, allow_nan=False, ensure_ascii=False)
+    ) == record
+
+
+def test_empty_campaign_bundle_record_uses_plain_empty_lists():
+    bundle = ExperimentCampaignBundle(
+        manifest=ExperimentCampaignManifest(
+            campaign_id="empty",
+            created_at="2026-09-01T12:00:00+00:00",
+            run_ids=(),
+        ),
+        records=(),
+    )
+
+    assert campaign_bundle_record(bundle) == {
+        "manifest": {
+            "campaign_id": "empty",
+            "created_at": "2026-09-01T12:00:00+00:00",
+            "run_ids": [],
+        },
+        "records": [],
+    }
+
+
+def test_campaign_bundle_record_is_deterministic_and_deeply_detached(tmp_path):
+    with SQLiteExperimentStore(tmp_path / "experiments.sqlite3") as store:
+        run_experiment_campaign(
+            (_case("detached-record", []),),
+            store=store,
+            campaign_id="detached-record-campaign",
+            created_at=_CREATED_AT,
+        )
+        bundle = store.get_campaign_bundle("detached-record-campaign")
+
+    first = campaign_bundle_record(bundle)
+    expected = campaign_bundle_record(bundle)
+    first["manifest"]["run_ids"][0] = "changed"
+    first["records"][0]["initial_state"][0] = 999.0
+    first["records"][0]["controller"]["case"] = "changed"
+    first["records"][0]["metrics"]["iae"] = 999.0
+    repeated = campaign_bundle_record(bundle)
+
+    assert repeated == expected
+    assert bundle.manifest.run_ids == ("detached-record",)
+    assert bundle.records[0]["initial_state"] == [0.0]
+    assert bundle.records[0]["controller"] == {"case": "detached-record"}
+
+
+@pytest.mark.parametrize("invalid", [None, {}, object()])
+def test_campaign_bundle_record_rejects_invalid_inputs(invalid):
+    with pytest.raises(TypeError, match="ExperimentCampaignBundle"):
+        campaign_bundle_record(invalid)
+
+
+def test_campaign_bundle_record_rejects_inconsistent_membership():
+    bundle = ExperimentCampaignBundle(
+        manifest=ExperimentCampaignManifest(
+            campaign_id="invalid",
+            created_at="2026-09-01T12:00:00+00:00",
+            run_ids=("expected",),
+        ),
+        records=(),
+    )
+
+    with pytest.raises(ValueError, match="matching lengths"):
+        campaign_bundle_record(bundle)

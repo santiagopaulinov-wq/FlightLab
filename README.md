@@ -885,6 +885,35 @@ database or later reads. A manifest that references a missing run raises a
 clear stored-state `ValueError`; no `ExperimentRun` is reconstructed and the
 operation performs no writes.
 
+`campaign_bundle_record(bundle)` is the pure serialization-ready boundary for
+an already-retrieved bundle:
+
+```python
+from flightlab.persistence import campaign_bundle_record
+
+plain_record = campaign_bundle_record(bundle)
+```
+
+It returns this exact plain structure:
+
+```python
+{
+    "manifest": {
+        "campaign_id": "baseline-campaign",
+        "created_at": "2026-09-01T12:00:00+00:00",
+        "run_ids": ["baseline", "candidate"],
+    },
+    "records": [baseline_record, candidate_record],
+}
+```
+
+Manifest and record order are preserved exactly. Every nested dictionary and
+list is detached on every call, and each member record retains the established
+`ExperimentRun.reproducibility_record()` representation. The function validates
+manifest metadata, record structure, collection lengths, and positional run-ID
+agreement. It performs no SQLite access, execution, persistence, JSON writing,
+or file I/O.
+
 An execution failure propagates unchanged and prevents all campaign
 persistence. Any run, manifest, or membership failure propagates after
 execution and rolls back every newly inserted campaign row. Existing records

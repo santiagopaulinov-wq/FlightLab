@@ -2,6 +2,7 @@ import json
 import math
 import os
 import sqlite3
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -208,6 +209,51 @@ class ExperimentCampaignManifest:
 class ExperimentCampaignBundle:
     manifest: ExperimentCampaignManifest
     records: tuple[dict[str, object], ...]
+
+
+def campaign_bundle_record(bundle):
+    """Return one detached JSON-compatible campaign reproducibility record."""
+    if not isinstance(bundle, ExperimentCampaignBundle):
+        raise TypeError("bundle must be an ExperimentCampaignBundle")
+    manifest = bundle.manifest
+    if not isinstance(manifest, ExperimentCampaignManifest):
+        raise TypeError("bundle.manifest must be an ExperimentCampaignManifest")
+    if type(bundle.records) is not tuple:
+        raise TypeError("bundle.records must be a tuple")
+    if type(manifest.campaign_id) is not str or not manifest.campaign_id.strip():
+        raise ValueError("bundle campaign_id must be a non-empty string")
+    if type(manifest.created_at) is not str:
+        raise ValueError("bundle created_at must be an aware UTC ISO timestamp")
+    try:
+        created_at = datetime.fromisoformat(manifest.created_at)
+    except ValueError:
+        raise ValueError(
+            "bundle created_at must be an aware UTC ISO timestamp"
+        ) from None
+    if created_at.utcoffset() != timedelta(0):
+        raise ValueError("bundle created_at must be an aware UTC ISO timestamp")
+    if type(manifest.run_ids) is not tuple:
+        raise TypeError("bundle manifest run_ids must be a tuple")
+    if len(manifest.run_ids) != len(bundle.records):
+        raise ValueError("bundle manifest and records must have matching lengths")
+
+    for index, (run_id, record) in enumerate(zip(manifest.run_ids, bundle.records)):
+        if type(run_id) is not str or not run_id.strip():
+            raise ValueError(f"bundle manifest run_ids[{index}] must be non-empty")
+        _validate_record(record)
+        if record["run_id"] != run_id:
+            raise ValueError(
+                f"bundle records[{index}] does not match manifest run_id {run_id!r}"
+            )
+
+    return {
+        "manifest": {
+            "campaign_id": manifest.campaign_id,
+            "created_at": manifest.created_at,
+            "run_ids": list(manifest.run_ids),
+        },
+        "records": deepcopy(list(bundle.records)),
+    }
 
 
 def _invalid_record(message):
