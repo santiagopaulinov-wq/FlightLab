@@ -44,23 +44,25 @@ single-output systems. Caller-supplied controller and observer gains can now be
 combined in a generic observer-based dynamic output-feedback realization, and
 stable SISO full-state-feedback loops support nominal steady-state reference
 prefilter calculation. SISO plants can also be augmented with one explicit
-output-error integral state as an open controller-design model.
+output-error integral state as an open controller-design model, and that model
+can now be closed with caller-supplied state and integral gains while retaining
+the scalar reference input and physical plant output.
 Both aircraft models can filter these immutable interpreted families by their
 existing oscillatory status, mathematical stability, and exact dominant
 state/input/output labels, with configurable global or per-category ANY, ALL,
 or EXACT set matching for both inclusions and exclusions.
 
-## Checkpoint commit
+## Current checkpoint
 
-- Completed checkpoint commit:
-  `540e5ef1398fc04e054cb416c307c163b89d7db8`
-- Completed checkpoint message: `feat: add SISO integral augmentation`
-- This checkpoint adds a SISO output-error integral augmentation design model
-  with no gain synthesis or feedback closure.
+- Completed capability: caller-supplied SISO integral state feedback under
+  `u = -K x + K_i xi` and `xi_dot = r - y`.
+- Focused checkpoint message: `feat: add SISO integral state feedback`.
+- Previous checkpoint commit:
+  `43db0947ab23883d30b18827891dca627db3c653`.
 
 ## Current verification baseline
 
-- Test count: 752 tests.
+- Test count: 782 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -290,6 +292,27 @@ or EXACT set matching for both inclusions and exclusions.
 - The original plant is not mutated. This capability performs no gain
   synthesis, integral feedback closure, prefilter combination, anti-windup,
   saturation, observer design, or aircraft-specific behavior.
+- `StateSpace.siso_integral_state_feedback(K, K_i)` returns an immutable
+  `SISOIntegralStateFeedbackInterconnection` containing the augmented
+  closed-loop `StateSpace`, a validated copy of `K`, and the validated scalar
+  `K_i`.
+- The controller convention is `u = -K x + K_i xi`, the integral-error
+  convention remains `xi_dot = r - y`, augmented state order is `[x; xi]`,
+  the sole external input is `r`, and the sole output is the physical plant
+  output `y`.
+- The exact matrices are
+  `A_aug = [[A-B K, B K_i], [-C+D K, -D K_i]]`,
+  `B_aug = [[0], [1]]`, `C_aug = [C-D K, D K_i]`, and `D_aug = [0]`.
+  Thus nonzero plant feedthrough is retained in both the integral-state
+  dynamics and the exposed output.
+- No algebraic inversion or special nonzero-`D` restriction is needed because
+  `u` depends only on `[x; xi]`, not directly on `y` or `r`. Exactly one plant
+  input and output are required; `K` must be a finite real matrix with shape
+  `(1, n_states)`, and `K_i` must be a finite real scalar.
+- Stability, controllability, and observability are not required. Stable and
+  deliberately unstable supplied gains are both accepted, the original plant
+  is not mutated, and no pole placement, LQR, gain tuning, anti-windup,
+  saturation, observer, or aircraft-specific behavior is added.
 - Nonstable and neutral systems raise clear errors because no finite
   infinite-horizon Gramians are returned; stable zero-input and zero-output
   systems return correctly shaped zero Gramians.
@@ -709,23 +732,26 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Caller-supplied SISO integral-feedback interconnection
+### SISO integral state-feedback pole placement
 
-Close the verified integral-error augmentation with caller-supplied state and
-integral gains, retaining scalar reference input and plant output while
-establishing the integral-control sign convention before gain synthesis.
+Synthesize `K` and `K_i` only from an explicit caller-supplied set of
+`n_states + 1` desired poles, reusing the existing NumPy-only SISO Ackermann
+machinery and the now-verified integral-control sign convention.
 
 ## Suggested implementation direction
 
-- Use an explicit convention such as `u = -K x + K_i xi` together with
-  `xi_dot = r - y`, and derive all nonzero-`D` terms without algebraic
-  inversion.
-- Accept finite real caller-supplied `K` and scalar `K_i`; expose reference `r`
-  as input and plant `y` as output. Do not require the resulting loop to be
-  stable and do not synthesize either gain.
-- Preserve `[x; xi]` state order and document the complete closed-loop
-  realization. Do not add anti-windup, saturation, observers, LQR/LQG, or
-  aircraft tuning yet.
+- Form the single-control-input augmented design pair
+  `A_i = [[A, 0], [-C, 0]]`, `B_i = [[B], [-D]]` with reference set to zero.
+  For Ackermann gain `K_aug` under `u = -K_aug [x; xi]`, return
+  `K = K_aug[:, :n_states]` and `K_i = -K_aug[0, -1]` so the result is accepted
+  directly by `siso_integral_state_feedback()`.
+- Require exactly one plant input and output, at least one augmented state,
+  full controllability of `(A_i, B_i)`, and exactly `n_states + 1` finite poles
+  with the existing conjugate-closure convention.
+- Reuse the existing pole-validation and Ackermann implementation rather than
+  duplicating polynomial evaluation or linear solves. Do not select poles,
+  require stable requested poles, or add LQR/LQG, anti-windup, saturation,
+  observers, or aircraft tuning.
 - Preserve the established NumPy numerical rank convention and immutable tuple
   results.
 - Preserve all existing state-space and modal results unchanged.
@@ -734,11 +760,10 @@ establishing the integral-control sign convention before gain synthesis.
 
 ## Focused tests to add
 
-- Verify exact closed-loop equations and matrices, reference/output ordering,
-  nonzero feedthrough, stable and deliberately unstable gains, non-mutation,
-  and gain validation.
-- Existing aircraft and modal behavior remains unchanged.
-- Ambiguous longitudinal families retain `None` rather than being guessed.
+- Verify exact `K_aug` sign conversion to `K` and `K_i`, achieved augmented
+  poles for both zero and nonzero `D`, direct compatibility with
+  `siso_integral_state_feedback()`, desired-pole validation, augmented
+  uncontrollability rejection, and non-mutation.
 
 ## Commands that must pass
 

@@ -423,3 +423,38 @@ plant.
 This is an auditable design augmentation only. It does not synthesize gains,
 close an integral-feedback loop, combine reference prefiltering, or provide
 anti-windup, saturation, observer, or aircraft-specific behavior.
+
+## Caller-supplied SISO integral state feedback
+
+`system.siso_integral_state_feedback(K, K_i)` closes a SISO plant with the
+explicit controller and output-error integrator
+
+```text
+u = -K x + K_i xi
+xi_dot = r - y
+```
+
+It returns an immutable `SISOIntegralStateFeedbackInterconnection` containing
+the augmented `StateSpace`, a validated copy of `K`, and the validated scalar
+`K_i`. The state order is `[x; xi]`, the sole external input is the reference
+`r`, and the sole output is the physical plant output `y`. The complete
+realization is
+
+```text
+A_aug = [[A-B K,  B K_i],       B_aug = [[0],
+         [-C+D K, -D K_i]]               [1]]
+
+C_aug = [C-D K, D K_i]          D_aug = [0]
+```
+
+These terms follow directly from
+`y = (C-D K)x + D K_i xi` and
+`xi_dot = (-C+D K)x - D K_i xi + r`. Therefore any finite nonzero scalar `D`
+is supported without an algebraic inversion: `u` depends only on the augmented
+state, so there is no algebraic loop.
+
+The plant must have exactly one input and one output. `K` must be a finite real
+matrix with shape `(1, n_states)`, and `K_i` must be a finite real scalar. No
+stability, controllability, or observability condition is imposed. The method
+does not mutate the plant, synthesize gains, select poles, perform LQR, or add
+anti-windup, saturation, observer, or aircraft-specific behavior.

@@ -13,6 +13,7 @@ from flightlab.state_space import (
     NonstablePBHDiagnostic,
     ObserverBasedOutputFeedbackInterconnection,
     SISOIntegralAugmentation,
+    SISOIntegralStateFeedbackInterconnection,
     StateSpace,
     StructuralAnalysis,
 )
@@ -468,6 +469,223 @@ def test_siso_integral_augmentation_adds_one_open_loop_integrator_eigenvalue():
         np.sort_complex(result.system.eigenvalues()), [-2.0, 0.0]
     )
     assert result.system.is_asymptotically_stable() is False
+
+
+def test_siso_integral_state_feedback_matches_d_zero_matrices_and_dimensions():
+    system = StateSpace(
+        [[0.0, 1.0], [-2.0, -3.0]],
+        [[0.0], [1.0]],
+        [[1.0, 2.0]],
+        [[0.0]],
+    )
+    gain = np.array([[3.0, 4.0]])
+
+    result = system.siso_integral_state_feedback(gain, 2.0)
+
+    assert isinstance(result, SISOIntegralStateFeedbackInterconnection)
+    assert result.system.n_states == 3
+    assert result.system.n_inputs == 1
+    assert result.system.n_outputs == 1
+    np.testing.assert_array_equal(
+        result.system.A,
+        [[0.0, 1.0, 0.0], [-5.0, -7.0, 2.0], [-1.0, -2.0, 0.0]],
+    )
+    np.testing.assert_array_equal(result.system.B, [[0.0], [0.0], [1.0]])
+    np.testing.assert_array_equal(result.system.C, [[1.0, 2.0, 0.0]])
+    np.testing.assert_array_equal(result.system.D, [[0.0]])
+    np.testing.assert_array_equal(result.state_feedback_gain, gain)
+    assert result.integral_gain == 2.0
+
+
+def test_siso_integral_state_feedback_preserves_reference_and_plant_output():
+    system = integral_augmentation_system()
+    gain = np.array([[2.0, -1.0]])
+    integral_gain = 1.5
+    state = np.array([0.7, -0.4])
+    integral_state = 0.6
+    reference = -0.2
+    augmented_state = np.concatenate((state, [integral_state]))
+    plant_input = (-gain @ state + integral_gain * integral_state).item()
+    plant_output = system.output(state, [plant_input])
+
+    result = system.siso_integral_state_feedback(gain, integral_gain)
+    augmented_derivative = result.system.state_derivative(
+        augmented_state, [reference]
+    )
+    augmented_output = result.system.output(augmented_state, [reference])
+
+    np.testing.assert_allclose(
+        augmented_derivative[: system.n_states],
+        system.state_derivative(state, [plant_input]),
+    )
+    assert augmented_derivative[-1] == pytest.approx(
+        reference - plant_output[0]
+    )
+    np.testing.assert_allclose(augmented_output, plant_output)
+    np.testing.assert_allclose(
+        result.system.output(augmented_state, [reference + 10.0]),
+        plant_output,
+    )
+
+
+def test_siso_integral_state_feedback_includes_nonzero_feedthrough_exactly():
+    system = StateSpace(
+        [[0.0, 1.0], [-2.0, -3.0]],
+        [[0.0], [1.0]],
+        [[1.0, 2.0]],
+        [[0.5]],
+    )
+
+    result = system.siso_integral_state_feedback([[3.0, 4.0]], 2.0)
+
+    np.testing.assert_array_equal(
+        result.system.A,
+        [[0.0, 1.0, 0.0], [-5.0, -7.0, 2.0], [0.5, 0.0, -1.0]],
+    )
+    np.testing.assert_array_equal(result.system.B, [[0.0], [0.0], [1.0]])
+    np.testing.assert_array_equal(result.system.C, [[-0.5, 0.0, 1.0]])
+    np.testing.assert_array_equal(result.system.D, [[0.0]])
+
+
+def test_siso_integral_state_feedback_tracks_a_constant_reference():
+    system = StateSpace([[0.0]], [[1.0]], [[1.0]], [[0.0]])
+    time = np.linspace(0.0, 12.0, 121)
+
+    result = system.siso_integral_state_feedback([[2.0]], 1.0)
+    states, outputs = result.system.step_response([1.0], time, method="exact")
+    expected_output = 1.0 - (1.0 + time) * np.exp(-time)
+
+    assert result.system.is_asymptotically_stable() is True
+    np.testing.assert_allclose(outputs[:, 0], expected_output, atol=1e-12)
+    assert outputs[-1, 0] == pytest.approx(1.0, abs=1e-4)
+    assert states[-1, -1] == pytest.approx(2.0, abs=1e-4)
+
+
+def test_siso_integral_state_feedback_accepts_an_unstable_supplied_gain():
+    system = StateSpace([[1.0]], [[1.0]], [[1.0]], [[0.0]])
+
+    result = system.siso_integral_state_feedback([[0.0]], 1.0)
+
+    assert result.system.is_asymptotically_stable() is False
+
+
+def test_siso_integral_state_feedback_does_not_mutate_plant_or_alias_gain():
+    system = integral_augmentation_system()
+    originals = tuple(
+        matrix.copy() for matrix in (system.A, system.B, system.C, system.D)
+    )
+    gain = np.array([[2.0, -1.0]])
+
+    result = system.siso_integral_state_feedback(gain, 1.5)
+    gain[0, 0] = 99.0
+
+    assert result.system is not system
+    np.testing.assert_array_equal(result.state_feedback_gain, [[2.0, -1.0]])
+    assert result.integral_gain == 1.5
+    for matrix, original in zip(
+        (system.A, system.B, system.C, system.D), originals, strict=True
+    ):
+        np.testing.assert_array_equal(matrix, original)
+    with pytest.raises(AttributeError):
+        result.system = system
+
+
+@pytest.mark.parametrize(
+    "system",
+    [
+        StateSpace([[-1.0]], [[1.0, 0.0]], [[1.0]], [[0.0, 0.0]]),
+        StateSpace([[-1.0]], [[1.0]], [[1.0], [0.0]], [[0.0], [0.0]]),
+        StateSpace([[-1.0]], [[1.0, 0.0]], [[1.0], [0.0]], np.zeros((2, 2))),
+    ],
+)
+def test_siso_integral_state_feedback_rejects_non_siso_plants(system):
+    with pytest.raises(ValueError, match="requires exactly one input and one output"):
+        system.siso_integral_state_feedback(
+            np.zeros((system.n_inputs, system.n_states)), 1.0
+        )
+
+
+@pytest.mark.parametrize(
+    "gain",
+    [
+        np.zeros((2, 3)),
+        np.zeros((1, 1)),
+        np.zeros((3, 2)),
+    ],
+)
+def test_siso_integral_state_feedback_rejects_wrong_gain_shape(gain):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="K must have shape"):
+        system.siso_integral_state_feedback(gain, 1.0)
+
+
+@pytest.mark.parametrize("gain", [1.0, [1.0, 2.0], np.zeros((1, 2, 1))])
+def test_siso_integral_state_feedback_rejects_nonmatrix_gain(gain):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="K must be a 2D array"):
+        system.siso_integral_state_feedback(gain, 1.0)
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+def test_siso_integral_state_feedback_rejects_nonfinite_gain(value):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="K must contain only finite values"):
+        system.siso_integral_state_feedback([[value, 0.0]], 1.0)
+
+
+def test_siso_integral_state_feedback_rejects_complex_gain():
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(TypeError, match="K must contain only real values"):
+        system.siso_integral_state_feedback([[1.0 + 0.0j, 2.0]], 1.0)
+
+
+@pytest.mark.parametrize("gain", ["gain", [[object(), 1.0]]])
+def test_siso_integral_state_feedback_rejects_invalid_gain_type(gain):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(TypeError, match="K must be a real numeric 2D array"):
+        system.siso_integral_state_feedback(gain, 1.0)
+
+
+@pytest.mark.parametrize("integral_gain", [[1.0], [[1.0]], [1.0, 2.0]])
+def test_siso_integral_state_feedback_rejects_nonscalar_integral_gain(
+    integral_gain,
+):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="K_i must be a scalar"):
+        system.siso_integral_state_feedback([[1.0, 2.0]], integral_gain)
+
+
+@pytest.mark.parametrize("integral_gain", [np.nan, np.inf, -np.inf])
+def test_siso_integral_state_feedback_rejects_nonfinite_integral_gain(
+    integral_gain,
+):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(ValueError, match="K_i must be finite"):
+        system.siso_integral_state_feedback([[1.0, 2.0]], integral_gain)
+
+
+def test_siso_integral_state_feedback_rejects_complex_integral_gain():
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(TypeError, match="K_i must contain only real values"):
+        system.siso_integral_state_feedback([[1.0, 2.0]], 1.0 + 0.0j)
+
+
+@pytest.mark.parametrize("integral_gain", ["gain", object()])
+def test_siso_integral_state_feedback_rejects_invalid_integral_gain_type(
+    integral_gain,
+):
+    system = StateSpace(*valid_matrices())
+
+    with pytest.raises(TypeError, match="K_i must be a real numeric scalar"):
+        system.siso_integral_state_feedback([[1.0, 2.0]], integral_gain)
 
 
 def observer_mimo_system():

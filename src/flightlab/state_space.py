@@ -287,6 +287,20 @@ class SISOIntegralAugmentation(NamedTuple):
     system: "StateSpace"
 
 
+class SISOIntegralStateFeedbackInterconnection(NamedTuple):
+    """Closed-loop SISO integral state-feedback interconnection.
+
+    ``system`` has augmented state order ``[x; xi]``, retains the scalar
+    reference ``r`` as its external input, and exposes only the physical plant
+    output ``y``. The validated gain copies record the conventions
+    ``u = -K x + K_i xi`` and ``xi_dot = r - y``.
+    """
+
+    system: "StateSpace"
+    state_feedback_gain: np.ndarray
+    integral_gain: float
+
+
 class BalancedRealization(NamedTuple):
     """Full-order balanced system and its original-coordinate transformation.
 
@@ -803,6 +817,87 @@ class StateSpace:
             ),
         )
         return SISOIntegralAugmentation(augmented_system)
+
+    def siso_integral_state_feedback(
+        self, state_feedback_gain, integral_gain
+    ):
+        """Interconnect supplied SISO state and integral feedback gains.
+
+        For plant ``x_dot = A x + B u`` and ``y = C x + D u``, use the
+        conventions ``u = -K x + K_i xi`` and ``xi_dot = r - y``. The
+        returned immutable :class:`SISOIntegralStateFeedbackInterconnection`
+        contains a :class:`StateSpace` with state order ``[x; xi]``, scalar
+        external input ``r``, and physical plant output ``y``::
+
+            A_aug = [[A-B K,  B K_i],       B_aug = [[0],
+                     [-C+D K, -D K_i]]               [1]]
+            C_aug = [C-D K, D K_i]          D_aug = [0]
+
+        Nonzero plant feedthrough is included directly in the integrator
+        dynamics and exposed output. No algebraic inversion is needed because
+        ``u`` depends only on the augmented state, not directly on ``y`` or
+        ``r``. The plant must have exactly one input and one output. ``K`` must
+        be a finite real matrix with shape ``(1, n_states)``, and ``K_i`` must
+        be a finite real scalar. No stability, controllability, or
+        observability condition is imposed, and neither gain is synthesized.
+        The original plant is not mutated.
+        """
+        if self.n_inputs != 1 or self.n_outputs != 1:
+            raise ValueError(
+                "SISO integral state feedback requires exactly one input "
+                "and one output"
+            )
+
+        raw_state_feedback_gain = np.asarray(state_feedback_gain)
+        if np.iscomplexobj(raw_state_feedback_gain):
+            raise TypeError("K must contain only real values")
+        try:
+            state_feedback_gain = np.asarray(state_feedback_gain, dtype=float)
+        except (TypeError, ValueError) as error:
+            raise TypeError("K must be a real numeric 2D array") from error
+        if state_feedback_gain.ndim != 2:
+            raise ValueError(
+                "K must be a 2D array with shape (n_inputs, n_states)"
+            )
+        if state_feedback_gain.shape != (1, self.n_states):
+            raise ValueError("K must have shape (1, n_states)")
+        if not np.all(np.isfinite(state_feedback_gain)):
+            raise ValueError("K must contain only finite values")
+
+        raw_integral_gain = np.asarray(integral_gain)
+        if np.iscomplexobj(raw_integral_gain):
+            raise TypeError("K_i must contain only real values")
+        try:
+            integral_gain = np.asarray(integral_gain, dtype=float)
+        except (TypeError, ValueError) as error:
+            raise TypeError("K_i must be a real numeric scalar") from error
+        if integral_gain.ndim != 0:
+            raise ValueError("K_i must be a scalar")
+        if not np.isfinite(integral_gain):
+            raise ValueError("K_i must be finite")
+        integral_gain = float(integral_gain)
+
+        state_count = self.n_states
+        state_feedback = self.B @ state_feedback_gain
+        output_feedback = self.D @ state_feedback_gain
+        integral_state_input = self.B * integral_gain
+        integral_output = self.D * integral_gain
+        augmented_system = StateSpace(
+            np.block(
+                [
+                    [self.A - state_feedback, integral_state_input],
+                    [-self.C + output_feedback, -integral_output],
+                ]
+            ),
+            np.vstack((np.zeros((state_count, 1)), np.ones((1, 1)))),
+            np.hstack((self.C - output_feedback, integral_output)),
+            np.zeros((1, 1)),
+        )
+        return SISOIntegralStateFeedbackInterconnection(
+            augmented_system,
+            state_feedback_gain.copy(),
+            integral_gain,
+        )
 
     def luenberger_observer(self, observer_gain):
         """Interconnect a supplied full-order continuous-time observer gain.
