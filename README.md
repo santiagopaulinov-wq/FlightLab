@@ -585,3 +585,47 @@ timestamp, which is normalized to UTC. `reproducibility_record()` returns a
 fresh JSON-compatible dictionary with the identity, timestamp, timing data,
 initial state, metadata, and every scalar response metric. It deliberately
 omits trajectory arrays and performs no filesystem or database operation.
+
+## Experimental Platform: SQLite experiment storage
+
+`SQLiteExperimentStore` persists the existing reproducibility record without
+running a simulation or reconstructing an `ExperimentRun` on retrieval:
+
+```python
+from flightlab.experiment import experiment_run
+from flightlab.persistence import SQLiteExperimentStore
+from flightlab.response import response_metrics
+
+time = [0.0, 0.5, 1.0, 2.0]
+metrics = response_metrics(time, [0.0, 0.7, 1.1, 1.0], [1.0] * 4)
+run = experiment_run(
+    time=time,
+    initial_state=[0.0, 0.0],
+    metrics=metrics,
+    method="exact",
+    system={"name": "demo"},
+    controller={"type": "integral_state_feedback"},
+    reference={"type": "step", "value": 1.0},
+)
+
+store = SQLiteExperimentStore("flightlab.db")
+store.initialize()
+store.save(run)
+record = store.get(run.run_id)
+store.close()
+```
+
+Initialization is idempotent. `save()` uses one atomic parameterized `INSERT`;
+an existing ID raises `DuplicateRunIDError` and is never overwritten. `get()`
+returns a fresh plain record equivalent to `run.reproducibility_record()`, or
+`None` for an unknown ID. `list_runs()` returns immutable lightweight summaries
+ordered by creation time newest-first, with ascending run ID as the deterministic
+tie-breaker.
+
+The single `experiment_runs` table stores identity, UTC timestamp, timing, and
+all scalar metrics in typed columns. Initial state and the four metadata groups
+use deterministic standard-library JSON with sorted keys, compact separators,
+and nonfinite values disabled; pickle is never used. One connection is retained
+for each store lifetime so `:memory:` works as expected. The store is also a
+context manager that initializes on entry and closes on exit; explicit
+`close()` is idempotent and terminal.
