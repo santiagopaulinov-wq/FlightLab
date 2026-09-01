@@ -329,3 +329,35 @@ def execute_experiments(
         )
         for case in cases
     )
+
+
+def expand_experiment_cases(
+    parameter_values: Iterable[object],
+    case_factory: Callable[[object], ExperimentCase],
+) -> tuple[ExperimentCase, ...]:
+    """Map explicit ordered parameter values to immutable experiment cases.
+
+    The values are snapshotted before the factory is invoked exactly once for
+    each value in caller order. Factory exceptions propagate unchanged, and no
+    simulation is executed.
+    """
+    if not callable(case_factory):
+        raise TypeError("case_factory must be callable")
+
+    try:
+        value_iterator = iter(parameter_values)
+    except TypeError as error:
+        raise TypeError("parameter_values must be an iterable") from error
+    parameter_values = tuple(value_iterator)
+
+    cases = []
+    for index, value in enumerate(parameter_values):
+        case = case_factory(value)
+        if not isinstance(case, ExperimentCase):
+            raise TypeError(
+                "case_factory result for "
+                f"parameter_values[{index}] must be an ExperimentCase"
+            )
+        cases.append(case)
+
+    return tuple(cases)

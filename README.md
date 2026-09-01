@@ -672,6 +672,39 @@ partial tuple is returned, later cases do not run, and there is no rollback or
 retry. Batch execution performs no case generation, Cartesian product,
 persistence, automatic saving, concurrency, or optimization.
 
+## Experimental Platform: explicit parameter-value expansion
+
+`expand_experiment_cases(parameter_values, case_factory)` maps one finite
+ordered iterable of caller-supplied parameter values into explicit cases:
+
+```python
+from flightlab.experiment import ExperimentCase, expand_experiment_cases
+
+
+def case_factory(gain):
+    return ExperimentCase(
+        simulation=lambda: simulate_gain(gain),
+        initial_state=[0.0, 0.0],
+        method="exact",
+        system={"name": "demo", "order": 2},
+        controller={"type": "state_feedback", "gain": gain},
+        reference={"type": "step", "value": 1.0},
+        user_metadata={"gain": gain},
+        run_id=f"gain-{gain}",
+    )
+
+
+cases = expand_experiment_cases([0.5, 1.0, 1.5], case_factory)
+```
+
+The parameter iterable is materialized before factory calls, preserving its
+membership and caller order. The factory is invoked exactly once per value and
+must return an `ExperimentCase`; invalid results report their parameter index.
+Empty input returns `()`, and factory exceptions propagate unchanged. The
+result is an immutable tuple. Expansion does not invoke case simulations,
+execute experiments, persist data, generate Cartesian products, or interpret
+parameter values.
+
 ## Experimental Platform: SQLite experiment storage
 
 `SQLiteExperimentStore` persists the existing reproducibility record without

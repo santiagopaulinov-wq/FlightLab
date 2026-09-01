@@ -21,7 +21,9 @@ generic store with explicit connection and transaction ownership. The fourth
 layer executes exactly one caller-supplied generic SISO simulation, evaluates
 it through the existing metrics API, and returns one validated immutable run.
 The fifth layer executes a finite ordered collection of explicit experiment
-cases sequentially through that same single-run boundary.
+cases sequentially through that same single-run boundary. The sixth layer maps
+one finite ordered collection of explicit parameter values through a caller-
+supplied factory into immutable experiment cases without executing them.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -67,16 +69,16 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: generic sequential execution of explicit experiment
-  cases producing an immutable ordered tuple of validated runs.
-- Focused checkpoint message: `feat: add sequential experiment execution`.
+- Completed capability: deterministic expansion of one explicit ordered
+  parameter-value collection into immutable `ExperimentCase` objects.
+- Focused checkpoint message: `feat: add deterministic experiment case expansion`.
 - Previous checkpoint commit:
-  `2e85531e40754f45f4c25c0bebb26bc549d9c521`
-  (`feat: add generic experiment execution`).
+  `1a8ca0e8d710bed2efb3aee66c1a679b32519a61`
+  (`feat: add sequential experiment execution`).
 
 ## Current verification baseline
 
-- Test count: 954 tests.
+- Test count: 973 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -184,6 +186,15 @@ or EXACT set matching for both inclusions and exclusions.
   products, persistence orchestration, automatic save, concurrency,
   optimization, CLI workflow, controller synthesis, or aircraft-specific
   behavior.
+- `expand_experiment_cases()` snapshots one finite ordered iterable of explicit
+  parameter values and invokes one caller-supplied factory exactly once per
+  value in caller order.
+- Every factory result must be an `ExperimentCase`; invalid results identify
+  their parameter index. Empty input returns `()`, factory exceptions propagate
+  unchanged, and the result is an immutable ordered tuple.
+- Parameter values remain uninterpreted and caller-owned. Expansion invokes no
+  generated simulation and performs no experiment execution, Cartesian-product
+  generation, persistence, automatic save, concurrency, or optimization.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -828,6 +839,10 @@ or EXACT set matching for both inclusions and exclusions.
   `execute_experiment()`. Preserve full case preflight, input-order snapshotting,
   immutable tuple results, empty behavior, and fail-fast partial-execution
   semantics without rollback or retry.
+- Keep explicit parameter-value expansion as an ordered one-to-one mapping
+  through a caller factory. Preserve input snapshotting, exactly-once calls,
+  indexed result validation, immutable tuple output, and complete separation
+  from experiment execution and persistence.
 - Preserve the existing eigenvalue ordering and individual
   `ModalStateCharacterization` results.
 - Preserve deterministic modal-family ordering, canonical family members, and
@@ -880,10 +895,10 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next generic case-generation layer limited to mapping one explicit
-  ordered parameter-value collection through one caller-supplied case factory.
-  Do not add Cartesian products, execution, persistence orchestration, parallel
-  work, optimization, dataset generation, or Scientific ML yet.
+- Keep the next Cartesian case-generation layer limited to finite explicit
+  ordered parameter axes and one caller-supplied case factory. Do not add
+  execution, persistence orchestration, parallel work, optimization, dataset
+  generation, or Scientific ML yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -898,30 +913,31 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Deterministic expansion of explicit parameter values into experiment cases
+### Deterministic Cartesian expansion of explicit parameter axes
 
-Add the smallest generic API that maps a finite ordered collection of explicit
-caller-supplied parameter values through one caller-supplied case factory and
-returns an immutable tuple of `ExperimentCase` objects, without executing or
-persisting them and without Cartesian-product generation.
+Add the smallest generic API that expands finite ordered caller-supplied
+parameter axes in deterministic Cartesian-product order through one caller-
+supplied case factory and returns an immutable tuple of `ExperimentCase`
+objects, without executing or persisting them.
 
 ## Suggested implementation direction
 
-- Keep parameter values and the case factory generic and independent of
-  aircraft-specific models.
-- Invoke the factory exactly once per explicit value in caller order and require
-  each result to be an `ExperimentCase` without executing its simulation.
-- Snapshot the finite input order, return an immutable tuple, and define clear
-  empty-input, malformed-result, and factory-failure behavior.
-- Add no Cartesian products, execution, multiprocessing, persistence
-  orchestration, dataset export, optimization, ML, observer, controller, or
-  aircraft-specific experiment behavior.
+- Keep parameter axes, combinations, and the case factory generic and
+  independent of aircraft-specific models.
+- Use standard-library Cartesian-product behavior, preserve axis and value
+  order, invoke the factory exactly once per combination, and require each
+  result to be an `ExperimentCase` without executing its simulation.
+- Snapshot finite inputs, return an immutable tuple, and define clear empty-axis,
+  empty-value, malformed-result, and factory-failure behavior.
+- Add no execution, multiprocessing, persistence orchestration, dataset export,
+  optimization, ML, observer, controller, or aircraft-specific experiment
+  behavior.
 
 ## Focused tests to add
 
-- Verify empty and multiple-value expansion, caller-order preservation,
-  exactly-once factory calls, immutable results, deterministic explicit inputs,
-  malformed factory results, failure propagation, and no simulation execution.
+- Verify zero, one, and multiple axes, deterministic combination order,
+  exactly-once factory calls, immutable results, empty-axis values, malformed
+  factory results, failure propagation, and no simulation execution.
 
 ## Commands that must pass
 
