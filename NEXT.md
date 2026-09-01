@@ -15,7 +15,9 @@ generic, reproducible SISO response-result abstraction that evaluates sampled
 output and reference trajectories without depending on `StateSpace`, an
 aircraft model, or a controller implementation. The second layer now records
 one completed computational experiment as immutable simulation provenance plus
-those existing metrics, without executing or persisting the experiment.
+those existing metrics, without executing the experiment. The third layer now
+persists those deterministic reproducibility records in SQLite through a
+generic store with explicit connection and transaction ownership.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -61,15 +63,15 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: generic immutable experiment/run results combining
-  reproducible simulation metadata with existing `SISOResponseMetrics`.
-- Focused checkpoint message: `feat: add immutable experiment runs`.
+- Completed capability: generic SQLite persistence of immutable experiment/run
+  reproducibility records.
+- Focused checkpoint message: `feat: add SQLite experiment persistence`.
 - Previous checkpoint commit:
-  `895c72c28a9c65d0f543b55520e6d2fd14d524c1`.
+  `5cb03db` (`feat: add immutable experiment runs`).
 
 ## Current verification baseline
 
-- Test count: 883 tests.
+- Test count: 907 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -128,9 +130,21 @@ or EXACT set matching for both inclusions and exclusions.
   UTC timestamp, timing data, a list-valued initial state, sorted plain metadata
   dictionaries, and all eleven scalar response metrics. Trajectory arrays are
   deliberately omitted, and mutating a returned record cannot affect the run.
-- This second layer adds no SQLite, SQL, schema, disk I/O, experiment execution,
-  sweeps, multiprocessing, dataset export, ML, observer, or aircraft-specific
-  experiment behavior.
+- `SQLiteExperimentStore` owns one standard-library `sqlite3` connection for
+  its lifetime, initializes one table and its listing index idempotently, and
+  supports file-backed paths and isolated `:memory:` databases.
+- `save()` accepts only `ExperimentRun`, consumes its validated deterministic
+  reproducibility record, and commits one parameterized `INSERT` atomically.
+  Duplicate IDs raise `DuplicateRunIDError` without overwriting the original.
+- `get()` returns a detached plain reproducibility record or `None` for an
+  unknown ID. `list_runs()` returns frozen lightweight summaries ordered by
+  UTC creation timestamp newest-first and then run ID ascending.
+- Initial state and metadata use compact, sorted-key, Unicode-preserving JSON
+  with nonfinite values disabled. All eleven response metrics are typed table
+  columns; the two optional metrics preserve SQL `NULL` as Python `None`.
+- This third layer adds no experiment execution, sweeps, multiprocessing,
+  dataset export, ML, observer, controller, or aircraft-specific persistence
+  behavior.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -819,9 +833,9 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next SQLite layer limited to persistence of the existing
-  experiment/run record. Do not add experiment execution, parameter sweeps,
-  parallel execution, dataset generation, or Scientific ML yet.
+- Keep the next generic experiment-execution layer limited to producing one
+  `ExperimentRun`. Do not add parameter sweeps, parallel execution, dataset
+  generation, persistence orchestration, or Scientific ML yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -836,36 +850,27 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### SQLite persistence of experiment/run records
+### Generic experiment execution producing `ExperimentRun` objects
 
-Add the smallest generic persistence layer that stores and retrieves the
-existing deterministic `ExperimentRun.reproducibility_record()` representation
-in SQLite, without executing experiments or introducing sweep orchestration.
+Add the smallest generic experiment-execution API that runs one caller-supplied
+simulation and produces one validated `ExperimentRun`, without persistence
+orchestration or parameter sweeps.
 
 ## Suggested implementation direction
 
-- Use the Python standard library `sqlite3`; add no dependency or ORM.
-- Define one minimal, explicit schema for the current reproducibility-record
-  fields. Preserve the run ID as the stable unique identity and the aware UTC
-  timestamp as deterministic text.
-- Serialize structured initial-state and metadata fields deterministically,
-  using standard-library JSON where appropriate, and preserve all scalar metric
-  `None`, boolean, integer, float, and string values on round trip.
-- Provide explicit create/insert/fetch operations with clear duplicate-ID,
-  malformed-record, and database-error behavior. Do not hide transaction or
-  connection ownership semantics.
-- Persist records only; do not reconstruct trajectory arrays that are not part
-  of the current record, execute simulations, add automatic timestamps/IDs, or
-  mutate an `ExperimentRun`.
+- Keep execution generic and independent of aircraft-specific models.
+- Reuse `response_metrics()` and `experiment_run()` as the existing validation
+  and construction boundaries rather than duplicating their logic.
+- Execute exactly one explicitly supplied simulation configuration and return
+  its immutable `ExperimentRun`; do not couple execution to SQLite.
 - Add no sweep logic, multiprocessing, dataset export, ML, observer, controller,
-  or aircraft-specific persistence behavior.
+  or aircraft-specific experiment behavior.
 
 ## Focused tests to add
 
-- Verify schema creation in a temporary database, one-record insertion and
-  exact retrieval, deterministic structured-field round trips, optional metric
-  values, multiple records, duplicate IDs, invalid records, transaction/error
-  behavior, and that persistence does not mutate the source run or record.
+- Verify one successful execution, exact provenance and metric composition,
+  validation delegation, failure propagation, and that caller inputs are not
+  mutated.
 
 ## Commands that must pass
 

@@ -14,7 +14,6 @@ from flightlab.persistence import (
 )
 from flightlab.response import response_metrics
 
-
 _CREATED_AT = datetime(2026, 8, 31, 12, 30, 45, 123456, tzinfo=UTC)
 _SCHEMA_COLUMNS = (
     ("run_id", "TEXT"),
