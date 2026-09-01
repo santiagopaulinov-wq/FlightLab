@@ -35,6 +35,163 @@ class CampaignSensitivityEntry:
     metric_sensitivities: tuple[tuple[str, float | None], ...]
 
 
+@dataclass(frozen=True, slots=True)
+class SensitivityMatrixParameter:
+    """One explicit named parameter column and representative sensitivity run."""
+
+    name: str
+    sensitivities: tuple[CampaignSensitivityEntry, ...]
+    representative_run_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class CampaignSensitivityMatrix:
+    """Immutable metric-row by parameter-column secant sensitivity matrix."""
+
+    parameter_names: tuple[str, ...]
+    metric_names: tuple[str, ...]
+    representative_run_ids: tuple[str, ...]
+    values: tuple[tuple[float | None, ...], ...]
+
+
+def campaign_sensitivity_matrix(
+    parameters: Iterable[SensitivityMatrixParameter],
+) -> CampaignSensitivityMatrix:
+    """Assemble explicit representative secants into a metric-by-parameter matrix."""
+    try:
+        parameter_iterator = iter(parameters)
+    except TypeError as error:
+        raise TypeError("parameters must be an iterable") from error
+    parameters = tuple(parameter_iterator)
+
+    names = []
+    representative_ids = []
+    selected_entries = []
+    expected_metric_names = None
+    for index, parameter in enumerate(parameters):
+        if not isinstance(parameter, SensitivityMatrixParameter):
+            raise TypeError(
+                f"parameters[{index}] must be a SensitivityMatrixParameter"
+            )
+        if type(parameter.name) is not str or not parameter.name.strip():
+            raise ValueError(f"parameters[{index}].name must be non-empty")
+        if parameter.name in names:
+            raise ValueError(f"duplicate parameter name {parameter.name!r}")
+        names.append(parameter.name)
+        if (
+            type(parameter.representative_run_id) is not str
+            or not parameter.representative_run_id.strip()
+        ):
+            raise ValueError(
+                f"parameters[{index}].representative_run_id must be non-empty"
+            )
+        if parameter.representative_run_id in representative_ids:
+            raise ValueError(
+                "duplicate representative run_id "
+                f"{parameter.representative_run_id!r}"
+            )
+        representative_ids.append(parameter.representative_run_id)
+        metric_names, entries_by_id = _validated_sensitivity_entries(
+            parameter.sensitivities,
+            f"parameters[{index}].sensitivities",
+        )
+        if expected_metric_names is None:
+            expected_metric_names = metric_names
+        elif metric_names != expected_metric_names:
+            raise ValueError("parameter sensitivities must have matching metric layouts")
+        if parameter.representative_run_id not in entries_by_id:
+            raise ValueError(
+                f"representative run_id {parameter.representative_run_id!r} "
+                f"is not in parameters[{index}].sensitivities"
+            )
+        selected = entries_by_id[parameter.representative_run_id]
+        if selected.parameter_delta == 0.0:
+            raise ValueError(
+                f"representative run_id {parameter.representative_run_id!r} "
+                "must have a nonzero parameter delta"
+            )
+        selected_entries.append(selected)
+
+    if not parameters:
+        return CampaignSensitivityMatrix((), (), (), ())
+
+    rows = []
+    for metric_index, metric_name in enumerate(expected_metric_names):
+        rows.append(
+            tuple(
+                entry.metric_sensitivities[metric_index][1]
+                for entry in selected_entries
+            )
+        )
+    return CampaignSensitivityMatrix(
+        parameter_names=tuple(names),
+        metric_names=expected_metric_names,
+        representative_run_ids=tuple(representative_ids),
+        values=tuple(rows),
+    )
+
+
+def _validated_sensitivity_entries(sensitivities, name):
+    if type(sensitivities) is not tuple:
+        raise TypeError(f"{name} must be a tuple")
+    if not sensitivities:
+        raise ValueError(f"{name} must not be empty")
+    entries_by_id = {}
+    expected_metric_names = None
+    has_baseline = False
+    for index, entry in enumerate(sensitivities):
+        if not isinstance(entry, CampaignSensitivityEntry):
+            raise TypeError(f"{name}[{index}] must be a CampaignSensitivityEntry")
+        if type(entry.run_id) is not str or not entry.run_id.strip():
+            raise ValueError(f"{name}[{index}].run_id must be non-empty")
+        if entry.run_id in entries_by_id:
+            raise ValueError(f"duplicate run_id {entry.run_id!r} in {name}")
+        parameter_delta = _finite_numeric(
+            f"{name}[{index}].parameter_delta", entry.parameter_delta
+        )
+        if type(entry.metric_sensitivities) is not tuple:
+            raise TypeError(f"{name}[{index}].metric_sensitivities must be a tuple")
+        if not entry.metric_sensitivities:
+            raise ValueError(f"{name}[{index}].metric_sensitivities must not be empty")
+
+        metric_names = []
+        for metric_index, metric_item in enumerate(entry.metric_sensitivities):
+            if type(metric_item) is not tuple or len(metric_item) != 2:
+                raise ValueError(
+                    f"{name}[{index}].metric_sensitivities[{metric_index}] "
+                    "must be a name/value pair"
+                )
+            metric_name, sensitivity = metric_item
+            if type(metric_name) is not str or not metric_name:
+                raise ValueError(f"{name}[{index}] metric name must be non-empty")
+            if metric_name not in _METRIC_KEYS:
+                raise ValueError(f"{name}[{index}] has unknown metric {metric_name!r}")
+            if metric_name in metric_names:
+                raise ValueError(
+                    f"{name}[{index}] has duplicate metric {metric_name!r}"
+                )
+            metric_names.append(metric_name)
+            if sensitivity is not None:
+                _finite_numeric(
+                    f"{name}[{index}] metric {metric_name!r}", sensitivity
+                )
+                if parameter_delta == 0.0:
+                    raise ValueError(
+                        f"{name}[{index}] zero parameter delta must have "
+                        "undefined sensitivities"
+                    )
+        metric_names = tuple(metric_names)
+        if expected_metric_names is None:
+            expected_metric_names = metric_names
+        elif metric_names != expected_metric_names:
+            raise ValueError(f"{name} entries must have matching metric layouts")
+        entries_by_id[entry.run_id] = entry
+        has_baseline = has_baseline or parameter_delta == 0.0
+    if not has_baseline:
+        raise ValueError(f"{name} must contain a zero-delta baseline entry")
+    return expected_metric_names, entries_by_id
+
+
 def campaign_secant_sensitivities(
     deltas: Iterable[CampaignDeltaEntry],
 ) -> tuple[CampaignSensitivityEntry, ...]:

@@ -40,7 +40,9 @@ and caller-selected existing response metrics into immutable campaign-ordered
 comparison entries. The fourteenth layer transforms those entries into signed
 absolute parameter and metric deltas from one explicit baseline run. The
 fifteenth layer converts those deltas into immutable baseline-relative secant
-slopes while representing every exact zero denominator as unavailable.
+slopes while representing every exact zero denominator as unavailable. The
+sixteenth layer assembles explicit one-at-a-time representative secants into an
+immutable response-metric-row by varied-parameter-column sensitivity matrix.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -86,14 +88,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: immutable baseline-relative campaign secant
-  sensitivities in exact campaign and metric order.
+- Completed capability: explicit immutable one-at-a-time campaign sensitivity
+  matrices with caller-ordered parameter columns and existing metric rows.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add baseline-relative campaign secant sensitivities`).
+  (`feat: add explicit campaign sensitivity matrices`).
 
 ## Current verification baseline
 
-- Test count: 1088 tests.
+- Test count: 1100 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -297,6 +299,14 @@ or EXACT set matching for both inclusions and exclusions.
   ordered metric sensitivities. Exact zero parameter deltas—including the
   baseline and repeated parameter values—produce `None` sensitivities without
   epsilon tolerances; optional metric deltas also remain unavailable.
+- `campaign_sensitivity_matrix()` consumes explicit named parameter columns,
+  full existing secant results, and caller-selected nonzero-delta representative
+  run IDs without inferring or recomputing any value.
+- `CampaignSensitivityMatrix` stores parameter names, metric names,
+  representative run IDs, and row-major immutable values. Rows are response
+  metrics, columns are varied parameters, and each element is the selected
+  existing baseline-relative secant sensitivity; unavailable values remain
+  `None`.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -1003,12 +1013,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next sensitivity layer limited to an explicitly assembled
-  one-at-a-time parameter/metric sensitivity matrix from existing secant
-  results and caller-selected representative run IDs. Do not infer
-  representative runs, add regression or derivative simulation, ranking,
-  statistics, robustness analysis, optimization, plotting, persistence, or
-  CLI/UI workflows yet.
+- Keep the next sensitivity layer limited to explicit metric-change projections
+  from one existing sensitivity matrix and one caller-ordered parameter-change
+  vector. Do not infer changes, add iterative simulation, regression, local
+  derivatives, uncertainty distributions, ranking, optimization, plotting,
+  persistence, or CLI/UI workflows yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -1023,31 +1032,33 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Explicit one-at-a-time campaign sensitivity matrices
+### Explicit secant-matrix metric-change projections
 
-Add a small pure analysis API that assembles caller-ordered existing secant
-results into an immutable metric-by-parameter sensitivity matrix using one
-explicit caller-selected representative run ID for each named parameter.
+Add a small pure analysis API that multiplies one existing campaign sensitivity
+matrix by one explicit caller-ordered finite parameter-change vector to produce
+immutable predicted response-metric changes.
 
 ## Suggested implementation direction
 
-- Require an explicit finite ordered collection of unique parameter names,
-  secant results, and representative run IDs; infer none of them.
-- Select exactly one existing nonzero-parameter-delta sensitivity entry for each
-  parameter and require identical ordered metric layouts.
-- Return frozen matrix metadata and rows preserving caller parameter order and
-  existing metric order, including unavailable optional sensitivities.
-- Reuse existing sensitivity values without recomputation, normalization,
-  aggregation, regression, or SQLite access.
-- Add no implicit run selection, rankings, scores, statistics, robustness
-  analysis, optimization, plotting, or aircraft-specific interpretation.
+- Require the parameter-change names and order to match the matrix columns
+  exactly; infer no alignment or missing value.
+- Compute each available metric change as the finite row/vector dot product and
+  preserve metric order.
+- Define explicit propagation when any contributing matrix sensitivity is
+  unavailable, without silently treating it as zero.
+- Return frozen parameter-change metadata and ordered predicted metric changes,
+  rejecting nonfinite inputs or results.
+- Document that this is a linear secant-matrix projection, not a new simulation,
+  regression model, local derivative, or guaranteed nonlinear response.
+- Add no uncertainty model, ranking, optimization, plotting, persistence, or
+  controller synthesis.
 
 ## Focused tests to add
 
-- Verify multiple parameters and metrics, exact row/column order, explicit run
-  selection, positive/negative/optional values, duplicate names, unknown or
-  zero-delta representative runs, mismatched layouts, deterministic output,
-  immutability, and source isolation.
+- Verify one and multiple parameter changes, positive/negative cancellation,
+  exact name/order alignment, multiple metrics, unavailable sensitivity
+  propagation, empty matrices, nonfinite input/output rejection, deterministic
+  output, immutability, and source isolation.
 
 ## Commands that must pass
 

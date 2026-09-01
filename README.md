@@ -986,6 +986,41 @@ same parameter value also has zero parameter delta and the same explicit `None`
 behavior. Optional `None` metric deltas remain `None`; nonnumeric, nonfinite,
 structurally inconsistent, or overflow-producing inputs are rejected.
 
+`campaign_sensitivity_matrix(parameters)` assembles explicit one-at-a-time
+secant results into an immutable metric-by-parameter matrix. Each column is
+described by a frozen `SensitivityMatrixParameter` containing a unique
+parameter name, one existing ordered sensitivity result, and one explicit
+nonzero-delta representative run ID:
+
+```python
+from flightlab.analysis import (
+    SensitivityMatrixParameter,
+    campaign_sensitivity_matrix,
+)
+
+matrix = campaign_sensitivity_matrix(
+    (
+        SensitivityMatrixParameter("gain", gain_sensitivities, "gain-high"),
+        SensitivityMatrixParameter(
+            "damping", damping_sensitivities, "damping-low"
+        ),
+    )
+)
+```
+
+Rows are response metrics, columns are varied parameters, and element `(i, j)`
+is the already-computed baseline-relative secant sensitivity of metric `i` to
+parameter `j` at that parameter's explicitly selected representative run. The
+frozen `CampaignSensitivityMatrix` records parameter names, metric names,
+representative run IDs, and row-major values as immutable tuples. Caller column
+order and existing metric order are preserved exactly; undefined sensitivities
+remain `None`. Empty parameter input returns an explicit all-empty matrix.
+
+The assembler validates unique names and representative IDs, complete source
+layouts, finite values, compatible metric rows, and nonzero representative
+parameter deltas. It performs no representative inference, sensitivity
+recalculation, normalization, ranking, regression, aggregation, or persistence.
+
 An execution failure propagates unchanged and prevents all campaign
 persistence. Any run, manifest, or membership failure propagates after
 execution and rolls back every newly inserted campaign row. Existing records

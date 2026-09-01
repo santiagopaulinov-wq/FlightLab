@@ -7,8 +7,11 @@ from flightlab.analysis import (
     CampaignComparisonEntry,
     CampaignDeltaEntry,
     CampaignSensitivityEntry,
+    CampaignSensitivityMatrix,
+    SensitivityMatrixParameter,
     campaign_metric_deltas,
     campaign_secant_sensitivities,
+    campaign_sensitivity_matrix,
     compare_campaign_runs,
 )
 from flightlab.experiment import experiment_run
@@ -441,3 +444,166 @@ def test_secant_sensitivities_are_immutable_deterministic_and_detached():
         first[0] = first[0]
     with pytest.raises(FrozenInstanceError):
         first[0].parameter_delta = 10.0
+
+
+def _sensitivity_result(prefix, first_values, second_values):
+    return (
+        CampaignSensitivityEntry(
+            f"{prefix}-baseline",
+            0.0,
+            (("iae", None), ("ise", None)),
+        ),
+        CampaignSensitivityEntry(
+            f"{prefix}-first",
+            1.0,
+            (("iae", first_values[0]), ("ise", first_values[1])),
+        ),
+        CampaignSensitivityEntry(
+            f"{prefix}-second",
+            2.0,
+            (("iae", second_values[0]), ("ise", second_values[1])),
+        ),
+    )
+
+
+def test_sensitivity_matrix_preserves_explicit_row_and_column_order():
+    parameters = (
+        SensitivityMatrixParameter(
+            "damping",
+            _sensitivity_result("damping", (1.5, -2.0), (3.0, -4.0)),
+            "damping-second",
+        ),
+        SensitivityMatrixParameter(
+            "gain",
+            _sensitivity_result("gain", (-0.5, None), (-1.0, 4.0)),
+            "gain-first",
+        ),
+    )
+
+    matrix = campaign_sensitivity_matrix(parameters)
+
+    assert matrix == CampaignSensitivityMatrix(
+        parameter_names=("damping", "gain"),
+        metric_names=("iae", "ise"),
+        representative_run_ids=("damping-second", "gain-first"),
+        values=((3.0, -0.5), (-4.0, None)),
+    )
+
+
+def test_single_parameter_matrix_selects_run_at_any_campaign_position():
+    sensitivities = _sensitivity_result("gain", (2.0, 3.0), (4.0, 5.0))
+
+    first = campaign_sensitivity_matrix(
+        (SensitivityMatrixParameter("gain", sensitivities, "gain-first"),)
+    )
+    last = campaign_sensitivity_matrix(
+        (SensitivityMatrixParameter("gain", sensitivities, "gain-second"),)
+    )
+
+    assert first.values == ((2.0,), (3.0,))
+    assert last.values == ((4.0,), (5.0,))
+
+
+def test_empty_parameter_collection_returns_an_explicit_empty_matrix():
+    assert campaign_sensitivity_matrix(()) == CampaignSensitivityMatrix(
+        parameter_names=(),
+        metric_names=(),
+        representative_run_ids=(),
+        values=(),
+    )
+
+
+def test_matrix_rejects_incompatible_metric_layouts():
+    first = _sensitivity_result("first", (1.0, 2.0), (3.0, 4.0))
+    second = (
+        CampaignSensitivityEntry("second-baseline", 0.0, (("ise", None),)),
+        CampaignSensitivityEntry("second-run", 1.0, (("ise", 2.0),)),
+    )
+
+    with pytest.raises(ValueError, match="matching metric layouts"):
+        campaign_sensitivity_matrix(
+            (
+                SensitivityMatrixParameter("first", first, "first-first"),
+                SensitivityMatrixParameter("second", second, "second-run"),
+            )
+        )
+
+
+def test_matrix_rejects_invalid_parameter_names_and_representative_ids():
+    sensitivities = _sensitivity_result("gain", (1.0, 2.0), (3.0, 4.0))
+    with pytest.raises(ValueError, match="name must be non-empty"):
+        campaign_sensitivity_matrix(
+            (SensitivityMatrixParameter(" ", sensitivities, "gain-first"),)
+        )
+    with pytest.raises(ValueError, match="duplicate parameter name 'gain'"):
+        campaign_sensitivity_matrix(
+            (
+                SensitivityMatrixParameter("gain", sensitivities, "gain-first"),
+                SensitivityMatrixParameter("gain", sensitivities, "gain-second"),
+            )
+        )
+    with pytest.raises(ValueError, match="is not in"):
+        campaign_sensitivity_matrix(
+            (SensitivityMatrixParameter("gain", sensitivities, "missing"),)
+        )
+    with pytest.raises(ValueError, match="nonzero parameter delta"):
+        campaign_sensitivity_matrix(
+            (SensitivityMatrixParameter("gain", sensitivities, "gain-baseline"),)
+        )
+
+
+def test_matrix_rejects_duplicate_representative_and_source_run_ids():
+    first = _sensitivity_result("shared", (1.0, 2.0), (3.0, 4.0))
+    with pytest.raises(ValueError, match="duplicate representative run_id"):
+        campaign_sensitivity_matrix(
+            (
+                SensitivityMatrixParameter("one", first, "shared-first"),
+                SensitivityMatrixParameter("two", first, "shared-first"),
+            )
+        )
+
+    duplicate_source = (first[0], first[1], first[1])
+    with pytest.raises(ValueError, match="duplicate run_id 'shared-first'"):
+        campaign_sensitivity_matrix(
+            (SensitivityMatrixParameter("one", duplicate_source, "shared-first"),)
+        )
+
+
+@pytest.mark.parametrize("value", [True, "bad", float("inf"), float("nan")])
+def test_matrix_rejects_nonnumeric_or_nonfinite_sensitivities(value):
+    sensitivities = (
+        CampaignSensitivityEntry("baseline", 0.0, (("iae", None),)),
+        CampaignSensitivityEntry("run", 1.0, (("iae", value),)),
+    )
+
+    with pytest.raises(ValueError, match="metric 'iae'.*(numeric|finite)"):
+        campaign_sensitivity_matrix(
+            (SensitivityMatrixParameter("gain", sensitivities, "run"),)
+        )
+
+
+def test_matrix_rejects_malformed_sensitivity_entries():
+    with pytest.raises(TypeError, match="CampaignSensitivityEntry"):
+        campaign_sensitivity_matrix(
+            (SensitivityMatrixParameter("gain", (object(),), "run"),)
+        )
+
+
+def test_sensitivity_matrix_is_immutable_deterministic_and_detached():
+    source = [
+        SensitivityMatrixParameter(
+            "gain",
+            _sensitivity_result("gain", (1.0, None), (2.0, 3.0)),
+            "gain-first",
+        )
+    ]
+    first = campaign_sensitivity_matrix(source)
+    repeated = campaign_sensitivity_matrix(source)
+
+    assert first == repeated
+    source.clear()
+    assert first.values == ((1.0,), (None,))
+    with pytest.raises(FrozenInstanceError):
+        first.values = ()
+    with pytest.raises(TypeError):
+        first.values[0][0] = 9.0
