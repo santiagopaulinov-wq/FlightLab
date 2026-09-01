@@ -391,3 +391,13 @@ def expand_cartesian_experiment_cases(
         axes.append(tuple(axis_iterator))
 
     return expand_experiment_cases(product(*axes), case_factory)
+
+
+def execute_cartesian_experiments(
+    parameter_axes: Iterable[Iterable[object]],
+    case_factory: Callable[[tuple[object, ...]], ExperimentCase],
+) -> tuple[ExperimentRun, ...]:
+    """Expand and sequentially execute one explicit Cartesian case set."""
+    return execute_experiments(
+        expand_cartesian_experiment_cases(parameter_axes, case_factory)
+    )

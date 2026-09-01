@@ -747,6 +747,36 @@ combination, validates each result as an `ExperimentCase`, preserves factory
 exceptions, and returns an immutable tuple. Cartesian expansion invokes no
 case simulation and performs no experiment execution or persistence.
 
+## Experimental Platform: sequential Cartesian execution
+
+`execute_cartesian_experiments(parameter_axes, case_factory)` is the complete
+generic sequential campaign composition:
+
+```python
+from flightlab.experiment import execute_cartesian_experiments
+
+runs = execute_cartesian_experiments(
+    parameter_axes=([0.5, 1.0], [0.02, 0.05]),
+    case_factory=cartesian_case_factory,
+)
+```
+
+The API is deliberately equivalent to passing
+`expand_cartesian_experiment_cases(parameter_axes, case_factory)` directly to
+`execute_experiments()`. Case generation and validation therefore finish before
+the first simulation starts. Each factory and successful simulation is invoked
+exactly once, and returned runs retain deterministic Cartesian order, with the
+rightmost axis varying fastest. Zero axes execute the one empty combination;
+any empty axis returns `()` without calling the factory or a simulation.
+
+Factory errors and invalid factory results occur before execution and propagate
+unchanged. During execution, the first validation or simulation failure stops
+the campaign: earlier simulations have completed, the failing case retains its
+existing single-run behavior, later simulations do not run, and there is no
+retry or rollback. Results are an immutable tuple of `ExperimentRun` objects.
+The campaign API performs no persistence, automatic saving, parallel execution,
+optimization, or controller synthesis.
+
 ## Experimental Platform: SQLite experiment storage
 
 `SQLiteExperimentStore` persists the existing reproducibility record without

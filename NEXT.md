@@ -25,7 +25,9 @@ cases sequentially through that same single-run boundary. The sixth layer maps
 one finite ordered collection of explicit parameter values through a caller-
 supplied factory into immutable experiment cases without executing them. The
 seventh layer expands multiple explicit ordered axes into cases using
-deterministic standard Cartesian-product order, also without execution.
+deterministic standard Cartesian-product order, also without execution. The
+eighth layer composes that expansion with existing sequential execution to
+produce immutable ordered campaign runs.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -71,16 +73,16 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: deterministic Cartesian expansion of finite explicit
-  ordered parameter axes into immutable `ExperimentCase` objects.
-- Focused checkpoint message: `feat: add deterministic Cartesian case expansion`.
+- Completed capability: sequential execution of deterministic Cartesian
+  experiment cases into immutable ordered `ExperimentRun` tuples.
+- Focused checkpoint message: `feat: add sequential Cartesian experiment execution`.
 - Previous checkpoint commit:
-  `8fec7201fe9447fb936d9156f8832127e8cd498c`
-  (`feat: add deterministic experiment case expansion`).
+  `332f217964bc3f9bdce04c875bf454449bfd941f`
+  (`feat: add deterministic Cartesian case expansion`).
 
 ## Current verification baseline
 
-- Test count: 996 tests.
+- Test count: 1011 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -209,6 +211,18 @@ or EXACT set matching for both inclusions and exclusions.
 - Cartesian expansion performs no experiment execution, persistence,
   automatic save, concurrency, retry, optimization, or aircraft-specific
   interpretation.
+- `execute_cartesian_experiments()` is exactly the composition of
+  `expand_cartesian_experiment_cases()` and `execute_experiments()`; it adds no
+  combination, validation, metric, provenance, or execution path.
+- All cases are generated and validated before execution. Factories and
+  successful simulations run exactly once, runs preserve Cartesian order, zero
+  axes execute one empty combination, and an empty axis returns `()`.
+- Factory failures prevent all simulation execution. During execution, the
+  first validation or simulation failure propagates unchanged after earlier
+  cases complete and before later simulations run, with no retry or rollback.
+- Sequential Cartesian execution performs no persistence orchestration,
+  automatic save, parallel work, optimization, CLI workflow, controller
+  synthesis, or aircraft-specific behavior.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -860,6 +874,9 @@ or EXACT set matching for both inclusions and exclusions.
 - Keep Cartesian case expansion as a deterministic transformation of explicit
   finite axes through `itertools.product` and `expand_experiment_cases()`.
   Preserve standard zero-axis and empty-axis semantics without executing cases.
+- Keep sequential Cartesian execution as direct composition of the existing
+  Cartesian expansion and batch execution APIs. Preserve generation-before-
+  execution and existing fail-fast partial-execution semantics.
 - Preserve the existing eigenvalue ordering and individual
   `ModalStateCharacterization` results.
 - Preserve deterministic modal-family ordering, canonical family members, and
@@ -912,10 +929,10 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next sequential Cartesian-execution layer limited to composing the
-  existing Cartesian expansion and sequential batch executor. Do not add
-  persistence orchestration, parallel work, retries, optimization, dataset
-  generation, or Scientific ML yet.
+- Keep the next SQLite batch-persistence layer limited to explicit finite
+  `ExperimentRun` collections and one owned-store transaction. Do not add
+  experiment execution, automatic campaign saving, parallel work, retries,
+  optimization, dataset generation, or Scientific ML yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -930,30 +947,32 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Sequential execution of deterministic Cartesian experiment cases
+### Atomic SQLite persistence of explicit experiment-run collections
 
-Add the smallest generic API that composes
-`expand_cartesian_experiment_cases()` with `execute_experiments()` to execute
-one explicit finite Cartesian case set sequentially and return an immutable
-tuple of `ExperimentRun` objects, without persistence orchestration.
+Add the smallest `SQLiteExperimentStore` API that accepts one finite ordered
+collection of existing `ExperimentRun` objects and persists the complete
+collection atomically in one transaction, without executing experiments or
+generating cases.
 
 ## Suggested implementation direction
 
-- Reuse both existing public APIs without duplicating combination generation,
-  validation, metrics, provenance, or execution logic.
-- Preserve deterministic Cartesian order and execute each generated case
-  exactly once and sequentially.
-- Retain the existing zero-axis, empty-axis, factory-failure, validation-failure,
-  and partial-execution semantics.
-- Add no multiprocessing, persistence orchestration, automatic save, retries,
+- Reuse the existing store connection, schema, record validation, deterministic
+  serialization, parameterized insert, and duplicate-ID error type.
+- Snapshot and validate the finite run collection before insertion, then use one
+  transaction so any duplicate, malformed run, constraint, or database failure
+  leaves none of that collection persisted.
+- Preserve caller order for insertion without adding listing-order semantics or
+  reconstructing `ExperimentRun` objects on retrieval.
+- Add no execution, automatic campaign saving, multiprocessing, retries,
   dataset export, optimization, ML, observer, controller, or aircraft-specific
-  experiment behavior.
+  persistence behavior.
 
 ## Focused tests to add
 
-- Verify zero, one, multiple, and empty axes; deterministic execution order;
-  exactly-once factory and simulation calls; immutable run tuples; validation
-  and simulation failure propagation; and absence of persistence behavior.
+- Verify empty, one-run, and multiple-run batches; one-transaction visibility;
+  deterministic retrieval; duplicate IDs within the batch and against existing
+  data; malformed runs; rollback of the complete batch; source immutability;
+  and connection recovery after failure.
 
 ## Commands that must pass
 
