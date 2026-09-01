@@ -509,3 +509,36 @@ repository's existing tolerances.
 Requested poles need not be stable. The API performs no automatic pole
 selection, LQR/LQI, optimization, gain scheduling, PID design, or
 aircraft-specific tuning, and it does not mutate the plant.
+
+## Experimental Platform: SISO response metrics
+
+`response_metrics(time, y, reference)` evaluates a finite sampled SISO
+trajectory independently of any plant or controller implementation:
+
+```python
+from flightlab.response import response_metrics
+
+metrics = response_metrics(
+    time=[0.0, 0.5, 1.0, 2.0],
+    y=[0.0, 0.7, 1.1, 1.0],
+    reference=[1.0, 1.0, 1.0, 1.0],
+)
+
+print(metrics.rms_tracking_error)
+print(metrics.settling_time)
+```
+
+The immutable result contains read-only copies of time, output, reference, and
+tracking error `e = reference - y`. Scalar results include final output and
+reference, final sampled error, largest sampled output, maximum absolute error,
+time-weighted RMS error, trapezoidal IAE and ISE, overshoot percentage, and
+settling time. RMS is `sqrt(ISE / (time[-1] - time[0]))`, so irregular sample
+spacing is respected.
+
+Overshoot uses the final reference as a signed target and reports the percentage
+by which the furthest output sample in that direction exceeds its magnitude;
+no overshoot is `0.0`. Settling time uses an inclusive 2% band around the final
+reference and is the earliest sampled time after which every remaining output
+sample stays in that band. It does not interpolate. When the final reference
+magnitude is at most `100 * machine epsilon`, both percentage overshoot and the
+relative settling band are undefined and their results are `None`.

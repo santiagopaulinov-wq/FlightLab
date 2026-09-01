@@ -9,8 +9,11 @@ interpretation capability characterizes how physical state indices participate
 in each individual eigenmode and groups real modes and complex-conjugate pairs
 into generic modal families with family-level state-participation summaries.
 Longitudinal and lateral-directional physical-mode identification v1 are both
-complete at their verified conservative baselines. The active development stage
-is now general continuous-time controllability and observability analysis.
+complete at their verified conservative baselines. FlightLab has now
+deliberately begun the Experimental Platform phase. Its first layer is a
+generic, reproducible SISO response-result abstraction that evaluates sampled
+output and reference trajectories without depending on `StateSpace`, an
+aircraft model, or a controller implementation.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -56,18 +59,50 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: SISO integral state-feedback pole placement for
-  `u = -K x + K_i xi` and `xi_dot = r - y`.
-- Focused checkpoint message: `feat: add SISO integral pole placement`.
+- Completed capability: immutable generic SISO response results with validated
+  sampled trajectories and basic tracking-performance metrics.
+- Focused checkpoint message: `feat: add SISO response metrics`.
 - Previous checkpoint commit:
-  `6f975baaf3b62dc428dda27a52a70badbe97bf82`.
+  `c3a9ac1d6bea1f2568990e37c659675254745632`.
 
 ## Current verification baseline
 
-- Test count: 803 tests.
+- Test count: 829 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
+
+## Experimental Platform foundation
+
+- `flightlab.response.response_metrics(time, y, reference)` returns an
+  immutable `SISOResponseMetrics` containing read-only copies of the time,
+  output, reference, and tracking-error trajectories plus scalar metrics.
+- Tracking error is `e = reference - y`. Final output, final reference, and
+  steady-state error are the last sampled `y`, `reference`, and `e` values.
+  Peak output is the largest signed output sample, and maximum absolute
+  tracking error is `max(abs(e))`.
+- IAE is `trapezoid(abs(e), time)`, ISE is
+  `trapezoid(e**2, time)`, and the time-weighted RMS error is
+  `sqrt(ISE / (time[-1] - time[0]))`; irregular time spacing is therefore
+  included directly.
+- Overshoot uses the final reference `r_f` as a signed target and reports
+  `100 * max(0, max(sign(r_f) * y) - abs(r_f)) / abs(r_f)`. A valid response
+  with no overshoot returns `0.0`.
+- Settling time uses an inclusive caller-configurable relative band, defaulting
+  to 2% of `abs(r_f)`, around the final reference. It is the earliest sampled
+  time whose complete remaining output suffix stays within that band; there is
+  no interpolation or first-entry shortcut.
+- When `abs(r_f) <= 100 * machine epsilon`, percentage overshoot and the
+  relative settling band have no generic unit-independent meaning, so both
+  results are explicitly `None`. Settling time is also `None` when the sampled
+  response never remains within its band.
+- Time, output, and reference must be finite real one-dimensional arrays with
+  matching lengths. Time requires at least two strictly increasing samples.
+  The settling tolerance must be a finite positive real scalar. Finite inputs
+  whose arithmetic would overflow to nonfinite metrics are rejected clearly.
+- This first Experimental Platform capability is generic and NumPy-only. It
+  adds no experiment runner, persistence, SQL, sweep execution, ML, controller,
+  observer, or aircraft-specific scoring behavior.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -691,6 +726,13 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Architectural constraints
 
+- Keep Experimental Platform results generic and independent of `StateSpace`,
+  aircraft models, and controller implementations where practical.
+- Preserve the verified response-metric definitions, final-reference target
+  convention, sampled suffix settling rule, relative near-zero behavior, input
+  validation, and read-only trajectory snapshots.
+- Build later experiment capabilities by composing this metrics layer rather
+  than introducing a parallel trajectory-evaluation implementation.
 - Preserve the existing eigenvalue ordering and individual
   `ModalStateCharacterization` results.
 - Preserve deterministic modal-family ordering, canonical family members, and
@@ -743,6 +785,10 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
+- Do not add SQL, SQLite, schemas, persistence, parameter sweeps, parallel
+  execution, dataset generation, or Scientific ML in the next layer.
+- Do not resume the previously suggested observer-based integral output
+  feedback yet.
 - Do not add other aircraft-specific mode names yet.
 - Do not change longitudinal or lateral-directional physical-mode identification
   v1 without a demonstrated inconsistency.
@@ -755,39 +801,33 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Caller-supplied SISO observer-based integral output feedback
+### Generic experiment/run result abstraction
 
-Combine the verified integral state-feedback gains with a caller-supplied
-full-order observer gain, retaining scalar reference input and physical plant
-output without adding gain synthesis.
+Create a small immutable generic experiment/run result that combines explicit,
+reproducible simulation metadata with the existing `SISOResponseMetrics`
+result. Keep it independent of aircraft models, controllers, storage, and
+execution orchestration.
 
 ## Suggested implementation direction
 
-- Use state order `[x; x_hat; xi]`, controller
-  `u = -K x_hat + K_i xi`, observer
-  `x_hat_dot = A x_hat + B u + L(y-C x_hat-D u)`, and
-  `xi_dot = r-y`.
-- Derive the exact nonzero-`D` realization directly. In `[x; xi; e]`
-  coordinates with `e = x-x_hat`, preserve the block-triangular structure
-  whose diagonal blocks are the existing integral full-state closed loop and
-  `A-L C`, establishing the corresponding separation-principle pole union.
-- Accept only finite real caller-supplied `K`, `K_i`, and `L` with their
-  existing shapes and validation conventions. Reuse gains returned by
-  `place_siso_integral_poles()` and `place_siso_observer_poles()` directly.
-- Do not synthesize or select gains, add Kalman filtering, LQR/LQI, anti-windup,
-  saturation, optimization, gain scheduling, PID, or aircraft tuning.
-- Preserve the established NumPy numerical rank convention and immutable tuple
-  results.
-- Preserve all existing state-space and modal results unchanged.
-- Preserve all dominant-label inclusion and exclusion APIs unchanged.
-- Preserve longitudinal identification and evidence APIs unchanged.
+- Define the smallest useful metadata contract for identifying and reproducing
+  a simulation run, with explicit caller-supplied values and deterministic,
+  immutable storage.
+- Compose one existing `SISOResponseMetrics` result without duplicating or
+  changing metric calculations.
+- Keep construction separate from simulation execution so existing and future
+  trajectory sources can produce the same run result.
+- Add no database identifiers, implicit timestamps, filesystem output,
+  persistence, schema, sweep logic, multiprocessing, or aircraft-specific
+  fields yet.
+- Preserve every existing state-space, control-design, modal, aircraft, and
+  response-metric result unchanged.
 
 ## Focused tests to add
 
-- Verify exact augmented matrices and equations, reference/output ordering,
-  nonzero feedthrough, observer-error dynamics, separation-principle poles,
-  direct compatibility with both existing placement results, validation,
-  immutability, and non-mutation.
+- Verify metadata and metric composition, immutability and defensive copying,
+  deterministic equality/representation where appropriate, validation, and
+  independence from `StateSpace` and aircraft-specific types.
 
 ## Commands that must pass
 
