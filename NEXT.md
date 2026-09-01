@@ -31,7 +31,9 @@ produce immutable ordered campaign runs. The ninth layer composes explicit
 sequential case execution with optional atomic persistence and returns one
 minimal immutable completed-campaign result. The tenth layer assigns explicit
 campaign identity and atomically persists a campaign manifest, its newly
-completed runs, and their exact ordered membership.
+completed runs, and their exact ordered membership. The eleventh layer
+retrieves one persisted campaign as an immutable manifest plus its detached
+reproducibility records in exact membership order.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -77,15 +79,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: persisted campaign manifests with explicit immutable
-  identity and exact ordered run membership in the same transaction as all new
-  campaign runs.
+- Completed capability: deterministic read-only persisted-campaign
+  reproducibility bundles with exact ordered detached run records.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: persist ordered experiment campaign manifests`).
+  (`feat: add persisted campaign reproducibility bundles`).
 
 ## Current verification baseline
 
-- Test count: 1030 tests.
+- Test count: 1036 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -253,6 +254,14 @@ or EXACT set matching for both inclusions and exclusions.
 - Duplicate campaign IDs raise `DuplicateCampaignIDError`. Any run, manifest,
   or membership failure rolls back all new rows while preserving existing data
   and store usability.
+- `ExperimentCampaignBundle` is a frozen container holding an existing detached
+  campaign manifest and an immutable tuple of detached reproducibility-record
+  dictionaries in exact membership order.
+- `get_campaign_bundle()` composes `get_campaign()` with the existing `get()`
+  record retrieval path. Unknown campaigns return `None`; missing referenced
+  runs raise a clear stored-state error without making the store unusable.
+- Bundle retrieval reconstructs no `ExperimentRun`, performs no writes, and
+  returns fresh record dictionaries on every deterministic read.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -959,11 +968,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next campaign-bundle layer limited to deterministic retrieval of one
-  explicit persisted campaign and its existing detached run records. Do not add
-  cross-campaign queries, filesystem export, parallel work, retries, resumption,
-  optimization, statistical analysis, distributed execution, CLI/UI workflows,
-  or Scientific ML yet.
+- Keep the next bundle-record layer limited to a deterministic JSON-compatible
+  plain representation of one already-retrieved campaign bundle. Do not add
+  filesystem export, hashing, signing, cross-campaign queries, analytics,
+  parallel work, retries, resumption, optimization, distributed execution,
+  CLI/UI workflows, or Scientific ML yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -978,28 +987,28 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Deterministic persisted-campaign reproducibility bundles
+### Deterministic JSON-compatible campaign-bundle records
 
-Add the smallest read-only store API that retrieves one explicit persisted
-campaign manifest together with its existing detached reproducibility records
-in exact membership order, without reconstructing `ExperimentRun` objects.
+Add the smallest pure API that converts one `ExperimentCampaignBundle` into a
+fresh deterministic JSON-compatible plain dictionary containing its manifest
+metadata and ordered detached run records.
 
 ## Suggested implementation direction
 
-- Compose `get_campaign()` and the existing detached run-record decoding path;
-  do not add another SQL-to-record implementation.
-- Preserve the manifest's exact positional membership order and validate that
-  every retrieved record matches its referenced run ID.
-- Return a small immutable bundle boundary while keeping its record dictionaries
-  detached from store state.
-- Add no writes, full-run reconstruction, cross-campaign listing, filesystem
-  export, analytics, parallel work, retry, resumption, or CLI/UI workflow.
+- Mirror the established `ExperimentRun.reproducibility_record()` detachment
+  convention without revalidating or recomputing run data.
+- Include campaign ID, ISO UTC creation timestamp, ordered run IDs, and ordered
+  run records with an explicit exact-key structure.
+- Ensure every call returns fully detached nested lists and dictionaries while
+  preserving deterministic key and membership order.
+- Add no SQLite access, writes, hashing, signing, filesystem export, analytics,
+  cross-campaign queries, or full-run reconstruction.
 
 ## Focused tests to add
 
-- Verify unknown, empty, and populated campaigns; exact record order;
-  deterministic detached retrieval; corrupted/missing membership detection;
-  source isolation; reopening; and unchanged store usability.
+- Verify empty and populated bundles, exact keys, exact order, deterministic
+  repeated conversion, deep detachment, source isolation, and malformed bundle
+  rejection if direct construction remains public.
 
 ## Commands that must pass
 

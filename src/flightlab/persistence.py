@@ -204,6 +204,12 @@ class ExperimentCampaignManifest:
     run_ids: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ExperimentCampaignBundle:
+    manifest: ExperimentCampaignManifest
+    records: tuple[dict[str, object], ...]
+
+
 def _invalid_record(message):
     raise ValueError(f"invalid experiment reproducibility record: {message}")
 
@@ -591,6 +597,27 @@ class SQLiteExperimentStore:
             created_at=row["created_at"],
             run_ids=run_ids,
         )
+
+    def get_campaign_bundle(self, campaign_id):
+        manifest = self.get_campaign(campaign_id)
+        if manifest is None:
+            return None
+
+        records = []
+        for run_id in manifest.run_ids:
+            record = self.get(run_id)
+            if record is None:
+                raise ValueError(
+                    f"stored campaign {manifest.campaign_id!r} references "
+                    f"missing run_id {run_id!r}"
+                )
+            if record["run_id"] != run_id:
+                raise ValueError(
+                    f"stored campaign {manifest.campaign_id!r} has "
+                    f"inconsistent run_id {run_id!r}"
+                )
+            records.append(record)
+        return ExperimentCampaignBundle(manifest=manifest, records=tuple(records))
 
     def get(self, run_id):
         connection = self._ready_connection()

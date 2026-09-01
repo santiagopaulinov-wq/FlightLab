@@ -8,6 +8,7 @@ from flightlab.experiment import ExperimentCase, SISOSimulationResult
 from flightlab.persistence import (
     DuplicateCampaignIDError,
     DuplicateRunIDError,
+    ExperimentCampaignBundle,
     ExperimentCampaignManifest,
     SQLiteExperimentStore,
 )
@@ -277,3 +278,103 @@ def test_membership_failure_rolls_back_manifest_and_new_runs(tmp_path):
         assert store.get_campaign("recovered").run_ids == (
             recovered.runs[0].run_id,
         )
+
+
+def test_empty_campaign_bundle_contains_no_records(tmp_path):
+    with SQLiteExperimentStore(tmp_path / "experiments.sqlite3") as store:
+        run_experiment_campaign(
+            (),
+            store=store,
+            campaign_id="empty-bundle",
+            created_at=_CREATED_AT,
+        )
+
+        assert store.get_campaign_bundle("empty-bundle") == ExperimentCampaignBundle(
+            manifest=ExperimentCampaignManifest(
+                campaign_id="empty-bundle",
+                created_at="2026-09-01T12:00:00+00:00",
+                run_ids=(),
+            ),
+            records=(),
+        )
+
+
+@pytest.mark.parametrize(
+    "run_ids",
+    [("one",), ("third", "first", "second")],
+    ids=("one-run", "multiple-runs"),
+)
+def test_campaign_bundle_returns_records_in_exact_membership_order(tmp_path, run_ids):
+    calls = []
+    with SQLiteExperimentStore(tmp_path / "experiments.sqlite3") as store:
+        result = run_experiment_campaign(
+            tuple(_case(run_id, calls) for run_id in run_ids),
+            store=store,
+            campaign_id="ordered-bundle",
+            created_at=_CREATED_AT,
+        )
+
+        bundle = store.get_campaign_bundle("ordered-bundle")
+
+    assert bundle.manifest.run_ids == run_ids
+    assert tuple(record["run_id"] for record in bundle.records) == run_ids
+    assert bundle.records == tuple(
+        run.reproducibility_record() for run in result.runs
+    )
+
+
+def test_campaign_bundle_records_are_detached_and_repeated_reads_deterministic(
+    tmp_path,
+):
+    with SQLiteExperimentStore(tmp_path / "experiments.sqlite3") as store:
+        run_experiment_campaign(
+            (_case("detached-run", []),),
+            store=store,
+            campaign_id="detached-bundle",
+            created_at=_CREATED_AT,
+        )
+        first = store.get_campaign_bundle("detached-bundle")
+        expected = store.get_campaign_bundle("detached-bundle")
+
+        first.records[0]["system"]["name"] = "changed"
+        first.records[0]["metrics"]["iae"] = 999.0
+        repeated = store.get_campaign_bundle("detached-bundle")
+
+    assert expected == repeated
+    assert first is not repeated
+    assert first.manifest is not repeated.manifest
+    assert first.records[0] is not repeated.records[0]
+    assert repeated.records[0]["system"] == {"name": "test"}
+    assert repeated.records[0]["metrics"]["iae"] != 999.0
+    with pytest.raises(FrozenInstanceError):
+        repeated.records = ()
+
+
+def test_unknown_campaign_bundle_uses_missing_record_semantics(tmp_path):
+    with SQLiteExperimentStore(tmp_path / "experiments.sqlite3") as store:
+        assert store.get_campaign_bundle("unknown") is None
+
+
+def test_missing_referenced_run_is_reported_and_store_remains_usable(tmp_path):
+    path = tmp_path / "experiments.sqlite3"
+    with SQLiteExperimentStore(path) as store:
+        run_experiment_campaign(
+            (_case("missing-run", []),),
+            store=store,
+            campaign_id="inconsistent",
+            created_at=_CREATED_AT,
+        )
+        store._connection.execute("PRAGMA foreign_keys = OFF")
+        store._connection.execute(
+            "DELETE FROM experiment_runs WHERE run_id = ?", ("missing-run",)
+        )
+        store._connection.commit()
+
+        with pytest.raises(
+            ValueError, match="inconsistent.*references missing run_id 'missing-run'"
+        ):
+            store.get_campaign_bundle("inconsistent")
+
+        assert store.get_campaign("inconsistent").run_ids == ("missing-run",)
+        assert store.get("missing-run") is None
+        assert store.get_campaign_bundle("unknown") is None

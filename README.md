@@ -867,6 +867,24 @@ transaction. Empty campaigns persist a valid manifest with zero memberships.
 and ordered tuple of run IDs, or `None` when unknown. It does not reconstruct
 full runs. Duplicate campaign IDs raise `DuplicateCampaignIDError`.
 
+`get_campaign_bundle(campaign_id)` composes that manifest lookup with the
+existing `get()` record retrieval for each member:
+
+```python
+bundle = store.get_campaign_bundle("baseline-campaign")
+if bundle is not None:
+    manifest = bundle.manifest
+    records = bundle.records
+```
+
+The frozen `ExperimentCampaignBundle` contains the detached manifest and an
+immutable tuple of detached reproducibility-record dictionaries in exact
+membership order. Unknown campaigns return `None`. Repeated reads are
+deterministic and return fresh records, so caller mutations cannot affect the
+database or later reads. A manifest that references a missing run raises a
+clear stored-state `ValueError`; no `ExperimentRun` is reconstructed and the
+operation performs no writes.
+
 An execution failure propagates unchanged and prevents all campaign
 persistence. Any run, manifest, or membership failure propagates after
 execution and rolls back every newly inserted campaign row. Existing records
