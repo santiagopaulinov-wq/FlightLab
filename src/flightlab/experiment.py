@@ -1,6 +1,7 @@
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from itertools import product
 from types import MappingProxyType
 from typing import NamedTuple
 from uuid import uuid4
@@ -361,3 +362,32 @@ def expand_experiment_cases(
         cases.append(case)
 
     return tuple(cases)
+
+
+def expand_cartesian_experiment_cases(
+    parameter_axes: Iterable[Iterable[object]],
+    case_factory: Callable[[tuple[object, ...]], ExperimentCase],
+) -> tuple[ExperimentCase, ...]:
+    """Expand explicit ordered parameter axes into experiment cases.
+
+    Combinations follow ``itertools.product`` order, with the rightmost axis
+    varying fastest. Zero axes produce one empty combination; any empty axis
+    produces no combinations. No generated simulation is executed.
+    """
+    if not callable(case_factory):
+        raise TypeError("case_factory must be callable")
+
+    try:
+        axes_iterator = iter(parameter_axes)
+    except TypeError as error:
+        raise TypeError("parameter_axes must be an iterable") from error
+
+    axes = []
+    for index, axis in enumerate(axes_iterator):
+        try:
+            axis_iterator = iter(axis)
+        except TypeError as error:
+            raise TypeError(f"parameter_axes[{index}] must be an iterable") from error
+        axes.append(tuple(axis_iterator))
+
+    return expand_experiment_cases(product(*axes), case_factory)

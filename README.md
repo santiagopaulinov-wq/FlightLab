@@ -705,6 +705,48 @@ result is an immutable tuple. Expansion does not invoke case simulations,
 execute experiments, persist data, generate Cartesian products, or interpret
 parameter values.
 
+## Experimental Platform: Cartesian parameter-axis expansion
+
+`expand_cartesian_experiment_cases(parameter_axes, case_factory)` expands
+finite ordered axes into explicit cases without executing them. The factory
+receives each parameter combination as a tuple:
+
+```python
+from flightlab.experiment import ExperimentCase, expand_cartesian_experiment_cases
+
+
+def cartesian_case_factory(combination):
+    gain, tolerance = combination
+    return ExperimentCase(
+        simulation=lambda: simulate_gain(gain),
+        initial_state=[0.0, 0.0],
+        method="exact",
+        system={"name": "demo", "order": 2},
+        controller={"type": "state_feedback", "gain": gain},
+        reference={"type": "step", "value": 1.0},
+        settling_tolerance=tolerance,
+        run_id=f"gain-{gain}-tolerance-{tolerance}",
+    )
+
+
+cases = expand_cartesian_experiment_cases(
+    parameter_axes=([0.5, 1.0], [0.02, 0.05]),
+    case_factory=cartesian_case_factory,
+)
+```
+
+Combination order follows `itertools.product`: axis and value order are
+preserved, and the rightmost axis varies fastest. Thus the example combinations
+are `(0.5, 0.02)`, `(0.5, 0.05)`, `(1.0, 0.02)`, and `(1.0, 0.05)`. Zero axes
+produce the single empty combination `()`, while any empty axis produces no
+combinations and therefore returns `()`.
+
+Every axis is materialized before factory calls. The existing
+`expand_experiment_cases()` boundary invokes the factory exactly once per
+combination, validates each result as an `ExperimentCase`, preserves factory
+exceptions, and returns an immutable tuple. Cartesian expansion invokes no
+case simulation and performs no experiment execution or persistence.
+
 ## Experimental Platform: SQLite experiment storage
 
 `SQLiteExperimentStore` persists the existing reproducibility record without

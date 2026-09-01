@@ -23,7 +23,9 @@ it through the existing metrics API, and returns one validated immutable run.
 The fifth layer executes a finite ordered collection of explicit experiment
 cases sequentially through that same single-run boundary. The sixth layer maps
 one finite ordered collection of explicit parameter values through a caller-
-supplied factory into immutable experiment cases without executing them.
+supplied factory into immutable experiment cases without executing them. The
+seventh layer expands multiple explicit ordered axes into cases using
+deterministic standard Cartesian-product order, also without execution.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -69,16 +71,16 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: deterministic expansion of one explicit ordered
-  parameter-value collection into immutable `ExperimentCase` objects.
-- Focused checkpoint message: `feat: add deterministic experiment case expansion`.
+- Completed capability: deterministic Cartesian expansion of finite explicit
+  ordered parameter axes into immutable `ExperimentCase` objects.
+- Focused checkpoint message: `feat: add deterministic Cartesian case expansion`.
 - Previous checkpoint commit:
-  `1a8ca0e8d710bed2efb3aee66c1a679b32519a61`
-  (`feat: add sequential experiment execution`).
+  `8fec7201fe9447fb936d9156f8832127e8cd498c`
+  (`feat: add deterministic experiment case expansion`).
 
 ## Current verification baseline
 
-- Test count: 973 tests.
+- Test count: 996 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -195,6 +197,18 @@ or EXACT set matching for both inclusions and exclusions.
 - Parameter values remain uninterpreted and caller-owned. Expansion invokes no
   generated simulation and performs no experiment execution, Cartesian-product
   generation, persistence, automatic save, concurrency, or optimization.
+- `expand_cartesian_experiment_cases()` snapshots finite explicit axes and uses
+  standard-library Cartesian-product ordering: axis and value order are
+  preserved and the rightmost axis varies fastest.
+- The caller factory receives each combination as a tuple and is invoked
+  exactly once per combination through `expand_experiment_cases()`, retaining
+  its indexed result validation and exception behavior.
+- Zero axes produce the single empty combination; any empty axis produces no
+  combinations. Results are immutable ordered tuples of `ExperimentCase`
+  objects, and generated simulations are never invoked.
+- Cartesian expansion performs no experiment execution, persistence,
+  automatic save, concurrency, retry, optimization, or aircraft-specific
+  interpretation.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -843,6 +857,9 @@ or EXACT set matching for both inclusions and exclusions.
   through a caller factory. Preserve input snapshotting, exactly-once calls,
   indexed result validation, immutable tuple output, and complete separation
   from experiment execution and persistence.
+- Keep Cartesian case expansion as a deterministic transformation of explicit
+  finite axes through `itertools.product` and `expand_experiment_cases()`.
+  Preserve standard zero-axis and empty-axis semantics without executing cases.
 - Preserve the existing eigenvalue ordering and individual
   `ModalStateCharacterization` results.
 - Preserve deterministic modal-family ordering, canonical family members, and
@@ -895,9 +912,9 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next Cartesian case-generation layer limited to finite explicit
-  ordered parameter axes and one caller-supplied case factory. Do not add
-  execution, persistence orchestration, parallel work, optimization, dataset
+- Keep the next sequential Cartesian-execution layer limited to composing the
+  existing Cartesian expansion and sequential batch executor. Do not add
+  persistence orchestration, parallel work, retries, optimization, dataset
   generation, or Scientific ML yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
@@ -913,31 +930,30 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Deterministic Cartesian expansion of explicit parameter axes
+### Sequential execution of deterministic Cartesian experiment cases
 
-Add the smallest generic API that expands finite ordered caller-supplied
-parameter axes in deterministic Cartesian-product order through one caller-
-supplied case factory and returns an immutable tuple of `ExperimentCase`
-objects, without executing or persisting them.
+Add the smallest generic API that composes
+`expand_cartesian_experiment_cases()` with `execute_experiments()` to execute
+one explicit finite Cartesian case set sequentially and return an immutable
+tuple of `ExperimentRun` objects, without persistence orchestration.
 
 ## Suggested implementation direction
 
-- Keep parameter axes, combinations, and the case factory generic and
-  independent of aircraft-specific models.
-- Use standard-library Cartesian-product behavior, preserve axis and value
-  order, invoke the factory exactly once per combination, and require each
-  result to be an `ExperimentCase` without executing its simulation.
-- Snapshot finite inputs, return an immutable tuple, and define clear empty-axis,
-  empty-value, malformed-result, and factory-failure behavior.
-- Add no execution, multiprocessing, persistence orchestration, dataset export,
-  optimization, ML, observer, controller, or aircraft-specific experiment
-  behavior.
+- Reuse both existing public APIs without duplicating combination generation,
+  validation, metrics, provenance, or execution logic.
+- Preserve deterministic Cartesian order and execute each generated case
+  exactly once and sequentially.
+- Retain the existing zero-axis, empty-axis, factory-failure, validation-failure,
+  and partial-execution semantics.
+- Add no multiprocessing, persistence orchestration, automatic save, retries,
+  dataset export, optimization, ML, observer, controller, or aircraft-specific
+  experiment behavior.
 
 ## Focused tests to add
 
-- Verify zero, one, and multiple axes, deterministic combination order,
-  exactly-once factory calls, immutable results, empty-axis values, malformed
-  factory results, failure propagation, and no simulation execution.
+- Verify zero, one, multiple, and empty axes; deterministic execution order;
+  exactly-once factory and simulation calls; immutable run tuples; validation
+  and simulation failure propagation; and absence of persistence behavior.
 
 ## Commands that must pass
 
