@@ -27,7 +27,9 @@ supplied factory into immutable experiment cases without executing them. The
 seventh layer expands multiple explicit ordered axes into cases using
 deterministic standard Cartesian-product order, also without execution. The
 eighth layer composes that expansion with existing sequential execution to
-produce immutable ordered campaign runs.
+produce immutable ordered campaign runs. The ninth layer composes explicit
+sequential case execution with optional atomic persistence and returns one
+minimal immutable completed-campaign result.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -73,17 +75,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: sequential execution of deterministic Cartesian
-  experiment cases into immutable ordered `ExperimentRun` tuples.
-- Completed capability commit:
-  `f79b6bfc6d87dc1a1be05e6d1c3b170cf3417bd0`
-  (`feat: add sequential Cartesian experiment execution`).
-- Checkpoint documentation message:
-  `docs: checkpoint Cartesian experiment execution`.
+- Completed capability: explicit sequential experiment campaigns with optional
+  atomic SQLite persistence of their completed ordered run collections.
+- Completed capability commit: this checkpoint's implementation commit
+  (`feat: add optionally persisted experiment campaigns`).
 
 ## Current verification baseline
 
-- Test count: 1011 tests.
+- Test count: 1026 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -148,6 +147,9 @@ or EXACT set matching for both inclusions and exclusions.
 - `save()` accepts only `ExperimentRun`, consumes its validated deterministic
   reproducibility record, and commits one parameterized `INSERT` atomically.
   Duplicate IDs raise `DuplicateRunIDError` without overwriting the original.
+- `save_many()` snapshots and validates one finite ordered run collection, then
+  persists every record in caller order through the same insertion path and
+  one transaction. Any failure rolls back the complete collection.
 - `get()` returns a detached plain reproducibility record or `None` for an
   unknown ID. `list_runs()` returns frozen lightweight summaries ordered by
   UTC creation timestamp newest-first and then run ID ascending.
@@ -224,6 +226,18 @@ or EXACT set matching for both inclusions and exclusions.
 - Sequential Cartesian execution performs no persistence orchestration,
   automatic save, parallel work, optimization, CLI workflow, controller
   synthesis, or aircraft-specific behavior.
+- `ExperimentCampaignResult` is a frozen, slotted wrapper around one immutable
+  ordered tuple of completed `ExperimentRun` objects.
+- `run_experiment_campaign()` delegates explicit finite case execution to
+  `execute_experiments()`. With an optional initialized
+  `SQLiteExperimentStore`, it calls `save_many()` only after every experiment
+  succeeds and returns the campaign result only after persistence succeeds.
+- Execution failures cause no campaign persistence. Persistence errors
+  propagate after execution and retain the complete rollback and connection
+  recovery semantics of `save_many()`.
+- Campaign orchestration adds no simulation, metric, provenance, serialization,
+  validation, transaction, generation, retry, parallel, optimization,
+  statistical-analysis, distributed, or CLI/UI implementation of its own.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -930,10 +944,10 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next SQLite batch-persistence layer limited to explicit finite
-  `ExperimentRun` collections and one owned-store transaction. Do not add
-  experiment execution, automatic campaign saving, parallel work, retries,
-  optimization, dataset generation, or Scientific ML yet.
+- Keep the next persisted-campaign layer limited to explicit immutable campaign
+  identity, ordered run membership, and one owned-store transaction. Do not add
+  parallel work, retries, resumption, optimization, statistical analysis,
+  distributed execution, CLI/UI workflows, or Scientific ML yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -948,32 +962,32 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Atomic SQLite persistence of explicit experiment-run collections
+### Persisted campaign manifests with ordered run membership
 
-Add the smallest `SQLiteExperimentStore` API that accepts one finite ordered
-collection of existing `ExperimentRun` objects and persists the complete
-collection atomically in one transaction, without executing experiments or
-generating cases.
+Add an explicit immutable campaign identity and a small SQLite campaign
+manifest that records the ordered run IDs belonging to one successfully
+persisted campaign. Persist the manifest and its new runs in the same owned
+store transaction, and retrieve detached campaign metadata plus ordered run
+IDs without reconstructing `ExperimentRun` objects.
 
 ## Suggested implementation direction
 
-- Reuse the existing store connection, schema, record validation, deterministic
-  serialization, parameterized insert, and duplicate-ID error type.
-- Snapshot and validate the finite run collection before insertion, then use one
-  transaction so any duplicate, malformed run, constraint, or database failure
-  leaves none of that collection persisted.
-- Preserve caller order for insertion without adding listing-order semantics or
-  reconstructing `ExperimentRun` objects on retrieval.
-- Add no execution, automatic campaign saving, multiprocessing, retries,
-  dataset export, optimization, ML, observer, controller, or aircraft-specific
-  persistence behavior.
+- Extend the existing SQLite store schema idempotently with campaign and
+  ordered-membership tables using foreign keys and explicit position values.
+- Reuse the existing run-record validation, serialization, and insertion path;
+  do not create a second run persistence implementation.
+- Preserve explicit campaign and run identities, caller order, atomic rollback,
+  and the current standalone `save()` and `save_many()` APIs.
+- Keep manifest persistence separate from experiment execution so the campaign
+  orchestration layer remains a small composition boundary.
+- Add no parallel execution, retry, resumption, optimization, statistical
+  analysis, distributed work, or CLI/UI workflow.
 
 ## Focused tests to add
 
-- Verify empty, one-run, and multiple-run batches; one-transaction visibility;
-  deterministic retrieval; duplicate IDs within the batch and against existing
-  data; malformed runs; rollback of the complete batch; source immutability;
-  and connection recovery after failure.
+- Verify empty and populated manifests, ordered membership, deterministic
+  retrieval, duplicate campaign IDs, duplicate run IDs, complete rollback,
+  foreign-key integrity, reopening, and store recovery after failure.
 
 ## Commands that must pass
 
