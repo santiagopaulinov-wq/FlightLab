@@ -17,6 +17,133 @@ class CampaignComparisonEntry:
     metric_values: tuple[tuple[str, float | None], ...]
 
 
+@dataclass(frozen=True, slots=True)
+class CampaignDeltaEntry:
+    """One immutable run entry containing explicit-baseline absolute deltas."""
+
+    run_id: str
+    parameter_delta: float
+    metric_deltas: tuple[tuple[str, float | None], ...]
+
+
+def campaign_metric_deltas(
+    comparison: Iterable[CampaignComparisonEntry],
+    baseline_run_id: str,
+) -> tuple[CampaignDeltaEntry, ...]:
+    """Subtract one explicit baseline from an ordered campaign comparison."""
+    if type(baseline_run_id) is not str or not baseline_run_id.strip():
+        raise ValueError("baseline_run_id must be a non-empty string")
+    try:
+        comparison_iterator = iter(comparison)
+    except TypeError as error:
+        raise TypeError("comparison must be an iterable of entries") from error
+    comparison = tuple(comparison_iterator)
+    _validate_comparison_entries(comparison)
+
+    matches = [entry for entry in comparison if entry.run_id == baseline_run_id]
+    if not matches:
+        raise ValueError(f"baseline run_id {baseline_run_id!r} is not in comparison")
+    baseline = matches[0]
+    baseline_metrics = dict(baseline.metric_values)
+
+    deltas = []
+    for entry in comparison:
+        metric_deltas = []
+        for metric_name, metric_value in entry.metric_values:
+            baseline_value = baseline_metrics[metric_name]
+            metric_deltas.append(
+                (
+                    metric_name,
+                    None
+                    if metric_value is None or baseline_value is None
+                    else _finite_delta(
+                        f"metric {metric_name!r}", metric_value, baseline_value
+                    ),
+                )
+            )
+        deltas.append(
+            CampaignDeltaEntry(
+                run_id=entry.run_id,
+                parameter_delta=_finite_delta(
+                    "parameter", entry.parameter_value, baseline.parameter_value
+                ),
+                metric_deltas=tuple(metric_deltas),
+            )
+        )
+    return tuple(deltas)
+
+
+def _validate_comparison_entries(comparison):
+    run_ids = set()
+    expected_metric_names = None
+    for index, entry in enumerate(comparison):
+        if not isinstance(entry, CampaignComparisonEntry):
+            raise TypeError(f"comparison[{index}] must be a CampaignComparisonEntry")
+        if type(entry.run_id) is not str or not entry.run_id.strip():
+            raise ValueError(f"comparison[{index}].run_id must be non-empty")
+        if entry.run_id in run_ids:
+            raise ValueError(f"duplicate run_id {entry.run_id!r} in comparison")
+        run_ids.add(entry.run_id)
+        _finite_numeric(f"comparison[{index}].parameter_value", entry.parameter_value)
+        if type(entry.metric_values) is not tuple:
+            raise TypeError(f"comparison[{index}].metric_values must be a tuple")
+        if not entry.metric_values:
+            raise ValueError(f"comparison[{index}].metric_values must not be empty")
+
+        metric_names = []
+        for metric_index, metric_item in enumerate(entry.metric_values):
+            if type(metric_item) is not tuple or len(metric_item) != 2:
+                raise ValueError(
+                    f"comparison[{index}].metric_values[{metric_index}] "
+                    "must be a name/value pair"
+                )
+            metric_name, metric_value = metric_item
+            if type(metric_name) is not str or not metric_name:
+                raise ValueError(
+                    f"comparison[{index}] metric name must be a non-empty string"
+                )
+            if metric_name not in _METRIC_KEYS:
+                raise ValueError(
+                    f"comparison[{index}] has unknown metric {metric_name!r}"
+                )
+            if metric_name in metric_names:
+                raise ValueError(
+                    f"comparison[{index}] has duplicate metric {metric_name!r}"
+                )
+            metric_names.append(metric_name)
+            if metric_value is not None:
+                _finite_numeric(
+                    f"comparison[{index}] metric {metric_name!r}", metric_value
+                )
+        metric_names = tuple(metric_names)
+        if expected_metric_names is None:
+            expected_metric_names = metric_names
+        elif metric_names != expected_metric_names:
+            raise ValueError("comparison entries must have matching metric layouts")
+    return () if expected_metric_names is None else expected_metric_names
+
+
+def _finite_numeric(name, value):
+    if type(value) not in (int, float):
+        raise ValueError(f"{name} must be numeric")
+    try:
+        numeric_value = float(value)
+    except OverflowError:
+        raise ValueError(f"{name} must be finite") from None
+    if not math.isfinite(numeric_value):
+        raise ValueError(f"{name} must be finite")
+    return numeric_value
+
+
+def _finite_delta(name, value, baseline_value):
+    value = _finite_numeric(name, value)
+    baseline_value = _finite_numeric(f"baseline {name}", baseline_value)
+    delta = value - baseline_value
+    if not math.isfinite(delta):
+        raise ValueError(f"{name} delta must be finite")
+    return delta
+
+
 def compare_campaign_runs(
     bundle_record,
     parameter_category,

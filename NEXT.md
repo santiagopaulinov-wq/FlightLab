@@ -37,7 +37,8 @@ reproducibility records in exact membership order. The twelfth layer converts
 that bundle into a fresh deterministic JSON-compatible plain record without
 performing I/O. The thirteenth layer extracts one explicit provenance parameter
 and caller-selected existing response metrics into immutable campaign-ordered
-comparison entries.
+comparison entries. The fourteenth layer transforms those entries into signed
+absolute parameter and metric deltas from one explicit baseline run.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -83,14 +84,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: immutable ordered campaign comparisons using one
-  explicit provenance parameter and selected existing scalar response metrics.
+- Completed capability: immutable explicit-baseline campaign parameter and
+  metric deltas in exact campaign and metric order.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add ordered campaign metric comparisons`).
+  (`feat: add explicit-baseline campaign metric deltas`).
 
 ## Current verification baseline
 
-- Test count: 1059 tests.
+- Test count: 1077 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -280,6 +281,13 @@ or EXACT set matching for both inclusions and exclusions.
   parameter value, and immutable ordered metric-name/value pairs. Comparison
   entries preserve campaign order and optional metric values without inference,
   recomputation, sorting, ranking, aggregation, or normalization.
+- `campaign_metric_deltas()` requires one explicit baseline run ID and validates
+  one ordered comparison for unique IDs, finite numeric parameters, and an
+  identical nonempty known-metric layout across every entry.
+- Each frozen `CampaignDeltaEntry` preserves run and metric order and contains
+  signed `current - baseline` parameter and metric deltas. Numeric baseline
+  values produce exact zeros; an optional metric delta is `None` whenever the
+  current or baseline metric is unavailable.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -986,11 +994,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next analysis layer limited to explicit-baseline absolute deltas over
-  an existing ordered campaign comparison. Do not add implicit baseline or
-  best-run selection, percentage changes, ranking, composite scoring,
-  aggregation, statistics, normalization, sensitivity estimation, robustness
-  analysis, optimization, plotting, persistence, or CLI/UI workflows yet.
+- Keep the next analysis layer limited to baseline-relative secant sensitivities
+  derived from one existing ordered delta result. Do not add derivatives from
+  simulation, implicit baseline selection, interpolation, ranking, composite
+  scoring, aggregation, statistics, robustness analysis, optimization,
+  plotting, persistence, or CLI/UI workflows yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -1005,31 +1013,30 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Explicit-baseline campaign metric deltas
+### Baseline-relative campaign secant sensitivities
 
-Add a small pure analysis API that compares one existing ordered campaign
-comparison against one caller-selected baseline run ID and returns immutable
-campaign-ordered absolute parameter and metric deltas.
+Add a small pure analysis API that converts one existing ordered campaign delta
+result into immutable per-run metric-change/parameter-change ratios relative to
+the already-selected baseline.
 
 ## Suggested implementation direction
 
-- Require an explicit baseline run ID present exactly once; do not infer a
-  baseline from order or metric values.
-- Require numeric finite parameter values for delta analysis while retaining
-  the existing generic comparison API for categorical parameters.
-- Subtract baseline values in existing metric-selection order and preserve
-  campaign order, with the baseline row producing exact zero deltas.
-- Define clear propagation for optional metric values without inventing missing
-  measurements.
-- Add no percentage change, ranking, scoring, aggregation, statistics,
-  normalization, sensitivity estimates, robustness analysis, or SQLite access.
+- Reuse the validated immutable delta entries without revisiting bundle records
+  or response metrics.
+- Preserve campaign and metric order and compute each available ratio as
+  `metric_delta / parameter_delta`.
+- Require an explicit policy for the baseline and any other zero parameter
+  delta so division by zero never implies a sensitivity value.
+- Propagate unavailable optional metric deltas without inventing measurements
+  and reject nonfinite ratios clearly.
+- Add no interpolation, derivative simulation, aggregation, statistics,
+  ranking, scoring, robustness analysis, optimization, or SQLite access.
 
 ## Focused tests to add
 
-- Verify explicit baseline selection, exact run and metric order, signed
-  parameter/metric deltas, baseline zeros, optional metrics, categorical or
-  nonfinite rejection, unknown/duplicate baseline IDs, deterministic output,
-  immutability, and source isolation.
+- Verify positive and negative secants, exact run and metric order, baseline and
+  repeated-parameter behavior, optional metrics, nonfinite rejection,
+  deterministic output, immutability, and source isolation.
 
 ## Commands that must pass
 

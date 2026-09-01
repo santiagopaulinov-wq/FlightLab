@@ -943,6 +943,27 @@ from existing provenance and metric records without inference, recomputation,
 normalization, ranking, aggregation, or sorting. The operation is deterministic,
 pure, and independent of subsequent source-record mutation.
 
+`campaign_metric_deltas(comparison, baseline_run_id)` transforms an existing
+ordered comparison into explicit-baseline absolute deltas:
+
+```python
+from flightlab.analysis import campaign_metric_deltas
+
+deltas = campaign_metric_deltas(comparison, baseline_run_id="baseline")
+```
+
+The baseline ID is mandatory and must occur exactly once. Parameter values must
+be finite real integers or floats (booleans are rejected), and every entry must
+have the same nonempty ordered metric layout. Each frozen `CampaignDeltaEntry`
+retains the run ID and contains `parameter_delta` plus ordered
+`(metric_name, delta)` pairs, all computed as `current - baseline`. Campaign
+order is unchanged, and every numeric baseline delta is exactly zero.
+
+Optional metrics use one consistent rule: a metric delta is `None` whenever the
+current or baseline value is `None`; otherwise both values must be finite
+numeric scalars. The transformation performs no metric recomputation, sorting,
+ranking, normalization, aggregation, persistence, or source mutation.
+
 An execution failure propagates unchanged and prevents all campaign
 persistence. Any run, manifest, or membership failure propagates after
 execution and rolls back every newly inserted campaign row. Existing records

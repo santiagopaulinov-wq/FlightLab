@@ -3,7 +3,12 @@ from datetime import UTC, datetime
 
 import pytest
 
-from flightlab.analysis import CampaignComparisonEntry, compare_campaign_runs
+from flightlab.analysis import (
+    CampaignComparisonEntry,
+    CampaignDeltaEntry,
+    campaign_metric_deltas,
+    compare_campaign_runs,
+)
 from flightlab.experiment import experiment_run
 from flightlab.persistence import (
     ExperimentCampaignBundle,
@@ -182,3 +187,130 @@ def test_missing_and_nonscalar_metrics_are_rejected():
     nonscalar["records"][0]["metrics"]["iae"] = [1.0]
     with pytest.raises(ValueError, match=r"metrics\.iae.*finite real number"):
         compare_campaign_runs(nonscalar, "controller", "gain", ["iae"])
+
+
+def _comparison():
+    return (
+        CampaignComparisonEntry(
+            run_id="first",
+            parameter_value=1.0,
+            metric_values=(("iae", 5.0), ("ise", 10.0)),
+        ),
+        CampaignComparisonEntry(
+            run_id="middle",
+            parameter_value=3.0,
+            metric_values=(("iae", 2.0), ("ise", 14.0)),
+        ),
+        CampaignComparisonEntry(
+            run_id="last",
+            parameter_value=-1.0,
+            metric_values=(("iae", 8.0), ("ise", 4.0)),
+        ),
+    )
+
+
+@pytest.mark.parametrize("baseline_run_id", ["first", "middle", "last"])
+def test_campaign_metric_deltas_supports_baseline_at_any_position(baseline_run_id):
+    comparison = _comparison()
+
+    result = campaign_metric_deltas(comparison, baseline_run_id)
+
+    assert tuple(entry.run_id for entry in result) == ("first", "middle", "last")
+    baseline_index = ("first", "middle", "last").index(baseline_run_id)
+    assert result[baseline_index].parameter_delta == 0.0
+    assert result[baseline_index].metric_deltas == (
+        ("iae", 0.0),
+        ("ise", 0.0),
+    )
+
+
+def test_campaign_metric_deltas_preserves_order_and_computes_signed_differences():
+    result = campaign_metric_deltas(_comparison(), "middle")
+
+    assert result == (
+        CampaignDeltaEntry(
+            run_id="first",
+            parameter_delta=-2.0,
+            metric_deltas=(("iae", 3.0), ("ise", -4.0)),
+        ),
+        CampaignDeltaEntry(
+            run_id="middle",
+            parameter_delta=0.0,
+            metric_deltas=(("iae", 0.0), ("ise", 0.0)),
+        ),
+        CampaignDeltaEntry(
+            run_id="last",
+            parameter_delta=-4.0,
+            metric_deltas=(("iae", 6.0), ("ise", -10.0)),
+        ),
+    )
+
+
+def test_optional_metric_delta_is_none_when_either_value_is_none():
+    comparison = (
+        CampaignComparisonEntry("baseline", 1.0, (("settling_time", 2.0),)),
+        CampaignComparisonEntry("missing", 2.0, (("settling_time", None),)),
+    )
+    assert campaign_metric_deltas(comparison, "baseline")[1].metric_deltas == (
+        ("settling_time", None),
+    )
+
+    baseline_missing = campaign_metric_deltas(comparison, "missing")
+    assert tuple(entry.metric_deltas for entry in baseline_missing) == (
+        (("settling_time", None),),
+        (("settling_time", None),),
+    )
+
+
+def test_empty_comparison_cannot_contain_the_explicit_baseline():
+    with pytest.raises(ValueError, match="baseline run_id 'baseline'.*not in comparison"):
+        campaign_metric_deltas((), "baseline")
+
+
+def test_unknown_baseline_and_duplicate_run_ids_are_rejected():
+    with pytest.raises(ValueError, match="baseline run_id 'unknown'.*not in comparison"):
+        campaign_metric_deltas(_comparison(), "unknown")
+
+    duplicate = (_comparison()[0], _comparison()[0])
+    with pytest.raises(ValueError, match="duplicate run_id 'first'"):
+        campaign_metric_deltas(duplicate, "first")
+
+
+def test_incompatible_metric_layouts_are_rejected():
+    comparison = (
+        CampaignComparisonEntry("first", 1.0, (("iae", 1.0), ("ise", 2.0))),
+        CampaignComparisonEntry("second", 2.0, (("ise", 2.0), ("iae", 1.0))),
+    )
+
+    with pytest.raises(ValueError, match="matching metric layouts"):
+        campaign_metric_deltas(comparison, "first")
+
+
+@pytest.mark.parametrize("value", [True, "1.0", None, float("inf"), float("nan")])
+def test_nonnumeric_or_nonfinite_parameter_values_are_rejected(value):
+    comparison = (CampaignComparisonEntry("run", value, (("iae", 1.0),)),)
+
+    with pytest.raises(ValueError, match="parameter_value must be (numeric|finite)"):
+        campaign_metric_deltas(comparison, "run")
+
+
+@pytest.mark.parametrize("value", [True, "1.0", float("inf"), float("nan")])
+def test_nonnumeric_or_nonfinite_metric_values_are_rejected(value):
+    comparison = (CampaignComparisonEntry("run", 1.0, (("iae", value),)),)
+
+    with pytest.raises(ValueError, match="metric 'iae' must be (numeric|finite)"):
+        campaign_metric_deltas(comparison, "run")
+
+
+def test_campaign_metric_deltas_is_immutable_deterministic_and_detached():
+    comparison = list(_comparison())
+    first = campaign_metric_deltas(comparison, "first")
+    repeated = campaign_metric_deltas(comparison, "first")
+
+    assert first == repeated
+    comparison.reverse()
+    assert tuple(entry.run_id for entry in first) == ("first", "middle", "last")
+    with pytest.raises(TypeError):
+        first[0] = first[0]
+    with pytest.raises(FrozenInstanceError):
+        first[0].parameter_delta = 10.0
