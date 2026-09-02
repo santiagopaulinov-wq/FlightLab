@@ -1738,11 +1738,6 @@ git status
 
 ## Restart instruction
 
-Continue from the latest implementation commit. Read this file and inspect the
-completed analytical and SciPy benchmark evidence, then perform the exact next
-smallest task: **define the first published aircraft flight-dynamics
-benchmark**. Do not implement it, add dependencies, conflate computational
-verification with physical validation, or extend the serialization hierarchy.
-Preserve the documented scope, run the required verification commands, commit
-the completed capability, and do not push. Do not touch the existing untracked
-`.vscode/`.
+Read `NEXT.md`, then implement the narrowly scoped NASA GTM longitudinal
+verification runner exactly as specified, without expanding the V&V framework
+or refactoring unrelated modules.
