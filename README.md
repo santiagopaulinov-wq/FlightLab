@@ -1523,6 +1523,19 @@ stored category names, classifications, pass states, or analytical values are
 recomputed. Repeated calls return equal but fully detached lists and
 dictionaries.
 
+`campaign_projection_error_comparison_envelope_named_assessment_collection_verdict_collection_verdict(
+entries)` reduces the same validated named verdicts to one frozen
+`CampaignProjectionErrorNamedAssessmentCollectionVerdictCollectionVerdict`.
+Each named verdict is undefined when its stored `undefined_collection_names`
+tuple is nonempty; otherwise its stored overall pass state determines passing
+or failing. Undefined takes precedence over ordinary failure.
+
+The aggregate retains caller-ordered passing, failing, and undefined verdict-
+name tuples and passes only for nonempty input when every verdict is defined
+and passing. Empty input returns an explicit non-passing verdict with empty
+categories. No nested classification, pass state, or analytical value is
+recomputed.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

@@ -104,7 +104,9 @@ fresh deterministic JSON-compatible plain record without recomputing its
 classifications. The forty-fifth layer applies that converter to a finite
 caller-ordered collection of explicitly named assessment-collection verdicts.
 The forty-sixth layer extracts their stored overall pass states into a compact
-ordered deterministic overview.
+ordered deterministic overview. The forty-seventh layer reduces those
+validated named verdicts to one immutable aggregate verdict with ordered
+passing, failing, and undefined verdict names.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -150,13 +152,13 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: ordered named assessment-collection verdict overview.
+- Completed capability: named assessment-collection verdict collection verdict.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add named assessment collection verdict overview`).
+  (`feat: add assessment collection verdict collection verdict`).
 
 ## Current verification baseline
 
-- Test count: 1418 tests.
+- Test count: 1424 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1127,32 +1129,32 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Named assessment-collection verdict collection verdict
+### Deterministic named assessment-collection aggregate verdict record
 
-Add a small pure analysis API that reduces a finite caller-ordered collection
-of explicitly named assessment-collection report verdicts into one immutable
-verdict with ordered passing, failing, and undefined verdict names.
+Add a small pure conversion API that converts one validated named assessment-
+collection aggregate verdict into a fresh deterministic JSON-compatible plain
+record.
 
 ## Suggested implementation direction
 
-- Use only each validated stored verdict: a named verdict is undefined when its
-  `undefined_collection_names` category is nonempty, otherwise passing or
-  failing by its stored `overall_passed` state.
-- Give undefined precedence over ordinary failure and preserve caller order
-  within mutually exclusive name categories.
-- Pass overall only for nonempty input when every named verdict is defined and
-  passing; return an explicit non-passing empty verdict for empty input.
-- Recompute no nested classification, pass state, or analytical value.
+- Use only the aggregate verdict's stored overall pass state and ordered
+  passing, failing, and undefined verdict-name categories.
+- Return a plain dictionary with stable `overall_passed`,
+  `passing_verdict_names`, `failing_verdict_names`, and
+  `undefined_verdict_names` fields, representing categories as lists.
+- Validate type, Boolean and category structure, unique mutually exclusive
+  nonblank names, and overall-pass consistency before conversion.
+- Preserve category order and return fresh detached data; represent the empty
+  non-passing verdict explicitly without recomputation.
 - Add no aggregation across comparisons, weighting, acceptance score,
   confidence interval, regression fit, automatic correction, ranking,
   optimization, plotting, persistence, or simulation.
 
 ## Focused tests to add
 
-- Verify all-passing, failing, undefined, mixed and empty inputs, undefined
-  precedence, exact category order, blank/duplicate names, malformed entries
-  and verdicts, generator input, immutability, source isolation, and
-  deterministic repeated calls.
+- Verify passing, failing, undefined, mixed, and empty records, exact category
+  order, malformed types/Boolean/category/pass states, JSON-compatible plain
+  output, mutation detachment, and deterministic repeated calls.
 
 ## Commands that must pass
 
@@ -1166,8 +1168,9 @@ git status
 ## Restart instruction
 
 Continue from the latest implementation commit. Read this file and inspect the
-existing named assessment-collection verdict APIs, then implement the exact
-next smallest task: **Named assessment-collection verdict collection verdict**.
+existing named assessment-collection aggregate verdict API, then implement the
+exact next smallest task: **Deterministic named assessment-collection aggregate
+verdict record**.
 Preserve the documented scope, run the required verification commands, commit
 the completed capability, and do not push. Do not touch the existing untracked
 `.vscode/`.
