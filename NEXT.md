@@ -165,11 +165,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: one fixed coupled damped-oscillator comparison of
-  FlightLab eigenvalues and exact sampled zero-order-hold propagation with
-  `scipy.linalg.eigvals()` and `scipy.signal.lsim(..., interp=False)`.
-- Completed capability commit: this checkpoint's implementation commit
-  (`feat: add scipy state-space verification benchmark`).
+- Completed capability: definition of the first authoritative published
+  aircraft flight-dynamics benchmark: the NASA Generic Transport Model rigid-
+  body longitudinal model published in AIAA 2013-4746.
+- Completed capability commit: this documentation checkpoint's commit
+  (`docs: define published GTM flight-dynamics benchmark`).
 
 ## Current verification baseline
 
@@ -1144,18 +1144,256 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Define the first published aircraft flight-dynamics benchmark
+### Implement the fixed published NASA GTM longitudinal modal benchmark
 
-Review the completed analytical and SciPy verification evidence, then select
-and specify one authoritative published linear aircraft flight-dynamics
-benchmark before implementing it. Record the exact source and edition, model
-matrices or coefficients, units and conventions, FlightLab quantities under
-comparison, published reference quantities, tolerances, provenance, and
-acceptance semantics. Explicitly classify each proposed comparison as software
-verification against a published computational result or physical validation
-against measured evidence; do not conflate the two. Do not add production code,
-tests, data files, dependencies, or reporting types during that definition
-step.
+Add one narrowly scoped runner beside the two existing runners in
+`flightlab.verification`. Encode the published descriptor matrices below,
+form `A = solve(M_r, S)` without explicitly inverting `M_r`, embed that fixed
+autonomous state matrix in `StateSpace` with the documented auxiliary zero
+input and identity output matrices, and compare `StateSpace.eigenvalues()` and
+`StateSpace.modal_properties()` with the published eigenvalues, natural
+frequencies, and damping ratios using exactly the matching, tolerances, and
+failure semantics below. Return the evidence through the existing
+`ExperimentRun` and deterministic reproducibility-record machinery. Add only
+focused tests for the fixed data, transformation, published comparisons,
+acceptance/failure behavior, metadata provenance, and repeated-run
+determinism. Do not add a framework, dependency, aircraft-model adapter, new
+record type, or physical-mode-classification assertion.
+
+## Selected first published aircraft benchmark
+
+### NASA Generic Transport Model rigid-body longitudinal dynamics at Mach 0.8
+
+Use the four-state rigid-body longitudinal Generic Transport Model (GTM)
+example published by Nhan T. Nguyen, Eric B. Ting, Daniel Nguyen, Tung Dao,
+and Khanh V. Trinh, *Coupled Vortex-Lattice Flight Dynamic Model with
+Aeroelastic Finite-Element Model of Flexible Wing Transport Aircraft with
+Variable Camber Continuous Trailing Edge Flap for Drag Reduction*, AIAA
+Atmospheric Flight Mechanics Conference, Boston, Massachusetts, 19--22 August
+2013, AIAA Paper 2013-4746, DOI `10.2514/6.2013-4746`; NASA NTRS document ID
+`20140008923`.
+
+The reconstructable benchmark is in Section V, "Coupled Aeroelastic-Flight
+Dynamic Model," subsection A, "Linearized Aircraft Rigid-Body Longitudinal
+Flight Dynamic Model," on printed page 28 of the 38-page NASA/AIAA PDF. That
+page publishes the state definition, both descriptor matrices, trim point,
+two eigenvalue pairs, and both modes' natural frequencies and damping ratios.
+The authoritative public artifact is
+`https://ntrs.nasa.gov/api/citations/20140008923/downloads/20140008923.pdf`
+(the NTRS copy of AIAA 2013-4746). This conference paper has no edition; the
+paper number, DOI, NTRS ID, section, and printed page identify the version.
+
+This example is the smallest useful aircraft-domain increment because a single
+page supplies a complete four-state longitudinal autonomous model and rounded
+published modal results. It exercises a nontrivial descriptor-to-standard-
+state-space transformation and both canonical longitudinal oscillatory modes,
+without first importing an entire derivative database or response history.
+
+## Published mathematical model and fixed transformation
+
+The publication gives the descriptor equation
+
+```text
+M_r x_r_dot = S x_r
+
+      [[11.1138,  0,       0,      0]]
+M_r = [[ 0,      11.1757,  0,      0]]
+      [[ 0,       0.1310,  0.7841, 0]]
+      [[ 0,       0,       0,      1]]
+
+    [[-0.0558, -0.4364, -0.7480, -0.4595]]
+S = [[-1.7284, -6.3068, 10.9544, -0.0306]]
+    [[-0.0074, -1.7648, -0.3370,  0     ]]
+    [[ 0,       0,       1,       0     ]]
+```
+
+FlightLab accepts the standard form `x_dot = A x + B u`, so the one explicit
+transformation is `A = M_r^{-1} S`, evaluated numerically as
+`numpy.linalg.solve(M_r, S)` rather than an explicit inverse. For audit only,
+the fixed published-decimal matrices produce approximately
+
+```text
+A = [[-0.005020784970, -0.039266497508, -0.067303712502, -0.041344994511],
+     [-0.154656978981, -0.564331540754,  0.980198108396, -0.002738083520],
+     [ 0.016401051201, -2.156450157073, -0.593554332610,  0.000457453056],
+     [ 0,               0,               1,               0             ]]
+```
+
+No published input or output matrices are needed for the modal comparison.
+To satisfy the existing `StateSpace` realization contract without pretending
+they are published aircraft data, use an explicitly auxiliary `B = zeros((4,
+1))`, `C = eye(4)`, and `D = zeros((4, 1))`. They are construction-only
+matrices, must be identified as such in provenance, and are not verification
+targets. Do not route the data through `LongitudinalModel`: its `[u, w, q,
+theta]` derivative parameterization is not the publication's normalized-speed
+and angle-of-attack descriptor form.
+
+## Units, ordering, conventions, and trim provenance
+
+- State order is exactly `x_r = [Delta V / V, Delta alpha, q, Delta theta]^T`.
+  `Delta V / V` is dimensionless; `Delta alpha` and `Delta theta` are radians;
+  pitch rate `q` is radians per second. Time and eigenvalues use seconds and
+  inverse seconds; natural frequencies use radians per second; damping ratios
+  are dimensionless.
+- Preserve the publication's perturbation variables and signs exactly. Positive
+  `Delta alpha`, `q`, and `Delta theta` mean increases in the correspondingly
+  named published quantities. Do not change axes, negate states, convert
+  normalized speed to ft/s, reorder states, or convert angles to degrees.
+- The published linearization point is Mach `0.8` at altitude `35,000 ft`, with
+  `alpha = 3.8142 deg`, `V = 778.2063 ft/s`, `theta = -3.8142 deg`, thrust
+  `T = 5617 lb`, and elevator `delta_e = -6.1497 deg`.
+- The descriptor matrices have mixed row/column dimensions implied by the state
+  definitions; their entries must not be mislabeled as sharing one unit. Copy
+  their published decimals verbatim and let `solve(M_r, S)` preserve the stated
+  coordinate convention.
+- This first increment has no dynamic input, initial condition, time grid, or
+  trajectory comparison. The trim elevator and thrust are provenance only,
+  not perturbation inputs to the autonomous published matrix.
+
+## FlightLab APIs and published quantities under verification
+
+- `StateSpace.eigenvalues()` verifies the poles of `A = solve(M_r, S)`.
+- `StateSpace.modal_properties()` verifies the natural frequency and damping
+  ratio derived for each oscillatory member. Conjugate members must yield the
+  same comparison values; compare one positive-imaginary member per pair after
+  deterministic matching.
+- Existing `response_metrics()` and `experiment_run()` are evidence composition
+  boundaries only. Because `ExperimentRun` requires a SISO sampled response,
+  use a fixed two-sample zero reference/output evidence carrier; it is not an
+  aircraft response and none of its response metrics is an acceptance target.
+
+The paper publishes, in inverse seconds for eigenvalues:
+
+```text
+short-period: lambda_sp = -0.5779 +/- 1.4491 i
+              omega_n_sp = 1.5601 rad/s, zeta_sp = 0.3704
+phugoid:      lambda_p  = -0.0042 +/- 0.0763 i
+              omega_n_p  = 0.0764 rad/s, zeta_p  = 0.0545
+```
+
+Match the conjugate pairs by increasing natural frequency: lower is phugoid,
+higher is short-period. Within each pair use the positive-imaginary eigenvalue
+for the pole residual. The source explicitly names these modes, so these names
+may be recorded as reference provenance, but this increment must not test
+FlightLab's heuristic `LongitudinalModel.physical_mode_identifications()`.
+
+Compute these scalar maximum-absolute residuals without rounding FlightLab
+results:
+
+1. eigenvalue residual: maximum complex magnitude
+   `abs(lambda_flightlab - lambda_published)` across the two positive-imaginary
+   representatives;
+2. natural-frequency residual: maximum
+   `abs(omega_n_flightlab - omega_n_published)` across the two pairs;
+3. damping-ratio residual: maximum
+   `abs(zeta_flightlab - zeta_published)` across the two pairs.
+
+## Published-data tolerances and acceptance semantics
+
+- Maximum absolute eigenvalue residual: `7.0e-4 s^-1`.
+- Maximum absolute natural-frequency residual: `2.0e-4 rad/s`.
+- Maximum absolute damping-ratio residual: `4.0e-4`.
+
+These are source-precision tolerances, not numerical-solver tolerances. The
+paper supplies only four decimal places for `M_r`, `S`, and every published
+modal result. Reconstructing the model from those printed decimals gives pole,
+frequency, and damping residuals of about `6.2345e-4`, `1.7155e-4`, and
+`3.4108e-4`, respectively. The fixed limits are the smallest simple one-
+significant-digit bounds above those known publication-rounding discrepancies;
+they must not be loosened during implementation. Equality with a limit passes.
+
+The benchmark passes only if the descriptor matrices have shape `(4, 4)`, are
+finite real values, `solve` returns a finite real `(4, 4)` matrix, FlightLab
+returns exactly four finite eigenvalues forming two conjugate pairs, all
+`modal_properties()` quantities used are finite and positive where required,
+and all three residuals meet their limits. The deterministic pair matching and
+the overall Boolean must be internally consistent.
+
+Malformed, nonfinite, complex, singular/unsolvable, wrong-cardinality, non-
+conjugate, or internally inconsistent evidence raises `ValueError` before a
+run is returned; underlying `numpy.linalg.LinAlgError` from the fixed descriptor
+solve may propagate. Well-formed evidence outside any tolerance returns an
+existing `ExperimentRun` with `passed = False` rather than raising solely for a
+failed comparison. Use a fixed run ID and aware UTC timestamp, record the exact
+source identifiers, matrices, transformation, auxiliary-matrix status,
+published targets, residuals, limits, and pass Boolean in existing supported
+metadata, and require two equivalent calls to return identical detached JSON-
+compatible reproducibility records.
+
+## Evidence classification and new evidence
+
+This is **computational/software verification against published computational
+results**, not physical model validation and not mixed evidence. It tests
+whether FlightLab reproduces modal quantities reported by an authoritative
+NASA/AIAA aircraft-model publication when given its rounded published model.
+Although the model represents NASA's GTM and its trim condition is physically
+documented, this comparison uses no flight-test or wind-tunnel measurements,
+uncertainty bounds, or observed response. Agreement therefore cannot establish
+that the aerodynamic model represents a real aircraft.
+
+Beyond the analytical and SciPy benchmarks, this adds an aircraft-domain,
+four-state, mixed-unit descriptor model; an explicit descriptor-to-standard
+transformation; well-separated phugoid and short-period dynamics; and external
+published modal targets whose limited decimal precision is handled explicitly.
+
+## Published GTM benchmark explicit non-goals
+
+- No model/physical validation, flight-test or wind-tunnel comparison,
+  calibration, parameter identification, uncertainty quantification,
+  certification, handling-qualities claim, or safety claim.
+- No lateral-directional or aeroelastic GTM model, dimensional-derivative
+  reconstruction, control-input matrix, trajectory/response benchmark, or
+  additional aircraft/source/flight condition.
+- No assertion of `LongitudinalModel` construction, state participation,
+  eigenvectors, physical-mode-identification heuristics, controller, observer,
+  campaign, sweep, optimization, CLI, plotting, persistence, or generated
+  evidence artifact.
+- No generic aircraft-V&V framework, benchmark registry, data loader, source
+  schema, tolerance policy, new result/report/verdict/serialization type, or
+  dependency.
+- No alteration of published coordinates or signs and no change to existing
+  StateSpace mathematics unless implementation demonstrates a core defect.
+
+## Read-only repository size and complexity snapshot
+
+Snapshot at this phase boundary (physical lines counted with `wc -l`):
+
+```text
+production src/flightlab:  8,746 LOC
+tests:                    18,790 LOC
+public top-level API:         82 classes, 51 functions
+public class methods:         96
+
+analysis.py                3,533 LOC
+state_space.py             2,605 LOC
+persistence.py               702 LOC
+experiment.py                403 LOC
+lateral_directional.py       347 LOC
+verification.py              318 LOC
+longitudinal.py              298 LOC
+aircraft_modal.py            278 LOC
+response.py                  164 LOC
+campaign.py                   60 LOC
+trajectory.py                 38 LOC
+__init__.py                    0 LOC
+```
+
+Tests contain 15,381 nonblank, non-comment lines; production contains 7,728.
+The public counts are practical AST counts of top-level names not beginning
+with `_`; public methods are reported separately and are not added to the
+function count.
+
+`analysis.py` is the clearest future refactoring candidate: it contains 41
+public record classes and 37 public functions, and concentrates the repeated
+validation, copying, named-record conversion, overview, nested verdict, and
+aggregate-verdict layers. Its 3,533 production lines are paired with 5,527 test
+lines. `state_space.py` is the other large module (22 public classes, 75 public
+methods, and 7,417 test lines), spanning propagation, modal analysis,
+structural analysis, frequency response, balancing, and controller/observer
+construction. It merits later cohesive decomposition, but its mathematical
+coupling makes that higher risk. `persistence.py` also repeats record validation
+and conversion at a smaller 702-line scale. Do not refactor any of these during
+the fixed published benchmark step.
 
 ## Selected second V&V capability
 
