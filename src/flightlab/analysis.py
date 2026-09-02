@@ -1718,6 +1718,56 @@ def campaign_projection_error_comparison_envelope_named_assessment_collection_ve
     )
 
 
+def campaign_projection_error_comparison_envelope_named_assessment_collection_verdict_record(
+    verdict,
+):
+    """Convert one named assessment collection verdict to a plain record."""
+    _validated_projection_error_named_assessment_collection_verdict(verdict)
+    return {
+        "overall_passed": verdict.overall_passed,
+        "passing_collection_names": list(verdict.passing_collection_names),
+        "failing_collection_names": list(verdict.failing_collection_names),
+        "undefined_collection_names": list(verdict.undefined_collection_names),
+    }
+
+
+def _validated_projection_error_named_assessment_collection_verdict(verdict):
+    if not isinstance(
+        verdict, CampaignProjectionErrorNamedAssessmentCollectionReportVerdict
+    ):
+        raise TypeError(
+            "verdict must be a "
+            "CampaignProjectionErrorNamedAssessmentCollectionReportVerdict"
+        )
+    if type(verdict.overall_passed) is not bool:
+        raise ValueError("verdict.overall_passed must be a boolean")
+
+    names = set()
+    for category_name in (
+        "passing_collection_names",
+        "failing_collection_names",
+        "undefined_collection_names",
+    ):
+        category = getattr(verdict, category_name)
+        if type(category) is not tuple:
+            raise TypeError(f"verdict.{category_name} must be a tuple")
+        for index, name in enumerate(category):
+            if type(name) is not str or not name.strip():
+                raise ValueError(
+                    f"verdict.{category_name}[{index}] must be non-empty"
+                )
+            if name in names:
+                raise ValueError("verdict categories are not mutually exclusive")
+            names.add(name)
+
+    expected_pass = bool(verdict.passing_collection_names) and not (
+        verdict.failing_collection_names or verdict.undefined_collection_names
+    )
+    if verdict.overall_passed is not expected_pass:
+        raise ValueError("verdict overall pass state is inconsistent")
+    return verdict
+
+
 def _validated_projection_error_named_assessment_collection_reports(entries):
     try:
         entry_iterator = iter(entries)

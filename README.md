@@ -1487,6 +1487,19 @@ empty categories. This API recomputes no nested verdict or analytical value
 and infers no score, rank, confidence, probability, certification, or
 acceptance policy.
 
+`campaign_projection_error_comparison_envelope_named_assessment_collection_verdict_record(
+verdict)` validates one existing named assessment-collection report verdict and
+returns a fresh deterministic JSON-compatible dictionary. It contains the
+stored `overall_passed` boolean and caller-ordered
+`passing_collection_names`, `failing_collection_names`, and
+`undefined_collection_names` lists.
+
+The converter validates the verdict type, Boolean pass state, tuple category
+structure, nonblank unique mutually exclusive names, and overall-pass
+consistency. It does not recompute any classification. The empty non-passing
+verdict becomes the same explicit schema with three empty lists, and every call
+returns detached plain data without I/O or persistence.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

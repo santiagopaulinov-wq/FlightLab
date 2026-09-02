@@ -56,6 +56,7 @@ from flightlab.analysis import (
     campaign_projection_error_comparison_envelope_metric_verdicts,
     campaign_projection_error_comparison_envelope_named_assessment_collection_records,
     campaign_projection_error_comparison_envelope_named_assessment_collection_verdict,
+    campaign_projection_error_comparison_envelope_named_assessment_collection_verdict_record,
     campaign_projection_error_comparison_envelope_named_assessment_records,
     campaign_projection_error_comparison_envelope_verdict_overview,
     campaign_projection_error_comparison_set_metric_envelopes,
@@ -4306,6 +4307,127 @@ def test_named_assessment_collection_report_verdict_empty_generator_and_detached
     assert first.passing_collection_names == ("first", "second")
     with pytest.raises(FrozenInstanceError):
         first.overall_passed = False
+
+
+def test_named_assessment_collection_verdict_record_preserves_stored_fields_and_order():
+    verdict = CampaignProjectionErrorNamedAssessmentCollectionReportVerdict(
+        False,
+        ("passing-b", "passing-a"),
+        ("failing-b", "failing-a"),
+        ("undefined-b", "undefined-a"),
+    )
+    assert (
+        campaign_projection_error_comparison_envelope_named_assessment_collection_verdict_record(
+            verdict
+        )
+        == {
+            "overall_passed": False,
+            "passing_collection_names": ["passing-b", "passing-a"],
+            "failing_collection_names": ["failing-b", "failing-a"],
+            "undefined_collection_names": ["undefined-b", "undefined-a"],
+        }
+    )
+
+
+def test_named_assessment_collection_verdict_record_empty_schema_is_explicit():
+    verdict = CampaignProjectionErrorNamedAssessmentCollectionReportVerdict(
+        False, (), (), ()
+    )
+    assert (
+        campaign_projection_error_comparison_envelope_named_assessment_collection_verdict_record(
+            verdict
+        )
+        == {
+            "overall_passed": False,
+            "passing_collection_names": [],
+            "failing_collection_names": [],
+            "undefined_collection_names": [],
+        }
+    )
+
+
+def test_named_assessment_collection_verdict_record_is_detached_and_deterministic():
+    verdict = CampaignProjectionErrorNamedAssessmentCollectionReportVerdict(
+        True, ("first", "second"), (), ()
+    )
+    first = campaign_projection_error_comparison_envelope_named_assessment_collection_verdict_record(
+        verdict
+    )
+    repeated = (
+        campaign_projection_error_comparison_envelope_named_assessment_collection_verdict_record(
+            verdict
+        )
+    )
+    assert first == repeated
+    assert first is not repeated
+    assert first["passing_collection_names"] is not repeated["passing_collection_names"]
+    first["passing_collection_names"].append("mutated")
+    first["overall_passed"] = False
+    assert verdict.passing_collection_names == ("first", "second")
+    assert (
+        campaign_projection_error_comparison_envelope_named_assessment_collection_verdict_record(
+            verdict
+        )
+        == repeated
+    )
+    json.dumps(repeated, allow_nan=False)
+
+
+@pytest.mark.parametrize(
+    ("verdict", "error", "message"),
+    (
+        (object(), TypeError, "verdict must be"),
+        (
+            CampaignProjectionErrorNamedAssessmentCollectionReportVerdict(
+                1, ("passing",), (), ()
+            ),
+            ValueError,
+            "overall_passed must be a boolean",
+        ),
+        (
+            CampaignProjectionErrorNamedAssessmentCollectionReportVerdict(
+                False, ["passing"], (), ()
+            ),
+            TypeError,
+            "passing_collection_names must be a tuple",
+        ),
+        (
+            CampaignProjectionErrorNamedAssessmentCollectionReportVerdict(
+                False, (" ",), ("failing",), ()
+            ),
+            ValueError,
+            "must be non-empty",
+        ),
+        (
+            CampaignProjectionErrorNamedAssessmentCollectionReportVerdict(
+                False, ("same",), ("same",), ()
+            ),
+            ValueError,
+            "not mutually exclusive",
+        ),
+        (
+            CampaignProjectionErrorNamedAssessmentCollectionReportVerdict(
+                True, ("passing",), ("failing",), ()
+            ),
+            ValueError,
+            "overall pass state is inconsistent",
+        ),
+        (
+            CampaignProjectionErrorNamedAssessmentCollectionReportVerdict(
+                False, ("passing",), (), ()
+            ),
+            ValueError,
+            "overall pass state is inconsistent",
+        ),
+    ),
+)
+def test_named_assessment_collection_verdict_record_rejects_invalid_verdicts(
+    verdict, error, message
+):
+    with pytest.raises(error, match=message):
+        campaign_projection_error_comparison_envelope_named_assessment_collection_verdict_record(
+            verdict
+        )
 
 
 def test_one_scenario_is_both_minimum_and_maximum():
