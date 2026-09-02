@@ -266,6 +266,24 @@ class CampaignProjectionErrorSummaryDifferenceLimitResult:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignProjectionErrorMetricFieldIdentity:
+    """Immutable projection-error metric and difference-field identity."""
+
+    metric_name: str
+    difference_field: str
+
+
+@dataclass(frozen=True, slots=True)
+class CampaignProjectionErrorComparisonEnvelopeLimitVerdict:
+    """Immutable verdict over ordered comparison-envelope limit results."""
+
+    overall_passed: bool
+    passing_identities: tuple[CampaignProjectionErrorMetricFieldIdentity, ...]
+    failing_identities: tuple[CampaignProjectionErrorMetricFieldIdentity, ...]
+    undefined_identities: tuple[CampaignProjectionErrorMetricFieldIdentity, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -1306,6 +1324,147 @@ def check_campaign_projection_error_comparison_envelope_limits(
             )
         )
     return tuple(results)
+
+
+def campaign_projection_error_comparison_envelope_limit_verdict(
+    limit_results: Iterable[CampaignProjectionErrorSummaryDifferenceLimitResult],
+) -> CampaignProjectionErrorComparisonEnvelopeLimitVerdict:
+    """Classify validated comparison-envelope limit results into one verdict."""
+    limit_results, states = _validated_projection_error_difference_limit_results(
+        limit_results
+    )
+    passing = []
+    failing = []
+    undefined = []
+    for result, state in zip(limit_results, states):
+        identity = CampaignProjectionErrorMetricFieldIdentity(
+            result.metric_name, result.difference_field
+        )
+        if state == "undefined":
+            undefined.append(identity)
+        elif result.passed:
+            passing.append(identity)
+        else:
+            failing.append(identity)
+    return CampaignProjectionErrorComparisonEnvelopeLimitVerdict(
+        overall_passed=bool(limit_results) and not failing and not undefined,
+        passing_identities=tuple(passing),
+        failing_identities=tuple(failing),
+        undefined_identities=tuple(undefined),
+    )
+
+
+def _validated_projection_error_difference_limit_results(limit_results):
+    try:
+        result_iterator = iter(limit_results)
+    except TypeError as error:
+        raise TypeError("limit_results must be an iterable") from error
+    limit_results = tuple(result_iterator)
+    field_count = len(_PROJECTION_ERROR_COMPARISON_DIFFERENCE_FIELDS)
+    if len(limit_results) % field_count:
+        raise ValueError("limit_results must contain complete difference-field layouts")
+
+    metric_names = set()
+    states = []
+    for block_start in range(0, len(limit_results), field_count):
+        block = limit_results[block_start : block_start + field_count]
+        metric_name = None
+        for offset, (result, expected_field) in enumerate(
+            zip(block, _PROJECTION_ERROR_COMPARISON_DIFFERENCE_FIELDS)
+        ):
+            index = block_start + offset
+            prefix = f"limit_results[{index}]"
+            if not isinstance(
+                result, CampaignProjectionErrorSummaryDifferenceLimitResult
+            ):
+                raise TypeError(
+                    f"{prefix} must be a "
+                    "CampaignProjectionErrorSummaryDifferenceLimitResult"
+                )
+            if type(result.metric_name) is not str or not result.metric_name.strip():
+                raise ValueError(f"{prefix}.metric_name must be non-empty")
+            if metric_name is None:
+                metric_name = result.metric_name
+                if metric_name in metric_names:
+                    raise ValueError(f"duplicate limit-result metric {metric_name!r}")
+                metric_names.add(metric_name)
+            elif result.metric_name != metric_name:
+                raise ValueError(f"{prefix} has inconsistent metric ordering")
+            if result.difference_field != expected_field:
+                raise ValueError(
+                    f"{prefix}.difference_field must be {expected_field!r}"
+                )
+            if type(result.passed) is not bool:
+                raise ValueError(f"{prefix}.passed must be a boolean")
+            lower = _finite_numeric(
+                f"{prefix}.allowable_minimum_difference",
+                result.allowable_minimum_difference,
+            )
+            upper = _finite_numeric(
+                f"{prefix}.allowable_maximum_difference",
+                result.allowable_maximum_difference,
+            )
+            if lower > upper:
+                raise ValueError(
+                    f"{prefix}.allowable_minimum_difference must not exceed "
+                    "allowable_maximum_difference"
+                )
+
+            observed_undefined = (
+                result.observed_minimum_difference is None
+                and result.observed_maximum_difference is None
+            )
+            margins_undefined = (
+                result.lower_margin is None and result.upper_margin is None
+            )
+            if (
+                (result.observed_minimum_difference is None)
+                != (result.observed_maximum_difference is None)
+                or (result.lower_margin is None) != (result.upper_margin is None)
+                or observed_undefined != margins_undefined
+            ):
+                raise ValueError(f"{prefix} has inconsistent optional state")
+            if observed_undefined:
+                if result.passed:
+                    raise ValueError(f"{prefix} undefined result cannot pass")
+                states.append("undefined")
+                continue
+
+            minimum = _finite_numeric(
+                f"{prefix}.observed_minimum_difference",
+                result.observed_minimum_difference,
+            )
+            maximum = _finite_numeric(
+                f"{prefix}.observed_maximum_difference",
+                result.observed_maximum_difference,
+            )
+            if minimum > maximum:
+                raise ValueError(
+                    f"{prefix}.observed_minimum_difference must not exceed "
+                    "observed_maximum_difference"
+                )
+            lower_margin = _finite_numeric(
+                f"{prefix}.lower_margin", result.lower_margin
+            )
+            upper_margin = _finite_numeric(
+                f"{prefix}.upper_margin", result.upper_margin
+            )
+            expected_lower_margin = minimum - lower
+            expected_upper_margin = upper - maximum
+            if not math.isfinite(expected_lower_margin) or not math.isfinite(
+                expected_upper_margin
+            ):
+                raise ValueError(f"{prefix} expected margins must be finite")
+            if (
+                lower_margin != expected_lower_margin
+                or upper_margin != expected_upper_margin
+            ):
+                raise ValueError(f"{prefix} margins are inconsistent")
+            expected_pass = lower_margin >= 0.0 and upper_margin >= 0.0
+            if result.passed is not expected_pass:
+                raise ValueError(f"{prefix} pass state is inconsistent")
+            states.append("defined")
+    return limit_results, tuple(states)
 
 
 def _validated_projection_error_difference_envelopes(envelopes):

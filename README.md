@@ -1296,6 +1296,26 @@ is not statistical significance testing, a confidence interval, probabilistic
 uncertainty, physical validation, automatic acceptance criteria, calibration,
 regression, fitting, optimization, or certification.
 
+`campaign_projection_error_comparison_envelope_limit_verdict(limit_results)`
+reduces one existing ordered limit-result collection to a frozen
+`CampaignProjectionErrorComparisonEnvelopeLimitVerdict`. Each category stores
+immutable `CampaignProjectionErrorMetricFieldIdentity` values so metric and
+difference-field traceability remain together.
+
+Defined passing results enter `passing_identities`, defined non-passing results
+enter `failing_identities`, and structurally undefined non-passing results enter
+`undefined_identities`. Original order is preserved within every mutually
+exclusive category. `overall_passed` is true only for nonempty input when every
+result is defined and passing; empty input returns an explicit non-passing
+verdict with three empty categories.
+
+The API fully validates the stored result layout, identities, finite interval
+and envelope values, optional states, margins, and pass states without
+recomputing any of them. This verdict only summarizes deterministic
+caller-defined comparison-envelope interval checks. It is not statistical or
+physical validation, probabilistic or safety certification, scoring, ranking,
+calibration, regression, fitting, optimization, or automatic model correction.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

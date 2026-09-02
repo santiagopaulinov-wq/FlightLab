@@ -18,6 +18,8 @@ from flightlab.analysis import (
     CampaignMetricResidualToleranceResult,
     CampaignMetricValidationResidualEnvelope,
     CampaignParameterChange,
+    CampaignProjectionErrorComparisonEnvelopeLimitVerdict,
+    CampaignProjectionErrorMetricFieldIdentity,
     CampaignProjectionErrorSummaryCollection,
     CampaignProjectionErrorSummaryComparisonSetResult,
     CampaignProjectionErrorSummaryDifferenceEnvelope,
@@ -36,6 +38,7 @@ from flightlab.analysis import (
     SensitivityMatrixParameter,
     campaign_metric_deltas,
     campaign_projection_envelopes,
+    campaign_projection_error_comparison_envelope_limit_verdict,
     campaign_projection_error_comparison_set_metric_envelopes,
     campaign_projection_error_summaries,
     campaign_projection_residuals,
@@ -2710,6 +2713,162 @@ def test_comparison_envelope_limits_support_empty_generators_and_immutability():
     assert first is not repeated
     with pytest.raises(FrozenInstanceError):
         first[0].passed = False
+
+
+def _difference_limit_result_block(metric="iae", states=None):
+    if states is None:
+        states = ("pass",) * len(_DIFFERENCE_FIELDS)
+    envelopes = []
+    for field, state in zip(_DIFFERENCE_FIELDS, states):
+        if state == "undefined":
+            envelopes.append(
+                CampaignProjectionErrorSummaryDifferenceEnvelope(
+                    metric, field, None, None, None, None
+                )
+            )
+        else:
+            minimum, maximum = ((0.0, 0.0) if state == "pass" else (2.0, 3.0))
+            envelopes.append(
+                CampaignProjectionErrorSummaryDifferenceEnvelope(
+                    metric, field, minimum, "first", maximum, "first"
+                )
+            )
+    limits = _difference_limits(envelopes, -1.0, 1.0)
+    return check_campaign_projection_error_comparison_envelope_limits(envelopes, limits)
+
+
+def _copy_difference_limit_result(result, **changes):
+    values = {
+        "metric_name": result.metric_name,
+        "difference_field": result.difference_field,
+        "observed_minimum_difference": result.observed_minimum_difference,
+        "observed_maximum_difference": result.observed_maximum_difference,
+        "allowable_minimum_difference": result.allowable_minimum_difference,
+        "allowable_maximum_difference": result.allowable_maximum_difference,
+        "lower_margin": result.lower_margin,
+        "upper_margin": result.upper_margin,
+        "passed": result.passed,
+    }
+    values.update(changes)
+    return CampaignProjectionErrorSummaryDifferenceLimitResult(**values)
+
+
+def test_comparison_envelope_limit_verdict_passes_when_all_results_pass():
+    verdict = campaign_projection_error_comparison_envelope_limit_verdict(
+        _difference_limit_result_block()
+    )
+    assert verdict.overall_passed is True
+    assert tuple(identity.difference_field for identity in verdict.passing_identities) == (
+        _DIFFERENCE_FIELDS
+    )
+    assert verdict.failing_identities == ()
+    assert verdict.undefined_identities == ()
+
+
+def test_comparison_envelope_limit_verdict_classifies_one_and_multiple_failures():
+    one_failure = campaign_projection_error_comparison_envelope_limit_verdict(
+        _difference_limit_result_block(states=("pass", "fail", *("pass",) * 5))
+    )
+    assert one_failure.failing_identities == (
+        CampaignProjectionErrorMetricFieldIdentity("iae", _DIFFERENCE_FIELDS[1]),
+    )
+    assert one_failure.overall_passed is False
+
+    multiple = campaign_projection_error_comparison_envelope_limit_verdict(
+        _difference_limit_result_block(states=("fail", "pass", "fail", *("pass",) * 4))
+    )
+    assert tuple(item.difference_field for item in multiple.failing_identities) == (
+        _DIFFERENCE_FIELDS[0],
+        _DIFFERENCE_FIELDS[2],
+    )
+
+
+def test_comparison_envelope_limit_verdict_classifies_undefined_and_mixed_in_order():
+    results = _difference_limit_result_block(
+        states=("undefined", "pass", "fail", "undefined", "pass", "fail", "pass")
+    )
+    verdict = campaign_projection_error_comparison_envelope_limit_verdict(
+        item for item in results
+    )
+    assert tuple(item.difference_field for item in verdict.passing_identities) == (
+        _DIFFERENCE_FIELDS[1], _DIFFERENCE_FIELDS[4], _DIFFERENCE_FIELDS[6]
+    )
+    assert tuple(item.difference_field for item in verdict.failing_identities) == (
+        _DIFFERENCE_FIELDS[2], _DIFFERENCE_FIELDS[5]
+    )
+    assert tuple(item.difference_field for item in verdict.undefined_identities) == (
+        _DIFFERENCE_FIELDS[0], _DIFFERENCE_FIELDS[3]
+    )
+    assert verdict.overall_passed is False
+
+
+def test_comparison_envelope_limit_verdict_preserves_metric_order_in_categories():
+    results = _difference_limit_result_block("ise") + _difference_limit_result_block("iae")
+    verdict = campaign_projection_error_comparison_envelope_limit_verdict(results)
+    assert tuple(item.metric_name for item in verdict.passing_identities) == (
+        *("ise",) * 7,
+        *("iae",) * 7,
+    )
+
+
+def test_comparison_envelope_limit_verdict_rejects_duplicate_and_bad_ordering():
+    results = _difference_limit_result_block()
+    with pytest.raises(ValueError, match="duplicate limit-result metric"):
+        campaign_projection_error_comparison_envelope_limit_verdict(results + results)
+    reordered = (results[1], results[0], *results[2:])
+    with pytest.raises(ValueError, match="difference_field must be"):
+        campaign_projection_error_comparison_envelope_limit_verdict(reordered)
+
+
+def test_comparison_envelope_limit_verdict_rejects_optional_and_pass_states():
+    results = list(_difference_limit_result_block())
+    results[0] = _copy_difference_limit_result(results[0], lower_margin=None)
+    with pytest.raises(ValueError, match="inconsistent optional state"):
+        campaign_projection_error_comparison_envelope_limit_verdict(results)
+
+    undefined = list(_difference_limit_result_block(states=("undefined",) * 7))
+    undefined[0] = _copy_difference_limit_result(undefined[0], passed=True)
+    with pytest.raises(ValueError, match="undefined result cannot pass"):
+        campaign_projection_error_comparison_envelope_limit_verdict(undefined)
+
+    results = list(_difference_limit_result_block())
+    results[0] = _copy_difference_limit_result(results[0], passed=False)
+    with pytest.raises(ValueError, match="pass state is inconsistent"):
+        campaign_projection_error_comparison_envelope_limit_verdict(results)
+
+
+@pytest.mark.parametrize("value, match", [(float("inf"), "finite"), (True, "numeric")])
+def test_comparison_envelope_limit_verdict_rejects_nonfinite_or_boolean_values(value, match):
+    results = list(_difference_limit_result_block())
+    results[0] = _copy_difference_limit_result(
+        results[0], observed_minimum_difference=value
+    )
+    with pytest.raises(ValueError, match=match):
+        campaign_projection_error_comparison_envelope_limit_verdict(results)
+
+
+def test_comparison_envelope_limit_verdict_rejects_impossible_margins_and_entries():
+    results = list(_difference_limit_result_block())
+    results[0] = _copy_difference_limit_result(results[0], lower_margin=2.0)
+    with pytest.raises(ValueError, match="margins are inconsistent"):
+        campaign_projection_error_comparison_envelope_limit_verdict(results)
+    with pytest.raises(TypeError, match="DifferenceLimitResult"):
+        campaign_projection_error_comparison_envelope_limit_verdict((object(),) * 7)
+
+
+def test_comparison_envelope_limit_verdict_empty_is_nonpassing_and_immutable():
+    assert campaign_projection_error_comparison_envelope_limit_verdict(()) == (
+        CampaignProjectionErrorComparisonEnvelopeLimitVerdict(False, (), (), ())
+    )
+    source = list(_difference_limit_result_block())
+    first = campaign_projection_error_comparison_envelope_limit_verdict(source)
+    repeated = campaign_projection_error_comparison_envelope_limit_verdict(source)
+    assert first == repeated
+    assert first is not repeated
+    source.clear()
+    assert len(first.passing_identities) == 7
+    with pytest.raises(FrozenInstanceError):
+        first.overall_passed = False
 
 
 def test_one_scenario_is_both_minimum_and_maximum():

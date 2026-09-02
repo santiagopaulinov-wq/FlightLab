@@ -77,7 +77,9 @@ thirtieth layer reduces the stored comparison-set differences to immutable
 per-metric finite extrema with first-attaining comparison identities. The
 thirty-first layer checks those existing extrema against explicit aligned
 allowable difference intervals and reports deterministic margins and pass/fail
-states.
+states. The thirty-second layer reduces those checked fields to one immutable
+overall verdict with ordered passing, failing, and undefined metric/field
+identities.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -123,14 +125,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: explicit campaign projection-error comparison-envelope
-  limits.
+- Completed capability: campaign projection-error comparison-envelope limit
+  verdict.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add projection error comparison envelope limits`).
+  (`feat: add projection error comparison limit verdict`).
 
 ## Current verification baseline
 
-- Test count: 1308 tests.
+- Test count: 1318 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1082,11 +1084,10 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Move beyond comparison-envelope limit checks only by reducing their existing
-  pass/fail states to one deterministic verdict with ordered metric/field
-  identities. Do not infer priorities, add probabilistic claims, regression,
-  automatic correction, ranking, optimization, plotting, persistence, or
-  CLI/UI workflows yet.
+- Move beyond the overall comparison-envelope verdict only by deriving explicit
+  per-metric verdicts from its already validated field results. Do not infer
+  priorities, add probabilistic claims, regression, automatic correction,
+  ranking, optimization, plotting, persistence, or CLI/UI workflows yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -1101,30 +1102,30 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Campaign projection-error comparison-envelope limit verdict
+### Per-metric campaign projection-error comparison-envelope verdicts
 
 Add a small pure analysis API that reduces one existing ordered collection of
-comparison-envelope limit results to an immutable overall verdict with ordered
-passing, failing, and undefined metric/difference-field identities.
+comparison-envelope limit results to immutable per-metric verdicts with ordered
+passing, failing, and undefined difference-field identities.
 
 ## Suggested implementation direction
 
-- Consume and fully validate only existing immutable limit results; do not
-  recompute envelopes, margins, or pass states.
-- Preserve result order within passing, failing, and undefined classifications.
-- Retain metric and difference-field identity together in every category.
-- Define empty-input overall-verdict behavior explicitly and reject duplicate,
-  malformed, inconsistent, or nonfinite result records.
+- Reuse the complete existing limit-result validation and stored pass states;
+  do not recompute envelopes, margins, or limits.
+- Preserve first metric order and field order within each category.
+- A metric passes only when it has a complete nonempty set of defined passing
+  fields; retain failing and undefined fields separately.
+- Define empty input explicitly and reject malformed or incomplete metric
+  layouts.
 - Add no aggregation across comparisons, weighting, acceptance score,
   confidence interval, regression fit, automatic correction, ranking,
   optimization, plotting, persistence, or simulation.
 
 ## Focused tests to add
 
-- Verify all-passing, failing, undefined, and mixed result sets, exact category
-  order, metric/field identity, duplicate and malformed results, inconsistent
-  margins/pass states, empty and generator inputs, deterministic output,
-  immutability, and source isolation.
+- Verify one and multiple metrics, all-passing, failing, undefined, and mixed
+  fields, exact metric/category order, empty and generator inputs,
+  deterministic output, immutability, and validation propagation.
 
 ## Commands that must pass
 
@@ -1138,9 +1139,9 @@ git status
 ## Restart instruction
 
 Continue from the latest implementation commit. Read this file and inspect the
-existing projection-error comparison-envelope limit APIs, then implement the
-exact next smallest task: **Campaign projection-error comparison-envelope limit
-verdict**.
+existing projection-error comparison-envelope limit verdict APIs, then
+implement the exact next smallest task: **Per-metric campaign projection-error
+comparison-envelope verdicts**.
 Preserve the documented scope, run the required verification commands, commit
 the completed capability, and do not push. Do not touch the existing untracked
 `.vscode/`.
