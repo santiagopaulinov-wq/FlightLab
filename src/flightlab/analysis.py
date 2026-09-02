@@ -122,6 +122,123 @@ class CampaignMetricProjectionLimitResult:
     passed: bool
 
 
+@dataclass(frozen=True, slots=True)
+class CampaignRobustnessVerdict:
+    """Immutable deterministic verdict over ordered per-metric limit checks."""
+
+    overall_passed: bool
+    passing_metrics: tuple[str, ...]
+    failing_metrics: tuple[str, ...]
+    undefined_metrics: tuple[str, ...]
+
+
+def campaign_robustness_verdict(
+    limit_results: Iterable[CampaignMetricProjectionLimitResult],
+) -> CampaignRobustnessVerdict:
+    """Classify validated metric limit results into one campaign verdict."""
+    try:
+        result_iterator = iter(limit_results)
+    except TypeError as error:
+        raise TypeError("limit_results must be an iterable") from error
+    limit_results = tuple(result_iterator)
+
+    names = set()
+    passing = []
+    failing = []
+    undefined = []
+    for index, result in enumerate(limit_results):
+        state = _validated_limit_result(result, index)
+        if result.metric_name in names:
+            raise ValueError(f"duplicate metric name {result.metric_name!r}")
+        names.add(result.metric_name)
+        if state == "undefined":
+            undefined.append(result.metric_name)
+        elif result.passed:
+            passing.append(result.metric_name)
+        else:
+            failing.append(result.metric_name)
+
+    return CampaignRobustnessVerdict(
+        overall_passed=bool(limit_results) and not failing and not undefined,
+        passing_metrics=tuple(passing),
+        failing_metrics=tuple(failing),
+        undefined_metrics=tuple(undefined),
+    )
+
+
+def _validated_limit_result(result, index):
+    if not isinstance(result, CampaignMetricProjectionLimitResult):
+        raise TypeError(
+            f"limit_results[{index}] must be a "
+            "CampaignMetricProjectionLimitResult"
+        )
+    if type(result.metric_name) is not str or not result.metric_name.strip():
+        raise ValueError(f"limit_results[{index}].metric_name must be non-empty")
+    if result.metric_name not in _METRIC_KEYS:
+        raise ValueError(
+            f"limit_results[{index}] has unknown metric {result.metric_name!r}"
+        )
+    if type(result.passed) is not bool:
+        raise ValueError(f"limit_results[{index}].passed must be a boolean")
+    lower = _finite_numeric(
+        f"limit_results[{index}].allowable_lower", result.allowable_lower
+    )
+    upper = _finite_numeric(
+        f"limit_results[{index}].allowable_upper", result.allowable_upper
+    )
+    if lower > upper:
+        raise ValueError(
+            f"limit_results[{index}] allowable_lower must not exceed allowable_upper"
+        )
+
+    observed_undefined = (
+        result.observed_minimum is None and result.observed_maximum is None
+    )
+    margins_undefined = result.lower_margin is None and result.upper_margin is None
+    if (
+        (result.observed_minimum is None) != (result.observed_maximum is None)
+        or (result.lower_margin is None) != (result.upper_margin is None)
+        or observed_undefined != margins_undefined
+    ):
+        raise ValueError(f"limit_results[{index}] has inconsistent undefined state")
+    if observed_undefined:
+        if result.passed:
+            raise ValueError(f"limit_results[{index}] undefined metric cannot pass")
+        return "undefined"
+
+    minimum = _finite_numeric(
+        f"limit_results[{index}].observed_minimum", result.observed_minimum
+    )
+    maximum = _finite_numeric(
+        f"limit_results[{index}].observed_maximum", result.observed_maximum
+    )
+    if minimum > maximum:
+        raise ValueError(
+            f"limit_results[{index}] observed_minimum must not exceed observed_maximum"
+        )
+    lower_margin = _finite_numeric(
+        f"limit_results[{index}].lower_margin", result.lower_margin
+    )
+    upper_margin = _finite_numeric(
+        f"limit_results[{index}].upper_margin", result.upper_margin
+    )
+    expected_lower_margin = minimum - lower
+    expected_upper_margin = upper - maximum
+    if not math.isfinite(expected_lower_margin) or not math.isfinite(
+        expected_upper_margin
+    ):
+        raise ValueError(f"limit_results[{index}] expected margins must be finite")
+    if (
+        lower_margin != expected_lower_margin
+        or upper_margin != expected_upper_margin
+    ):
+        raise ValueError(f"limit_results[{index}] margins are inconsistent")
+    expected_pass = lower_margin >= 0.0 and upper_margin >= 0.0
+    if result.passed is not expected_pass:
+        raise ValueError(f"limit_results[{index}] pass state is inconsistent")
+    return "defined"
+
+
 def check_campaign_projection_envelope_limits(
     envelopes: Iterable[CampaignMetricProjectionEnvelope],
     limits: Iterable[CampaignMetricProjectionLimit],

@@ -51,6 +51,8 @@ per scenario. The nineteenth layer reduces those existing scenario projections
 to deterministic per-metric finite extrema and first-attaining scenario names.
 The twentieth layer checks those envelopes against explicit allowable metric-
 change bounds and reports ordered deterministic margins and pass/fail results.
+The twenty-first layer reduces those existing per-metric checks to one immutable
+overall verdict with ordered passing, failing, and undefined metric categories.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -96,14 +98,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: explicit immutable projection-envelope limit checks with
-  deterministic lower/upper margins and per-metric pass/fail results.
+- Completed capability: deterministic immutable overall campaign robustness
+  verdicts over validated per-metric envelope-limit results.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add campaign projection envelope limit checks`).
+  (`feat: add deterministic campaign robustness verdicts`).
 
 ## Current verification baseline
 
-- Test count: 1156 tests.
+- Test count: 1170 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -343,6 +345,12 @@ or EXACT set matching for both inclusions and exclusions.
   allowable bounds, exact lower/upper margins, and a pass flag requiring both
   margins to be nonnegative. Undefined envelopes retain `None` margins and do
   not pass.
+- `campaign_robustness_verdict()` validates stored extrema/bounds/margin/pass
+  consistency and classifies unique metrics without recomputing any upstream
+  analysis.
+- `CampaignRobustnessVerdict` preserves ordered passing, failing, and undefined
+  metric-name tuples. Overall pass requires a nonempty input with every metric
+  defined and passing; empty input is explicitly non-passing.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -1049,11 +1057,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next robustness layer limited to one deterministic overall verdict
-  over an existing ordered set of per-metric envelope-limit results. Do not add
-  scores, weighting, probabilities, sampling, Monte Carlo work, metric or
-  scenario ranking, optimization, plotting, persistence, or CLI/UI workflows
-  yet.
+- Move beyond verdict aggregation. Keep the next analysis layer limited to
+  comparing one explicit scenario projection with one caller-selected observed
+  campaign metric-delta entry. Do not infer matches, add regression, aggregate
+  error statistics, ranking, optimization, plotting, persistence, or CLI/UI
+  workflows yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -1068,29 +1076,31 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Deterministic campaign robustness verdicts
+### Observed-versus-projected campaign metric residuals
 
-Add a small pure analysis API that summarizes one existing ordered collection
-of per-metric projection-envelope limit results as an immutable overall verdict
-with ordered passing, failing, and undefined metric names.
+Add a small pure analysis API that compares one existing named scenario
+projection with one explicit caller-selected observed `CampaignDeltaEntry` and
+returns immutable ordered per-metric residuals.
 
 ## Suggested implementation direction
 
-- Validate unique metric names and internally consistent defined/undefined
-  margin and pass states without revisiting envelopes or limits.
-- Preserve metric order within passing, failing, and undefined categories.
-- Define overall pass as true only when at least one metric is checked and every
-  metric passes with no undefined result.
-- Return counts and ordered metric-name tuples only; add no score, weighting,
-  severity ranking, or implicit priority.
-- Add no probability model, sampling, optimization, plotting, persistence, or
-  scenario-level ranking.
+- Require the caller to provide both the scenario result and observed delta
+  entry explicitly; infer no run/scenario correspondence.
+- Require identical ordered metric layouts and compute each available residual
+  as `observed_metric_delta - predicted_metric_change`.
+- Preserve scenario name, observed run ID, metric order, predicted values,
+  observed values, and residuals in frozen detached results.
+- Propagate optional undefined values without treating them as zero and reject
+  nonfinite residuals.
+- Add no regression fit, aggregate error score, norm, statistics, ranking,
+  optimization, plotting, persistence, or simulation.
 
 ## Focused tests to add
 
-- Verify all-pass, mixed-failure, and undefined verdicts; exact category order;
-  empty input; duplicate names; inconsistent margins/pass flags; nonfinite
-  values; deterministic output, immutability, and source isolation.
+- Verify positive/negative/zero residuals, multiple metrics, exact ordering,
+  explicit identities, optional values, mismatched layouts, malformed or
+  nonfinite inputs/results, deterministic output, immutability, and source
+  isolation.
 
 ## Commands that must pass
 

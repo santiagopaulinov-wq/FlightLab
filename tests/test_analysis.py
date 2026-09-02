@@ -13,11 +13,13 @@ from flightlab.analysis import (
     CampaignParameterChange,
     CampaignProjectionScenario,
     CampaignProjectionScenarioResult,
+    CampaignRobustnessVerdict,
     CampaignSensitivityEntry,
     CampaignSensitivityMatrix,
     SensitivityMatrixParameter,
     campaign_metric_deltas,
     campaign_projection_envelopes,
+    campaign_robustness_verdict,
     campaign_secant_sensitivities,
     campaign_sensitivity_matrix,
     check_campaign_projection_envelope_limits,
@@ -1302,3 +1304,152 @@ def test_limit_check_results_are_immutable_deterministic_and_detached():
         first[0].passed = False
     with pytest.raises(TypeError):
         first[0] = first[0]
+
+
+def _limit_result(metric_name, lower_margin, upper_margin, passed):
+    if lower_margin is None and upper_margin is None:
+        return CampaignMetricProjectionLimitResult(
+            metric_name, None, None, -5.0, 5.0, None, None, passed
+        )
+    return CampaignMetricProjectionLimitResult(
+        metric_name=metric_name,
+        observed_minimum=-5.0 + lower_margin,
+        observed_maximum=5.0 - upper_margin,
+        allowable_lower=-5.0,
+        allowable_upper=5.0,
+        lower_margin=lower_margin,
+        upper_margin=upper_margin,
+        passed=passed,
+    )
+
+
+def test_robustness_verdict_passes_when_all_metrics_pass():
+    verdict = campaign_robustness_verdict(
+        (_limit_result("iae", 1.0, 2.0, True), _limit_result("ise", 0.0, 3.0, True))
+    )
+
+    assert verdict == CampaignRobustnessVerdict(
+        overall_passed=True,
+        passing_metrics=("iae", "ise"),
+        failing_metrics=(),
+        undefined_metrics=(),
+    )
+
+
+def test_robustness_verdict_classifies_multiple_failures_in_metric_order():
+    verdict = campaign_robustness_verdict(
+        (
+            _limit_result("iae", 1.0, 1.0, True),
+            _limit_result("ise", -1.0, 2.0, False),
+            _limit_result("settling_time", 3.0, -2.0, False),
+        )
+    )
+
+    assert verdict.overall_passed is False
+    assert verdict.passing_metrics == ("iae",)
+    assert verdict.failing_metrics == ("ise", "settling_time")
+    assert verdict.undefined_metrics == ()
+
+
+def test_robustness_verdict_separates_passing_failing_and_undefined_metrics():
+    verdict = campaign_robustness_verdict(
+        (
+            _limit_result("settling_time", None, None, False),
+            _limit_result("iae", 1.0, 1.0, True),
+            _limit_result("ise", -1.0, 1.0, False),
+            _limit_result("overshoot_percent", None, None, False),
+        )
+    )
+
+    assert verdict == CampaignRobustnessVerdict(
+        overall_passed=False,
+        passing_metrics=("iae",),
+        failing_metrics=("ise",),
+        undefined_metrics=("settling_time", "overshoot_percent"),
+    )
+
+
+def test_empty_limit_results_return_an_explicit_nonpassing_verdict():
+    assert campaign_robustness_verdict(()) == CampaignRobustnessVerdict(
+        overall_passed=False,
+        passing_metrics=(),
+        failing_metrics=(),
+        undefined_metrics=(),
+    )
+
+
+def test_robustness_verdict_materializes_generator_input():
+    results = (
+        _limit_result(metric_name, 1.0, 1.0, True)
+        for metric_name in ("iae", "ise")
+    )
+
+    assert campaign_robustness_verdict(results).passing_metrics == ("iae", "ise")
+
+
+def test_robustness_verdict_rejects_blank_and_duplicate_metric_names():
+    with pytest.raises(ValueError, match="metric_name must be non-empty"):
+        campaign_robustness_verdict((_limit_result(" ", 1.0, 1.0, True),))
+    with pytest.raises(ValueError, match="duplicate metric name 'iae'"):
+        campaign_robustness_verdict(
+            (
+                _limit_result("iae", 1.0, 1.0, True),
+                _limit_result("iae", 2.0, 2.0, True),
+            )
+        )
+
+
+def test_robustness_verdict_rejects_inconsistent_undefined_and_pass_states():
+    undefined_pass = _limit_result("iae", None, None, True)
+    with pytest.raises(ValueError, match="undefined metric cannot pass"):
+        campaign_robustness_verdict((undefined_pass,))
+
+    partial = CampaignMetricProjectionLimitResult(
+        "iae", None, 1.0, -5.0, 5.0, None, 4.0, False
+    )
+    with pytest.raises(ValueError, match="inconsistent undefined state"):
+        campaign_robustness_verdict((partial,))
+
+    impossible_pass = _limit_result("iae", -1.0, 1.0, True)
+    with pytest.raises(ValueError, match="pass state is inconsistent"):
+        campaign_robustness_verdict((impossible_pass,))
+
+
+def test_robustness_verdict_rejects_inconsistent_margins():
+    inconsistent = CampaignMetricProjectionLimitResult(
+        "iae", -2.0, 3.0, -5.0, 5.0, 99.0, 2.0, True
+    )
+
+    with pytest.raises(ValueError, match="margins are inconsistent"):
+        campaign_robustness_verdict((inconsistent,))
+
+
+@pytest.mark.parametrize("value", [True, "bad", float("inf"), float("nan")])
+def test_robustness_verdict_rejects_nonnumeric_or_nonfinite_fields(value):
+    invalid = CampaignMetricProjectionLimitResult(
+        "iae", value, 3.0, -5.0, 5.0, 3.0, 2.0, True
+    )
+
+    with pytest.raises(ValueError, match=r"observed_minimum.*(numeric|finite)"):
+        campaign_robustness_verdict((invalid,))
+
+
+def test_robustness_verdict_rejects_malformed_entries():
+    with pytest.raises(TypeError, match="CampaignMetricProjectionLimitResult"):
+        campaign_robustness_verdict((object(),))
+
+
+def test_robustness_verdict_is_immutable_deterministic_and_detached():
+    source = [
+        _limit_result("iae", 1.0, 2.0, True),
+        _limit_result("ise", -1.0, 2.0, False),
+    ]
+    first = campaign_robustness_verdict(source)
+    repeated = campaign_robustness_verdict(source)
+
+    assert first == repeated
+    source.clear()
+    assert first.passing_metrics == ("iae",)
+    assert first.failing_metrics == ("ise",)
+    with pytest.raises(FrozenInstanceError):
+        first.overall_passed = True

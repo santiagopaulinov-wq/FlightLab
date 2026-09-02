@@ -1136,6 +1136,24 @@ It is not a probabilistic safety guarantee. Empty envelopes plus empty limits
 return `()`. The API infers no limit and performs no projection recomputation,
 ranking, probability modeling, simulation, or persistence.
 
+`campaign_robustness_verdict(limit_results)` reduces an existing ordered set of
+per-metric limit checks to one frozen `CampaignRobustnessVerdict`. It retains
+`overall_passed` plus ordered tuples of passing, failing, and undefined metric
+names. Defined results use their existing `passed` flag; undefined extrema and
+margins are classified separately rather than as ordinary failures.
+
+Overall pass is true only when at least one metric was checked and every metric
+is defined and passing. Any failing or undefined metric makes it false. Empty
+input returns an explicit non-passing verdict with all category tuples empty.
+Before classification, the API validates exact relationships among observed
+extrema, allowable bounds, stored margins, and pass state without recomputing
+envelopes or projections.
+
+This is a deterministic verdict over explicit scenario projections and
+caller-defined limits. It is not a probabilistic certification, formal safety
+proof, weighted score, or nonlinear robustness guarantee. No metric is ranked
+or assigned an implicit priority.
+
 An execution failure propagates unchanged and prevents all campaign
 persistence. Any run, manifest, or membership failure propagates after
 execution and rolls back every newly inserted campaign row. Existing records
