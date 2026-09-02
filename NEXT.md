@@ -49,6 +49,8 @@ The eighteenth layer applies the same matrix to a finite explicit ordered
 collection of named change scenarios while retaining one immutable projection
 per scenario. The nineteenth layer reduces those existing scenario projections
 to deterministic per-metric finite extrema and first-attaining scenario names.
+The twentieth layer checks those envelopes against explicit allowable metric-
+change bounds and reports ordered deterministic margins and pass/fail results.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -94,14 +96,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: deterministic immutable per-metric projection envelopes
-  over explicit ordered campaign scenarios.
+- Completed capability: explicit immutable projection-envelope limit checks with
+  deterministic lower/upper margins and per-metric pass/fail results.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add deterministic campaign projection envelopes`).
+  (`feat: add campaign projection envelope limit checks`).
 
 ## Current verification baseline
 
-- Test count: 1139 tests.
+- Test count: 1156 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -334,6 +336,13 @@ or EXACT set matching for both inclusions and exclusions.
   bounds, and first-attaining scenario names. Exact ties use scenario order;
   `None` predictions are excluded, and an all-undefined metric has no bounds or
   attaining names.
+- `check_campaign_projection_envelope_limits()` requires exact ordered metric
+  coverage by finite explicit `CampaignMetricProjectionLimit` intervals and
+  reuses existing envelope extrema without recomputation.
+- Each frozen `CampaignMetricProjectionLimitResult` contains observed extrema,
+  allowable bounds, exact lower/upper margins, and a pass flag requiring both
+  margins to be nonnegative. Undefined envelopes retain `None` margins and do
+  not pass.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -1040,11 +1049,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next robustness layer limited to checking existing projection
-  envelopes against caller-supplied explicit per-metric lower and upper
-  predicted-change limits. Do not infer limits, add probabilities, sampling,
-  Monte Carlo work, global scenario ranking, optimization, plotting,
-  persistence, or CLI/UI workflows yet.
+- Keep the next robustness layer limited to one deterministic overall verdict
+  over an existing ordered set of per-metric envelope-limit results. Do not add
+  scores, weighting, probabilities, sampling, Monte Carlo work, metric or
+  scenario ranking, optimization, plotting, persistence, or CLI/UI workflows
+  yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -1059,31 +1068,29 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Explicit campaign projection-envelope limit checks
+### Deterministic campaign robustness verdicts
 
-Add a small pure analysis API that compares existing ordered metric projection
-envelopes with caller-supplied explicit allowable lower and upper predicted-
-change limits and returns immutable ordered margins and pass/fail results.
+Add a small pure analysis API that summarizes one existing ordered collection
+of per-metric projection-envelope limit results as an immutable overall verdict
+with ordered passing, failing, and undefined metric names.
 
 ## Suggested implementation direction
 
-- Require one unique explicit metric limit specification per envelope in exact
-  metric order; infer no threshold or alignment.
-- Compute lower margin as `envelope.minimum - allowed_lower` and upper margin as
-  `allowed_upper - envelope.maximum`, with nonnegative margins passing.
-- Preserve attaining scenario names so failed limits remain traceable to the
-  explicit scenario set.
-- Define unavailable-envelope behavior explicitly without treating missing
-  extrema as passing or zero.
-- Add no aggregate score, global pass ranking, probability model, sampling,
-  optimization, plotting, or persistence.
+- Validate unique metric names and internally consistent defined/undefined
+  margin and pass states without revisiting envelopes or limits.
+- Preserve metric order within passing, failing, and undefined categories.
+- Define overall pass as true only when at least one metric is checked and every
+  metric passes with no undefined result.
+- Return counts and ordered metric-name tuples only; add no score, weighting,
+  severity ranking, or implicit priority.
+- Add no probability model, sampling, optimization, plotting, persistence, or
+  scenario-level ranking.
 
 ## Focused tests to add
 
-- Verify passing and failing lower/upper margins, exact metric order, boundary
-  equality, attaining-name retention, unavailable envelopes, malformed limits,
-  duplicate/mismatched metrics, nonfinite values, empty input, deterministic
-  output, immutability, and source isolation.
+- Verify all-pass, mixed-failure, and undefined verdicts; exact category order;
+  empty input; duplicate names; inconsistent margins/pass flags; nonfinite
+  values; deterministic output, immutability, and source isolation.
 
 ## Commands that must pass
 

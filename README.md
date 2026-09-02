@@ -1112,6 +1112,30 @@ claim probabilistic robustness. Empty scenario input returns `()`. The pure
 analysis performs no projection recomputation, simulation, sampling,
 optimization, plotting, or persistence.
 
+`check_campaign_projection_envelope_limits(envelopes, limits)` checks those
+ordered deterministic envelopes against explicit caller-defined allowable
+predicted-change intervals. Each frozen `CampaignMetricProjectionLimit` names
+one metric and its finite lower/upper bounds in exact envelope order.
+
+For a defined envelope, the API computes:
+
+```text
+lower_margin = observed_minimum - allowable_lower
+upper_margin = allowable_upper - observed_maximum
+```
+
+The frozen `CampaignMetricProjectionLimitResult` preserves metric order,
+observed extrema, allowable limits, both margins, and `passed`. A metric passes
+only when both margins are nonnegative; equality is a zero-margin pass. If the
+envelope is undefined, observed extrema and margins remain `None` and the metric
+does not pass. Missing information is never treated as zero or success.
+
+This is a deterministic requirement/robustness check asking whether predicted
+excursions from the explicit scenario set remain inside caller-supplied bounds.
+It is not a probabilistic safety guarantee. Empty envelopes plus empty limits
+return `()`. The API infers no limit and performs no projection recomputation,
+ranking, probability modeling, simulation, or persistence.
+
 An execution failure propagates unchanged and prevents all campaign
 persistence. Any run, manifest, or membership failure propagates after
 execution and rolls back every newly inserted campaign row. Existing records

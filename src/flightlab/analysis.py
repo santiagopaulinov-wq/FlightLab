@@ -99,6 +99,144 @@ class CampaignMetricProjectionEnvelope:
     maximum_scenario: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class CampaignMetricProjectionLimit:
+    """One explicit allowable predicted-change interval for a metric."""
+
+    metric_name: str
+    allowable_lower: float
+    allowable_upper: float
+
+
+@dataclass(frozen=True, slots=True)
+class CampaignMetricProjectionLimitResult:
+    """Immutable envelope-to-limit margins and pass/fail result."""
+
+    metric_name: str
+    observed_minimum: float | None
+    observed_maximum: float | None
+    allowable_lower: float
+    allowable_upper: float
+    lower_margin: float | None
+    upper_margin: float | None
+    passed: bool
+
+
+def check_campaign_projection_envelope_limits(
+    envelopes: Iterable[CampaignMetricProjectionEnvelope],
+    limits: Iterable[CampaignMetricProjectionLimit],
+) -> tuple[CampaignMetricProjectionLimitResult, ...]:
+    """Check ordered deterministic projection envelopes against explicit limits."""
+    try:
+        envelope_iterator = iter(envelopes)
+    except TypeError as error:
+        raise TypeError("envelopes must be an iterable") from error
+    try:
+        limit_iterator = iter(limits)
+    except TypeError as error:
+        raise TypeError("limits must be an iterable") from error
+    envelopes = tuple(envelope_iterator)
+    limits = tuple(limit_iterator)
+    if len(envelopes) != len(limits):
+        raise ValueError("limits must provide exact metric coverage")
+
+    metric_names = set()
+    limit_names = set()
+    validated = []
+    for index, (envelope, limit) in enumerate(zip(envelopes, limits)):
+        minimum, maximum = _validated_projection_envelope(envelope, index)
+        if envelope.metric_name in metric_names:
+            raise ValueError(f"duplicate envelope metric {envelope.metric_name!r}")
+        metric_names.add(envelope.metric_name)
+        if not isinstance(limit, CampaignMetricProjectionLimit):
+            raise TypeError(
+                f"limits[{index}] must be a CampaignMetricProjectionLimit"
+            )
+        if type(limit.metric_name) is not str or not limit.metric_name.strip():
+            raise ValueError(f"limits[{index}].metric_name must be non-empty")
+        if limit.metric_name in limit_names:
+            raise ValueError(f"duplicate limit metric {limit.metric_name!r}")
+        limit_names.add(limit.metric_name)
+        if limit.metric_name != envelope.metric_name:
+            raise ValueError(
+                f"limits[{index}].metric_name must be {envelope.metric_name!r}"
+            )
+        lower = _finite_numeric(
+            f"limits[{index}].allowable_lower", limit.allowable_lower
+        )
+        upper = _finite_numeric(
+            f"limits[{index}].allowable_upper", limit.allowable_upper
+        )
+        if lower > upper:
+            raise ValueError(
+                f"limits[{index}] allowable_lower must not exceed allowable_upper"
+            )
+        validated.append((envelope.metric_name, minimum, maximum, lower, upper))
+
+    results = []
+    for metric_name, minimum, maximum, lower, upper in validated:
+        if minimum is None:
+            lower_margin = None
+            upper_margin = None
+            passed = False
+        else:
+            lower_margin = minimum - lower
+            upper_margin = upper - maximum
+            if not math.isfinite(lower_margin) or not math.isfinite(upper_margin):
+                raise ValueError(f"metric {metric_name!r} margins must be finite")
+            passed = lower_margin >= 0.0 and upper_margin >= 0.0
+        results.append(
+            CampaignMetricProjectionLimitResult(
+                metric_name=metric_name,
+                observed_minimum=minimum,
+                observed_maximum=maximum,
+                allowable_lower=lower,
+                allowable_upper=upper,
+                lower_margin=lower_margin,
+                upper_margin=upper_margin,
+                passed=passed,
+            )
+        )
+    return tuple(results)
+
+
+def _validated_projection_envelope(envelope, index):
+    if not isinstance(envelope, CampaignMetricProjectionEnvelope):
+        raise TypeError(
+            f"envelopes[{index}] must be a CampaignMetricProjectionEnvelope"
+        )
+    if type(envelope.metric_name) is not str or not envelope.metric_name.strip():
+        raise ValueError(f"envelopes[{index}].metric_name must be non-empty")
+    if envelope.metric_name not in _METRIC_KEYS:
+        raise ValueError(f"envelopes[{index}] has unknown metric {envelope.metric_name!r}")
+
+    values_undefined = envelope.minimum is None and envelope.maximum is None
+    names_undefined = (
+        envelope.minimum_scenario is None and envelope.maximum_scenario is None
+    )
+    if (
+        (envelope.minimum is None) != (envelope.maximum is None)
+        or (envelope.minimum_scenario is None)
+        != (envelope.maximum_scenario is None)
+        or values_undefined != names_undefined
+    ):
+        raise ValueError(f"envelopes[{index}] has inconsistent undefined state")
+    if values_undefined:
+        return None, None
+
+    minimum = _finite_numeric(f"envelopes[{index}].minimum", envelope.minimum)
+    maximum = _finite_numeric(f"envelopes[{index}].maximum", envelope.maximum)
+    if minimum > maximum:
+        raise ValueError(f"envelopes[{index}] minimum must not exceed maximum")
+    for name, value in (
+        ("minimum_scenario", envelope.minimum_scenario),
+        ("maximum_scenario", envelope.maximum_scenario),
+    ):
+        if type(value) is not str or not value.strip():
+            raise ValueError(f"envelopes[{index}].{name} must be non-empty")
+    return minimum, maximum
+
+
 def campaign_projection_envelopes(
     scenario_results: Iterable[CampaignProjectionScenarioResult],
 ) -> tuple[CampaignMetricProjectionEnvelope, ...]:

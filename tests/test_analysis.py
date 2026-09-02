@@ -8,6 +8,8 @@ from flightlab.analysis import (
     CampaignDeltaEntry,
     CampaignMetricChangeProjection,
     CampaignMetricProjectionEnvelope,
+    CampaignMetricProjectionLimit,
+    CampaignMetricProjectionLimitResult,
     CampaignParameterChange,
     CampaignProjectionScenario,
     CampaignProjectionScenarioResult,
@@ -18,6 +20,7 @@ from flightlab.analysis import (
     campaign_projection_envelopes,
     campaign_secant_sensitivities,
     campaign_sensitivity_matrix,
+    check_campaign_projection_envelope_limits,
     compare_campaign_runs,
     project_campaign_metric_changes,
     project_campaign_scenarios,
@@ -1137,5 +1140,165 @@ def test_projection_envelopes_are_immutable_deterministic_and_detached():
     assert first[0].maximum == 3.0
     with pytest.raises(FrozenInstanceError):
         first[0].minimum = 0.0
+    with pytest.raises(TypeError):
+        first[0] = first[0]
+
+
+def _envelope(metric_name="iae", minimum=-2.0, maximum=3.0):
+    if minimum is None and maximum is None:
+        return CampaignMetricProjectionEnvelope(metric_name, None, None, None, None)
+    return CampaignMetricProjectionEnvelope(
+        metric_name, minimum, "minimum", maximum, "maximum"
+    )
+
+
+def test_envelope_limit_check_clear_pass_and_exact_margins():
+    result = check_campaign_projection_envelope_limits(
+        (_envelope(),), (CampaignMetricProjectionLimit("iae", -5.0, 7.0),)
+    )
+
+    assert result == (
+        CampaignMetricProjectionLimitResult(
+            metric_name="iae",
+            observed_minimum=-2.0,
+            observed_maximum=3.0,
+            allowable_lower=-5.0,
+            allowable_upper=7.0,
+            lower_margin=3.0,
+            upper_margin=4.0,
+            passed=True,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("lower", "upper", "lower_margin", "upper_margin"),
+    [
+        (-1.0, 5.0, -1.0, 2.0),
+        (-5.0, 2.0, 3.0, -1.0),
+        (-1.0, 2.0, -1.0, -1.0),
+    ],
+    ids=("lower-failure", "upper-failure", "both-failure"),
+)
+def test_envelope_limit_check_reports_each_failure_kind(
+    lower, upper, lower_margin, upper_margin
+):
+    result = check_campaign_projection_envelope_limits(
+        (_envelope(),), (CampaignMetricProjectionLimit("iae", lower, upper),)
+    )[0]
+
+    assert result.lower_margin == lower_margin
+    assert result.upper_margin == upper_margin
+    assert result.passed is False
+
+
+def test_envelope_limit_exact_boundaries_pass_with_zero_margins():
+    result = check_campaign_projection_envelope_limits(
+        (_envelope(),), (CampaignMetricProjectionLimit("iae", -2.0, 3.0),)
+    )[0]
+
+    assert result.lower_margin == 0.0
+    assert result.upper_margin == 0.0
+    assert result.passed is True
+
+
+def test_multiple_metric_limit_checks_preserve_envelope_order():
+    envelopes = (_envelope("ise", -4.0, -1.0), _envelope("iae", 2.0, 5.0))
+    limits = (
+        CampaignMetricProjectionLimit("ise", -5.0, 0.0),
+        CampaignMetricProjectionLimit("iae", 1.0, 6.0),
+    )
+
+    results = check_campaign_projection_envelope_limits(envelopes, limits)
+
+    assert tuple(result.metric_name for result in results) == ("ise", "iae")
+    assert tuple(result.passed for result in results) == (True, True)
+
+
+def test_undefined_envelope_has_no_margins_and_does_not_pass():
+    result = check_campaign_projection_envelope_limits(
+        (_envelope("settling_time", None, None),),
+        (CampaignMetricProjectionLimit("settling_time", -1.0, 1.0),),
+    )[0]
+
+    assert result.observed_minimum is None
+    assert result.observed_maximum is None
+    assert result.lower_margin is None
+    assert result.upper_margin is None
+    assert result.passed is False
+
+
+def test_empty_envelopes_and_limits_return_an_empty_tuple():
+    assert check_campaign_projection_envelope_limits((), ()) == ()
+
+
+def test_limit_checks_reject_missing_extra_and_misordered_limits():
+    envelopes = (_envelope("iae"), _envelope("ise"))
+    with pytest.raises(ValueError, match="exact metric coverage"):
+        check_campaign_projection_envelope_limits(
+            envelopes, (CampaignMetricProjectionLimit("iae", -5.0, 5.0),)
+        )
+    with pytest.raises(ValueError, match="exact metric coverage"):
+        check_campaign_projection_envelope_limits(
+            (_envelope("iae"),),
+            (
+                CampaignMetricProjectionLimit("iae", -5.0, 5.0),
+                CampaignMetricProjectionLimit("ise", -5.0, 5.0),
+            ),
+        )
+    with pytest.raises(ValueError, match=r"limits\[0\].*'iae'"):
+        check_campaign_projection_envelope_limits(
+            envelopes,
+            (
+                CampaignMetricProjectionLimit("ise", -5.0, 5.0),
+                CampaignMetricProjectionLimit("iae", -5.0, 5.0),
+            ),
+        )
+
+
+@pytest.mark.parametrize("value", [True, "bad", None, float("inf"), float("nan")])
+def test_limit_checks_reject_invalid_or_nonfinite_bounds(value):
+    with pytest.raises(ValueError, match=r"allowable_lower.*(numeric|finite)"):
+        check_campaign_projection_envelope_limits(
+            (_envelope(),), (CampaignMetricProjectionLimit("iae", value, 5.0),)
+        )
+
+
+def test_limit_checks_reject_reversed_bounds_and_nonfinite_margins():
+    with pytest.raises(ValueError, match="allowable_lower must not exceed"):
+        check_campaign_projection_envelope_limits(
+            (_envelope(),), (CampaignMetricProjectionLimit("iae", 5.0, -5.0),)
+        )
+
+    huge = _envelope("iae", 1e308, 1e308)
+    with pytest.raises(ValueError, match="margins must be finite"):
+        check_campaign_projection_envelope_limits(
+            (huge,), (CampaignMetricProjectionLimit("iae", -1e308, 1e308),)
+        )
+
+
+def test_limit_checks_reject_inconsistent_envelope_state():
+    inconsistent = CampaignMetricProjectionEnvelope(
+        "iae", None, "scenario", None, None
+    )
+    with pytest.raises(ValueError, match="inconsistent undefined state"):
+        check_campaign_projection_envelope_limits(
+            (inconsistent,), (CampaignMetricProjectionLimit("iae", -1.0, 1.0),)
+        )
+
+
+def test_limit_check_results_are_immutable_deterministic_and_detached():
+    envelopes = [_envelope()]
+    limits = [CampaignMetricProjectionLimit("iae", -5.0, 5.0)]
+    first = check_campaign_projection_envelope_limits(envelopes, limits)
+    repeated = check_campaign_projection_envelope_limits(envelopes, limits)
+
+    assert first == repeated
+    envelopes.clear()
+    limits.clear()
+    assert first[0].lower_margin == 3.0
+    assert first[0].upper_margin == 2.0
+    with pytest.raises(FrozenInstanceError):
+        first[0].passed = False
     with pytest.raises(TypeError):
         first[0] = first[0]
