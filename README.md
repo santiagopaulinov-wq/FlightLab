@@ -1548,6 +1548,20 @@ consistency. It invokes no aggregation or lower-level classification. The
 empty non-passing verdict produces the same schema with three empty lists, and
 every call returns equal but fully detached JSON-compatible data.
 
+`campaign_projection_error_comparison_envelope_named_assessment_collection_verdict_collection_verdict_records(
+entries)` applies that existing converter exactly once to each member of a
+finite ordered collection of frozen
+`CampaignProjectionErrorNamedAssessmentCollectionAggregateVerdict` entries.
+Every entry supplies one unique nonblank name and one existing aggregate
+verdict.
+
+The complete collection and all nested verdicts are validated before any
+conversion. The returned fresh `{name, verdict}` dictionaries preserve caller
+order and every stored inner category order, contain only JSON-compatible plain
+values, and are detached from their sources. Empty input returns `[]`. This
+completes the current aggregate-verdict record family without adding another
+serialization or aggregation layer.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

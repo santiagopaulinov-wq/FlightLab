@@ -108,6 +108,9 @@ ordered deterministic overview. The forty-seventh layer reduces those
 validated named verdicts to one immutable aggregate verdict with ordered
 passing, failing, and undefined verdict names. The forty-eighth layer converts
 that aggregate verdict to a fresh deterministic JSON-compatible plain record.
+The forty-ninth layer applies the converter to a finite caller-ordered
+collection of explicitly named aggregate verdicts, completing the current
+aggregate-verdict record family.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -153,14 +156,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: deterministic named assessment-collection aggregate
-  verdict record.
+- Completed capability: explicit ordered named assessment-collection aggregate
+  verdict records.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add assessment collection aggregate verdict record`).
+  (`feat: add named assessment collection aggregate verdict records`).
 
 ## Current verification baseline
 
-- Test count: 1434 tests.
+- Test count: 1439 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1131,32 +1134,29 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Explicit ordered named assessment-collection aggregate verdict records
+### Verification & Validation phase boundary
 
-Add a small pure conversion API that converts a finite caller-ordered
-collection of explicitly named assessment-collection aggregate verdicts
-through the existing single-aggregate-verdict record converter.
+Review the completed Experimental Platform reporting and aggregation evidence,
+then explicitly choose and specify the first Verification & Validation
+capability before adding another implementation layer.
 
 ## Suggested implementation direction
 
-- Require each entry to contain one explicit unique nonblank name and one
-  existing aggregate verdict.
-- Materialize and prevalidate the complete finite collection before invoking
-  any conversion.
-- Delegate exactly once per entry to the existing aggregate-verdict record API
-  while preserving outer order and every stored category order.
-- Return fresh detached JSON-compatible `{name, verdict}` dictionaries and
-  define empty input as `[]`.
-- Add no aggregation across comparisons, weighting, acceptance score,
-  confidence interval, regression fit, automatic correction, ranking,
-  optimization, plotting, persistence, or simulation.
+- Treat the named aggregate-verdict record collection as the endpoint of the
+  current reporting/aggregation serialization family.
+- Define the evidence question, scope, terminology, inputs, outputs, and
+  deterministic validation semantics for the first V&V capability before
+  implementation.
+- Distinguish analytical consistency checks from validation against external
+  physical evidence, and do not imply certification, confidence, or safety
+  assurance without an explicit evidence basis.
+- Do not automatically extend the named-record, overview, aggregate-verdict,
+  or serialization hierarchy.
 
 ## Focused tests to add
 
-- Verify one and multiple named aggregate verdicts, exact outer and category
-  order, blank/duplicate names, malformed entries and verdicts, complete
-  prevalidation, exact one-time delegation, empty and generator input, plain
-  output, mutation detachment, and deterministic repeated calls.
+- No implementation tests are prescribed until the first V&V capability and
+  its evidence contract are explicitly selected.
 
 ## Commands that must pass
 
@@ -1170,9 +1170,10 @@ git status
 ## Restart instruction
 
 Continue from the latest implementation commit. Read this file and inspect the
-existing named assessment-collection aggregate verdict record API, then
-implement the exact next smallest task: **Explicit ordered named assessment-
-collection aggregate verdict records**.
+completed Experimental Platform reporting and aggregation APIs, then perform
+the exact next smallest task: **Verification & Validation phase boundary**.
+Specify the first evidence-backed V&V capability before implementing it; do not
+automatically extend the serialization hierarchy.
 Preserve the documented scope, run the required verification commands, commit
 the completed capability, and do not push. Do not touch the existing untracked
 `.vscode/`.
