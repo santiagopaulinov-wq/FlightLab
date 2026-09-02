@@ -1111,6 +1111,30 @@ This pure comparison reuses existing deltas and projections and performs no
 simulation, metric calculation, projection, fitting, statistics, correction,
 or persistence.
 
+`check_campaign_projection_residual_tolerances(residuals, tolerances)` checks
+one existing residual result against explicit caller-defined maximum absolute
+residuals in exact metric order. Each frozen
+`CampaignMetricResidualTolerance` names one metric and its finite nonnegative
+tolerance. For every defined residual the API computes:
+
+```text
+absolute_residual = abs(residual)
+margin = maximum_absolute_residual - absolute_residual
+```
+
+The metric passes exactly when its margin is nonnegative, so an exact-boundary
+or zero-residual check passes. The frozen
+`CampaignProjectionResidualToleranceResults` retains the scenario name and
+observed run ID plus ordered `CampaignMetricResidualToleranceResult` entries
+containing the signed residual, absolute residual, tolerance, margin, and pass
+state. If a residual is `None`, its absolute residual and margin remain `None`
+and it does not pass.
+
+This answers whether each existing secant-based projection error remains inside
+one explicit absolute tolerance. It is a deterministic approximation-quality
+check, not statistical validation, uncertainty quantification, fitting,
+regression, or automatic model correction.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

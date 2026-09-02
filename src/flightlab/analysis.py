@@ -108,6 +108,35 @@ class CampaignProjectionResiduals:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignMetricResidualTolerance:
+    """One explicit maximum absolute residual tolerance for a metric."""
+
+    metric_name: str
+    maximum_absolute_residual: float
+
+
+@dataclass(frozen=True, slots=True)
+class CampaignMetricResidualToleranceResult:
+    """Immutable per-metric absolute residual tolerance check."""
+
+    metric_name: str
+    residual: float | None
+    absolute_residual: float | None
+    maximum_absolute_residual: float
+    margin: float | None
+    passed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CampaignProjectionResidualToleranceResults:
+    """Immutable ordered tolerance checks for one projection residual result."""
+
+    scenario_name: str
+    observed_run_id: str
+    metric_results: tuple[CampaignMetricResidualToleranceResult, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -552,6 +581,140 @@ def _validated_observed_delta(observed_delta):
             if value is None
             else _finite_numeric(f"observed_delta metric {metric_name!r}", value)
         )
+    return tuple(metric_names), tuple(values)
+
+
+def check_campaign_projection_residual_tolerances(
+    residuals: CampaignProjectionResiduals,
+    tolerances: Iterable[CampaignMetricResidualTolerance],
+) -> CampaignProjectionResidualToleranceResults:
+    """Check ordered projection residuals against explicit absolute tolerances."""
+    metric_names, residual_values = _validated_projection_residuals(residuals)
+    try:
+        tolerance_iterator = iter(tolerances)
+    except TypeError as error:
+        raise TypeError("tolerances must be an iterable") from error
+    tolerances = tuple(tolerance_iterator)
+    if len(tolerances) != len(metric_names):
+        raise ValueError("tolerances must provide exact residual metric coverage")
+
+    checked_tolerances = []
+    tolerance_names = set()
+    for index, (expected_name, tolerance) in enumerate(zip(metric_names, tolerances)):
+        if not isinstance(tolerance, CampaignMetricResidualTolerance):
+            raise TypeError(
+                f"tolerances[{index}] must be a CampaignMetricResidualTolerance"
+            )
+        if type(tolerance.metric_name) is not str or not tolerance.metric_name.strip():
+            raise ValueError(f"tolerances[{index}].metric_name must be non-empty")
+        if tolerance.metric_name in tolerance_names:
+            raise ValueError(f"duplicate tolerance metric {tolerance.metric_name!r}")
+        tolerance_names.add(tolerance.metric_name)
+        if tolerance.metric_name != expected_name:
+            raise ValueError(
+                f"tolerances[{index}].metric_name must be {expected_name!r}"
+            )
+        maximum = _finite_numeric(
+            f"tolerances[{index}].maximum_absolute_residual",
+            tolerance.maximum_absolute_residual,
+        )
+        if maximum < 0.0:
+            raise ValueError(
+                f"tolerances[{index}].maximum_absolute_residual must be nonnegative"
+            )
+        checked_tolerances.append(maximum)
+
+    results = []
+    for metric_name, residual, maximum in zip(
+        metric_names, residual_values, checked_tolerances
+    ):
+        if residual is None:
+            absolute_residual = None
+            margin = None
+            passed = False
+        else:
+            absolute_residual = abs(residual)
+            if not math.isfinite(absolute_residual):
+                raise ValueError(
+                    f"metric {metric_name!r} absolute residual must be finite"
+                )
+            margin = maximum - absolute_residual
+            if not math.isfinite(margin):
+                raise ValueError(f"metric {metric_name!r} margin must be finite")
+            passed = margin >= 0.0
+        results.append(
+            CampaignMetricResidualToleranceResult(
+                metric_name=metric_name,
+                residual=residual,
+                absolute_residual=absolute_residual,
+                maximum_absolute_residual=maximum,
+                margin=margin,
+                passed=passed,
+            )
+        )
+    return CampaignProjectionResidualToleranceResults(
+        scenario_name=residuals.scenario_name,
+        observed_run_id=residuals.observed_run_id,
+        metric_results=tuple(results),
+    )
+
+
+def _validated_projection_residuals(residuals):
+    if not isinstance(residuals, CampaignProjectionResiduals):
+        raise TypeError("residuals must be a CampaignProjectionResiduals")
+    for name, value in (
+        ("scenario_name", residuals.scenario_name),
+        ("observed_run_id", residuals.observed_run_id),
+    ):
+        if type(value) is not str or not value.strip():
+            raise ValueError(f"residuals.{name} must be non-empty")
+    if type(residuals.metric_residuals) is not tuple:
+        raise TypeError("residuals.metric_residuals must be a tuple")
+
+    metric_names = []
+    values = []
+    for index, item in enumerate(residuals.metric_residuals):
+        if not isinstance(item, CampaignMetricResidual):
+            raise TypeError(
+                f"residuals.metric_residuals[{index}] must be a CampaignMetricResidual"
+            )
+        if type(item.metric_name) is not str or not item.metric_name.strip():
+            raise ValueError(
+                f"residuals.metric_residuals[{index}].metric_name must be non-empty"
+            )
+        if item.metric_name not in _METRIC_KEYS:
+            raise ValueError(f"residuals has unknown metric {item.metric_name!r}")
+        if item.metric_name in metric_names:
+            raise ValueError(f"residuals has duplicate metric {item.metric_name!r}")
+        metric_names.append(item.metric_name)
+        projected = (
+            None
+            if item.projected_change is None
+            else _finite_numeric(
+                f"residuals metric {item.metric_name!r} projected_change",
+                item.projected_change,
+            )
+        )
+        observed = (
+            None
+            if item.observed_change is None
+            else _finite_numeric(
+                f"residuals metric {item.metric_name!r} observed_change",
+                item.observed_change,
+            )
+        )
+        residual = (
+            None
+            if item.residual is None
+            else _finite_numeric(
+                f"residuals metric {item.metric_name!r} residual", item.residual
+            )
+        )
+        if (projected is None or observed is None) != (residual is None):
+            raise ValueError(
+                f"residuals metric {item.metric_name!r} has inconsistent optional fields"
+            )
+        values.append(residual)
     return tuple(metric_names), tuple(values)
 
 

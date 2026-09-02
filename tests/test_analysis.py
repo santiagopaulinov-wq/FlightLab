@@ -11,8 +11,11 @@ from flightlab.analysis import (
     CampaignMetricProjectionLimit,
     CampaignMetricProjectionLimitResult,
     CampaignMetricResidual,
+    CampaignMetricResidualTolerance,
+    CampaignMetricResidualToleranceResult,
     CampaignParameterChange,
     CampaignProjectionResiduals,
+    CampaignProjectionResidualToleranceResults,
     CampaignProjectionScenario,
     CampaignProjectionScenarioResult,
     CampaignRobustnessVerdict,
@@ -26,6 +29,7 @@ from flightlab.analysis import (
     campaign_secant_sensitivities,
     campaign_sensitivity_matrix,
     check_campaign_projection_envelope_limits,
+    check_campaign_projection_residual_tolerances,
     compare_campaign_runs,
     project_campaign_metric_changes,
     project_campaign_scenarios,
@@ -1127,6 +1131,154 @@ def test_projection_residuals_are_immutable_deterministic_and_detached():
         first.scenario_name = "changed"
     with pytest.raises(FrozenInstanceError):
         first.metric_residuals[0].residual = 0.0
+
+
+def _residual_result(iae=2.0, ise=-1.0):
+    return CampaignProjectionResiduals(
+        "scenario",
+        "observed-run",
+        (
+            CampaignMetricResidual("iae", 1.0, 3.0, iae),
+            CampaignMetricResidual("ise", 2.0, 1.0, ise),
+        ),
+    )
+
+
+def _residual_tolerances(iae=2.0, ise=2.0):
+    return (
+        CampaignMetricResidualTolerance("iae", iae),
+        CampaignMetricResidualTolerance("ise", ise),
+    )
+
+
+def test_residual_tolerances_cover_pass_fail_boundary_and_traceability():
+    result = check_campaign_projection_residual_tolerances(
+        _residual_result(2.0, -3.0), _residual_tolerances(2.0, 2.0)
+    )
+
+    assert result == CampaignProjectionResidualToleranceResults(
+        "scenario",
+        "observed-run",
+        (
+            CampaignMetricResidualToleranceResult("iae", 2.0, 2.0, 2.0, 0.0, True),
+            CampaignMetricResidualToleranceResult(
+                "ise", -3.0, 3.0, 2.0, -1.0, False
+            ),
+        ),
+    )
+
+
+def test_residual_tolerances_use_absolute_error_for_both_signs_and_keep_order():
+    result = check_campaign_projection_residual_tolerances(
+        _residual_result(1.5, -1.5), _residual_tolerances(2.0, 2.0)
+    )
+
+    assert tuple(item.metric_name for item in result.metric_results) == ("iae", "ise")
+    assert tuple(item.absolute_residual for item in result.metric_results) == (1.5, 1.5)
+    assert tuple(item.margin for item in result.metric_results) == (0.5, 0.5)
+    assert all(item.passed for item in result.metric_results)
+
+
+def test_residual_tolerances_handle_zero_and_undefined_residuals():
+    residuals = CampaignProjectionResiduals(
+        "scenario",
+        "run",
+        (
+            CampaignMetricResidual("iae", 1.0, 1.0, 0.0),
+            CampaignMetricResidual("ise", None, 1.0, None),
+        ),
+    )
+    result = check_campaign_projection_residual_tolerances(
+        residuals, _residual_tolerances(0.0, 0.0)
+    )
+
+    assert result.metric_results[0] == CampaignMetricResidualToleranceResult(
+        "iae", 0.0, 0.0, 0.0, 0.0, True
+    )
+    assert result.metric_results[1] == CampaignMetricResidualToleranceResult(
+        "ise", None, None, 0.0, None, False
+    )
+
+
+@pytest.mark.parametrize(
+    "tolerances",
+    [
+        (),
+        _residual_tolerances() + (CampaignMetricResidualTolerance("overshoot", 1.0),),
+        (
+            CampaignMetricResidualTolerance("ise", 2.0),
+            CampaignMetricResidualTolerance("iae", 2.0),
+        ),
+        (
+            CampaignMetricResidualTolerance("iae", 2.0),
+            CampaignMetricResidualTolerance("iae", 2.0),
+        ),
+    ],
+)
+def test_residual_tolerances_reject_missing_extra_misordered_or_duplicate(tolerances):
+    with pytest.raises(ValueError):
+        check_campaign_projection_residual_tolerances(_residual_result(), tolerances)
+
+
+@pytest.mark.parametrize("value", [True, "bad", float("inf"), float("nan"), -1.0])
+def test_residual_tolerances_reject_invalid_tolerance_values(value):
+    with pytest.raises(ValueError, match="numeric|finite|nonnegative"):
+        check_campaign_projection_residual_tolerances(
+            _residual_result(), _residual_tolerances(value, 2.0)
+        )
+
+
+@pytest.mark.parametrize(
+    ("residuals", "match"),
+    [
+        (object(), "CampaignProjectionResiduals"),
+        (CampaignProjectionResiduals(" ", "run", ()), "scenario_name"),
+        (CampaignProjectionResiduals("scenario", " ", ()), "observed_run_id"),
+        (
+            CampaignProjectionResiduals(
+                "scenario", "run", (CampaignMetricResidual("iae", 1.0, 2.0, True),)
+            ),
+            "numeric",
+        ),
+        (
+            CampaignProjectionResiduals(
+                "scenario",
+                "run",
+                (CampaignMetricResidual("iae", 1.0, 2.0, float("inf")),),
+            ),
+            "finite",
+        ),
+        (
+            CampaignProjectionResiduals(
+                "scenario", "run", (CampaignMetricResidual("iae", None, 2.0, 1.0),)
+            ),
+            "inconsistent optional",
+        ),
+    ],
+)
+def test_residual_tolerances_reject_malformed_residual_results(residuals, match):
+    tolerances = (CampaignMetricResidualTolerance("iae", 2.0),)
+    with pytest.raises((TypeError, ValueError), match=match):
+        check_campaign_projection_residual_tolerances(residuals, tolerances)
+
+
+def test_residual_tolerance_results_are_immutable_deterministic_and_detached():
+    tolerances = [*_residual_tolerances()]
+    first = check_campaign_projection_residual_tolerances(
+        _residual_result(), tolerances
+    )
+    repeated = check_campaign_projection_residual_tolerances(
+        _residual_result(), tolerances
+    )
+
+    assert first == repeated
+    assert first is not repeated
+    tolerances.clear()
+    assert first.metric_results[0].metric_name == "iae"
+    with pytest.raises(FrozenInstanceError):
+        first.observed_run_id = "changed"
+    with pytest.raises(FrozenInstanceError):
+        first.metric_results[0].passed = False
 
 
 def test_one_scenario_is_both_minimum_and_maximum():
