@@ -304,6 +304,14 @@ class CampaignProjectionErrorComparisonEnvelopeAssessmentReport:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignProjectionErrorNamedAssessmentReport:
+    """One explicitly named comparison-envelope assessment report."""
+
+    name: str
+    report: CampaignProjectionErrorComparisonEnvelopeAssessmentReport
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -1500,6 +1508,47 @@ def campaign_projection_error_comparison_envelope_assessment_record(report):
             for verdict in report.metric_verdicts
         ],
     }
+
+
+def campaign_projection_error_comparison_envelope_named_assessment_records(entries):
+    """Convert ordered named assessment reports to detached plain records."""
+    try:
+        entry_iterator = iter(entries)
+    except TypeError as error:
+        raise TypeError("entries must be an iterable") from error
+    entries = tuple(entry_iterator)
+
+    names = set()
+    for index, entry in enumerate(entries):
+        prefix = f"entries[{index}]"
+        if not isinstance(entry, CampaignProjectionErrorNamedAssessmentReport):
+            raise TypeError(
+                f"{prefix} must be a CampaignProjectionErrorNamedAssessmentReport"
+            )
+        if type(entry.name) is not str or not entry.name.strip():
+            raise ValueError(f"{prefix}.name must be non-empty")
+        if entry.name in names:
+            raise ValueError(f"duplicate assessment report name {entry.name!r}")
+        names.add(entry.name)
+        if not isinstance(
+            entry.report, CampaignProjectionErrorComparisonEnvelopeAssessmentReport
+        ):
+            raise TypeError(
+                f"{prefix}.report must be a "
+                "CampaignProjectionErrorComparisonEnvelopeAssessmentReport"
+            )
+
+    return [
+        {
+            "name": entry.name,
+            "report": (
+                campaign_projection_error_comparison_envelope_assessment_record(
+                    entry.report
+                )
+            ),
+        }
+        for entry in entries
+    ]
 
 
 def _validated_projection_error_assessment_report(report):

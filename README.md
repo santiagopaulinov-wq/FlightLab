@@ -1373,6 +1373,20 @@ This API creates a deterministic JSON-compatible representation only. It does
 not write JSON, save files, persist to SQLite, communicate over a network, or
 alter analytical results.
 
+`campaign_projection_error_comparison_envelope_named_assessment_records(entries)`
+converts an explicit finite ordered collection of frozen
+`CampaignProjectionErrorNamedAssessmentReport` entries. Every entry requires a
+unique nonblank caller-supplied name and one existing assessment report. The
+complete collection is materialized and all names and member types are checked
+before conversion begins.
+
+The existing single-report record converter is invoked exactly once per entry
+in caller order. The result is a fresh JSON-compatible list whose entries have
+stable `name` and `report` fields. Empty input returns `[]`. Invalid collection
+entries are never skipped, delegated report validation failures propagate, and
+no partial list is returned. Returned nested structures are detached from both
+the named entries and their source reports.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 
