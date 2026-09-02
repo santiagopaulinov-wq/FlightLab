@@ -110,12 +110,13 @@ passing, failing, and undefined verdict names. The forty-eighth layer converts
 that aggregate verdict to a fresh deterministic JSON-compatible plain record.
 The forty-ninth layer applies the converter to a finite caller-ordered
 collection of explicitly named aggregate verdicts, completing the current
-aggregate-verdict record family. FlightLab is now at the explicit Verification
-& Validation phase boundary. The first selected V&V capability is one fixed,
-independent closed-form verification benchmark for the existing continuous-time
-linear `StateSpace` eigenvalue and physical-coordinate exact-propagation
-foundation. This is software verification against a mathematical oracle, not
-physical validation of an aircraft model.
+aggregate-verdict record family. FlightLab has now crossed the explicit
+Verification & Validation phase boundary. Its first V&V capability is one
+fixed, independent closed-form verification benchmark for the existing
+continuous-time linear `StateSpace` eigenvalue and physical-coordinate exact-
+propagation foundation. It returns deterministic evidence through the existing
+`ExperimentRun` record machinery. This is software verification against a
+mathematical oracle, not physical validation of an aircraft model.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -161,17 +162,15 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: definition of the first Verification & Validation
-  capability and its evidence contract.
-- Selected capability: one independent analytical two-state continuous-time
-  linear state-space benchmark covering eigenvalues and exact constant-input
-  propagation.
-- Phase-definition checkpoint commit: this checkpoint's documentation commit
-  (`docs: define first linear state-space verification benchmark`).
+- Completed capability: independent analytical two-state continuous-time linear
+  state-space verification benchmark covering eigenvalues and exact constant-
+  input propagation.
+- Completed capability commit: this checkpoint's implementation commit
+  (`feat: add analytical state-space verification benchmark`).
 
 ## Current verification baseline
 
-- Test count: 1439 tests.
+- Test count: 1456 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1139,20 +1138,17 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Implement the independent analytical linear state-space benchmark
+### Define the independent-library linear verification cross-check
 
-Add one narrowly scoped benchmark runner in `flightlab.verification` and its
-focused tests. The runner must construct only the fixed two-state system and
-input defined below, evaluate the independent scalar closed-form reference,
-call the existing public `StateSpace.eigenvalues()` and
-`StateSpace.simulate(..., method="exact")` APIs, calculate the three specified
-maximum absolute residuals, and return one existing immutable `ExperimentRun`.
-The run must compare the FlightLab SISO output with the analytical output and
-record fixed benchmark provenance, the eigenvalue and state residuals, the
-acceptance tolerance, and the overall Boolean pass state in existing simple
-metadata. Use an explicit stable run ID and aware UTC timestamp so two
-invocations have identical `reproducibility_record()` values. Add no generic
-benchmark abstraction, V&V result type, persistence behavior, or serializer.
+Review the completed analytical benchmark evidence, then specify the smallest
+second software-verification capability before implementing it. Prefer one
+fixed SciPy continuous-time linear state-space cross-check that adds a genuinely
+different numerical reference and system shape or dynamics. Explicitly decide
+the SciPy API and dependency boundary, fixed system, quantities, tolerances,
+failure semantics, and how its evidence will reuse the current benchmark's
+`ExperimentRun` convention without creating a generic V&V or serialization
+framework. Do not add SciPy, production code, or tests during that definition
+step, and do not begin published-aircraft physical validation yet.
 
 ## Chosen first V&V capability
 
@@ -1163,6 +1159,15 @@ stable, coupled, continuous-time SISO system, do FlightLab's reported
 eigenvalues and exact zero-order-hold physical-state trajectory agree with a
 closed-form mathematical solution that does not use FlightLab's eigensystem,
 modal, matrix-exponential, exact-step, or simulation implementation?
+
+`flightlab.verification.run_linear_state_space_verification_benchmark()` now
+executes that benchmark and returns the existing immutable `ExperimentRun`.
+The verified nominal baseline has maximum absolute residuals `0.0` for the
+eigenvalues and `2.220446049250313e-16` for both the state and output
+trajectories, so it passes the fixed `1.0e-12` threshold without any core
+state-space change. Malformed shapes and nonfinite evidence raise `ValueError`;
+well-formed numerical evidence outside a limit, or failure to preserve the
+initial state exactly, returns a deterministic run with `passed = False`.
 
 The fixed benchmark is
 
@@ -1280,13 +1285,8 @@ passes.
 
 ## Focused tests to add
 
-- Verify the benchmark's independently encoded eigenvalue, state, and output
-  residuals and all exact acceptance boundaries above.
-- Verify the runner uses the existing experiment record without adding a new
-  result or serialization family and that the analytical output is its sampled
-  reference trajectory.
-- Verify fixed identity, timestamp, metadata, immutability, detached record
-  behavior, exact record repeatability, and JSON compatibility.
+- No implementation tests are prescribed until the independent-library
+  cross-check and its evidence contract are explicitly selected.
 
 ## Commands that must pass
 
@@ -1300,10 +1300,11 @@ git status
 ## Restart instruction
 
 Continue from the latest implementation commit. Read this file and inspect the
-existing `StateSpace`, exact simulation, and Experimental Platform run APIs,
-then perform the exact next smallest task: **implement the independent
-analytical linear state-space benchmark** exactly as specified above. Do not
-broaden the benchmark or extend the serialization hierarchy.
+completed analytical benchmark and only the directly relevant existing
+`StateSpace` and Experimental Platform evidence APIs, then perform the exact
+next smallest task: **define the independent-library linear verification
+cross-check**. Do not implement it, add dependencies, begin aircraft physical
+validation, or extend the serialization hierarchy.
 Preserve the documented scope, run the required verification commands, commit
 the completed capability, and do not push. Do not touch the existing untracked
 `.vscode/`.

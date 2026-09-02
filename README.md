@@ -510,6 +510,50 @@ Requested poles need not be stable. The API performs no automatic pole
 selection, LQR/LQI, optimization, gain scheduling, PID design, or
 aircraft-specific tuning, and it does not mutate the plant.
 
+## Verification: analytical linear state-space benchmark
+
+`run_linear_state_space_verification_benchmark()` verifies the existing
+continuous-time `StateSpace` eigenvalue and exact physical-coordinate
+propagation APIs against one independent closed-form two-state solution:
+
+```python
+from flightlab.verification import (
+    run_linear_state_space_verification_benchmark,
+)
+
+run = run_linear_state_space_verification_benchmark()
+record = run.reproducibility_record()
+
+assert record["user_metadata"]["passed"] is True
+```
+
+The fixed coupled SISO system uses `A = [[-1, 1], [0, -2]]`,
+`B = [[0], [1]]`, `C = [[1, 0]]`, `D = [[0]]`, initial state
+`[1.5, -0.5]`, constant input `2.0`, and the nonuniform time grid
+`[0.0, 0.125, 0.5, 1.25, 2.0]`. For elapsed time `tau`, its independently
+encoded oracle is
+
+```text
+lambda = {-1, -2}
+x2(tau) = 1 - 1.5 exp(-2 tau)
+x1(tau) = 1 - exp(-tau) + 1.5 exp(-2 tau)
+y(tau)  = x1(tau)
+```
+
+The runner computes maximum absolute eigenvalue, state, and output residuals.
+Each must be at most `1e-12`, and the exact initial state must be preserved.
+Malformed shapes or nonfinite evidence raise `ValueError`; well-formed evidence
+outside the acceptance limits returns a run whose `user_metadata["passed"]` is
+`False`.
+
+The returned value is the existing immutable `ExperimentRun`. Its sampled
+output is the FlightLab result, its sampled reference is the analytical output,
+and its standard reproducibility record contains fixed identity, timestamp,
+benchmark provenance, residuals, tolerance, and pass state. Repeated benchmark
+calls therefore produce identical detached JSON-compatible records without a
+new V&V result or serialization type. This is software verification against a
+mathematical oracle, not physical validation of an aircraft or controller.
+
 ## Experimental Platform: SISO response metrics
 
 `response_metrics(time, y, reference)` evaluates a finite sampled SISO
