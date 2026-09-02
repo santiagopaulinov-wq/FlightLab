@@ -1473,6 +1473,20 @@ validated before extraction. Caller order is preserved and empty input returns
 `[]`. No nested reports, verdict categories, metrics, fields, margins, extrema,
 or residuals are included, and no verdict or analytical value is recomputed.
 
+`campaign_projection_error_comparison_envelope_named_assessment_collection_verdict(
+entries)` reduces those validated named collection reports to one frozen
+`CampaignProjectionErrorNamedAssessmentCollectionReportVerdict`. A collection
+is undefined when its stored collection verdict contains an undefined report
+name; otherwise its stored overall pass state determines whether it is passing
+or failing. Undefined takes precedence over ordinary failure.
+
+The result retains caller-ordered passing, failing, and undefined collection-
+name tuples. It passes overall only for nonempty input when every collection is
+defined and passing; empty input returns an explicit non-passing verdict with
+empty categories. This API recomputes no nested verdict or analytical value
+and infers no score, rank, confidence, probability, certification, or
+acceptance policy.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

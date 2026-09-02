@@ -340,6 +340,16 @@ class CampaignProjectionErrorNamedAssessmentCollectionReport:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignProjectionErrorNamedAssessmentCollectionReportVerdict:
+    """Immutable verdict over ordered named assessment collection reports."""
+
+    overall_passed: bool
+    passing_collection_names: tuple[str, ...]
+    failing_collection_names: tuple[str, ...]
+    undefined_collection_names: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -1679,6 +1689,33 @@ def campaign_projection_error_comparison_envelope_assessment_collection_verdict_
         }
         for entry in entries
     ]
+
+
+def campaign_projection_error_comparison_envelope_named_assessment_collection_verdict(
+    entries,
+):
+    """Classify named assessment collection reports by stored verdict state."""
+    entries = _validated_projection_error_named_assessment_collection_reports(entries)
+    for entry in entries:
+        _validated_projection_error_assessment_collection_report(entry.report)
+
+    passing = []
+    failing = []
+    undefined = []
+    for entry in entries:
+        verdict = entry.report.collection_verdict
+        if verdict.undefined_report_names:
+            undefined.append(entry.name)
+        elif verdict.overall_passed:
+            passing.append(entry.name)
+        else:
+            failing.append(entry.name)
+    return CampaignProjectionErrorNamedAssessmentCollectionReportVerdict(
+        overall_passed=bool(entries) and not failing and not undefined,
+        passing_collection_names=tuple(passing),
+        failing_collection_names=tuple(failing),
+        undefined_collection_names=tuple(undefined),
+    )
 
 
 def _validated_projection_error_named_assessment_collection_reports(entries):

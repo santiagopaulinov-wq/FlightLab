@@ -26,6 +26,7 @@ from flightlab.analysis import (
     CampaignProjectionErrorMetricEnvelopeLimitVerdict,
     CampaignProjectionErrorMetricFieldIdentity,
     CampaignProjectionErrorNamedAssessmentCollectionReport,
+    CampaignProjectionErrorNamedAssessmentCollectionReportVerdict,
     CampaignProjectionErrorNamedAssessmentReport,
     CampaignProjectionErrorSummaryCollection,
     CampaignProjectionErrorSummaryComparisonSetResult,
@@ -54,6 +55,7 @@ from flightlab.analysis import (
     campaign_projection_error_comparison_envelope_limit_verdict,
     campaign_projection_error_comparison_envelope_metric_verdicts,
     campaign_projection_error_comparison_envelope_named_assessment_collection_records,
+    campaign_projection_error_comparison_envelope_named_assessment_collection_verdict,
     campaign_projection_error_comparison_envelope_named_assessment_records,
     campaign_projection_error_comparison_envelope_verdict_overview,
     campaign_projection_error_comparison_set_metric_envelopes,
@@ -4175,6 +4177,135 @@ def test_named_assessment_collection_verdict_overview_empty_generator_and_detach
         {"name": "a", "overall_passed": True},
         {"name": "b", "overall_passed": True},
     ]
+
+
+def test_named_assessment_collection_report_verdict_all_passing():
+    verdict = (
+        campaign_projection_error_comparison_envelope_named_assessment_collection_verdict(
+            (
+                _named_assessment_collection_report("first"),
+                _named_assessment_collection_report("second"),
+            )
+        )
+    )
+    assert verdict == CampaignProjectionErrorNamedAssessmentCollectionReportVerdict(
+        True, ("first", "second"), (), ()
+    )
+
+
+def test_named_assessment_collection_report_verdict_classifies_failures():
+    entries = (
+        _named_assessment_collection_report("pass"),
+        _named_assessment_collection_report(
+            "fail-a", (_named_assessment_report("failed-a", ("fail", *("pass",) * 6)),)
+        ),
+        _named_assessment_collection_report(
+            "fail-b", (_named_assessment_report("failed-b", ("pass", "fail", *("pass",) * 5)),)
+        ),
+    )
+    verdict = (
+        campaign_projection_error_comparison_envelope_named_assessment_collection_verdict(
+            entries
+        )
+    )
+    assert verdict.overall_passed is False
+    assert verdict.passing_collection_names == ("pass",)
+    assert verdict.failing_collection_names == ("fail-a", "fail-b")
+
+
+def test_named_assessment_collection_report_verdict_undefined_precedes_failure():
+    entries = (
+        _named_assessment_collection_report(
+            "undefined-and-failing",
+            (
+                _named_assessment_report(
+                    "mixed", ("undefined", "fail", *("pass",) * 5)
+                ),
+            ),
+        ),
+    )
+    verdict = (
+        campaign_projection_error_comparison_envelope_named_assessment_collection_verdict(
+            entries
+        )
+    )
+    assert verdict.passing_collection_names == ()
+    assert verdict.failing_collection_names == ()
+    assert verdict.undefined_collection_names == ("undefined-and-failing",)
+
+
+def test_named_assessment_collection_report_verdict_preserves_mixed_category_order():
+    entries = (
+        _named_assessment_collection_report(
+            "undefined-a", (_named_assessment_report("u-a", ("undefined", *("pass",) * 6)),)
+        ),
+        _named_assessment_collection_report(
+            "fail-a", (_named_assessment_report("f-a", ("fail", *("pass",) * 6)),)
+        ),
+        _named_assessment_collection_report("pass-a"),
+        _named_assessment_collection_report(
+            "undefined-b", (_named_assessment_report("u-b", ("pass", "undefined", *("pass",) * 5)),)
+        ),
+        _named_assessment_collection_report("pass-b"),
+        _named_assessment_collection_report(
+            "fail-b", (_named_assessment_report("f-b", ("pass", "fail", *("pass",) * 5)),)
+        ),
+    )
+    verdict = (
+        campaign_projection_error_comparison_envelope_named_assessment_collection_verdict(
+            entries
+        )
+    )
+    assert verdict.passing_collection_names == ("pass-a", "pass-b")
+    assert verdict.failing_collection_names == ("fail-a", "fail-b")
+    assert verdict.undefined_collection_names == ("undefined-a", "undefined-b")
+
+
+def test_named_assessment_collection_report_verdict_rejects_invalid_nested_data():
+    report = _named_assessment_collection_report().report
+    malformed = CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionReport(
+        report.named_reports,
+        CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionVerdict(
+            True, (), ("assessment",), ()
+        ),
+    )
+    with pytest.raises(ValueError, match="classification disagrees"):
+        campaign_projection_error_comparison_envelope_named_assessment_collection_verdict(
+            (CampaignProjectionErrorNamedAssessmentCollectionReport("bad", malformed),)
+        )
+    with pytest.raises(ValueError, match="name must be non-empty"):
+        campaign_projection_error_comparison_envelope_named_assessment_collection_verdict(
+            (CampaignProjectionErrorNamedAssessmentCollectionReport(" ", report),)
+        )
+
+
+def test_named_assessment_collection_report_verdict_empty_generator_and_detached():
+    assert (
+        campaign_projection_error_comparison_envelope_named_assessment_collection_verdict(
+            ()
+        )
+        == CampaignProjectionErrorNamedAssessmentCollectionReportVerdict(
+            False, (), (), ()
+        )
+    )
+    source = [
+        _named_assessment_collection_report("first"),
+        _named_assessment_collection_report("second"),
+    ]
+    first = campaign_projection_error_comparison_envelope_named_assessment_collection_verdict(
+        entry for entry in source
+    )
+    repeated = (
+        campaign_projection_error_comparison_envelope_named_assessment_collection_verdict(
+            source
+        )
+    )
+    assert first == repeated
+    assert first is not repeated
+    source.clear()
+    assert first.passing_collection_names == ("first", "second")
+    with pytest.raises(FrozenInstanceError):
+        first.overall_passed = False
 
 
 def test_one_scenario_is_both_minimum_and_maximum():

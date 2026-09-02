@@ -97,7 +97,9 @@ plain record by reusing the existing assessment-record conventions. The
 forty-first layer applies that converter to a finite caller-ordered collection
 of uniquely named assessment collection reports. The forty-second layer
 extracts their stored overall collection pass states into a compact ordered
-deterministic overview.
+deterministic overview. The forty-third layer reduces those validated named
+collection reports to one immutable verdict with ordered passing, failing, and
+undefined collection names.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -143,13 +145,13 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: ordered named assessment-collection verdict overview.
+- Completed capability: named assessment-collection report verdict.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add assessment collection verdict overview`).
+  (`feat: add named assessment collection verdict`).
 
 ## Current verification baseline
 
-- Test count: 1393 tests.
+- Test count: 1399 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1120,31 +1122,32 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Named assessment-collection report verdict
+### Deterministic named assessment-collection verdict record
 
-Add a small pure analysis API that reduces a finite ordered collection of named
-assessment collection reports into one immutable verdict with ordered passing,
-failing, and undefined collection names.
+Add a small pure conversion API that converts one validated named assessment-
+collection report verdict into a fresh deterministic JSON-compatible plain
+record.
 
 ## Suggested implementation direction
 
-- Use only existing validated collection-verdict data; do not recompute nested
-  report, metric, or field classifications.
-- A named collection is undefined when its stored collection verdict contains
-  any undefined report name, otherwise passing or failing by its stored overall
-  pass state.
-- Preserve caller order within mutually exclusive categories, with undefined
-  precedence, and define empty input as an explicit non-passing verdict.
-- Validate all named inputs and nested collection reports before classification.
+- Use only the stored overall pass state and ordered passing, failing, and
+  undefined collection-name categories.
+- Return a plain dictionary with stable `overall_passed`,
+  `passing_collection_names`, `failing_collection_names`, and
+  `undefined_collection_names` fields; represent name categories as lists.
+- Validate the supplied verdict type, Boolean pass state, nonblank unique and
+  mutually exclusive names, and overall-pass consistency before conversion.
+- Preserve category order, return fresh detached data, and represent the empty
+  non-passing verdict explicitly.
 - Add no aggregation across comparisons, weighting, acceptance score,
   confidence interval, regression fit, automatic correction, ranking,
   optimization, plotting, persistence, or simulation.
 
 ## Focused tests to add
 
-- Verify all-passing, failing, undefined, and mixed inputs, undefined
-  precedence, exact category order, blank/duplicate names, malformed reports,
-  empty and generator input, immutability, determinism, and source isolation.
+- Verify passing, failing, undefined, and empty verdict records, exact category
+  order, malformed Boolean/name/category/pass states, JSON-compatible plain
+  output, mutation detachment, and deterministic repeated calls.
 
 ## Commands that must pass
 
@@ -1158,8 +1161,9 @@ git status
 ## Restart instruction
 
 Continue from the latest implementation commit. Read this file and inspect the
-existing named assessment collection-report APIs, then implement the exact next
-smallest task: **Named assessment-collection report verdict**.
+existing named assessment collection-report verdict API, then implement the
+exact next smallest task: **Deterministic named assessment-collection verdict
+record**.
 Preserve the documented scope, run the required verification commands, commit
 the completed capability, and do not push. Do not touch the existing untracked
 `.vscode/`.
