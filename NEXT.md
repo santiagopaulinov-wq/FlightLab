@@ -1130,3 +1130,13 @@ uv run pytest -q
 git diff --check
 git status
 ```
+
+## Restart instruction
+
+Continue from commit `228eb1890542d716793c9c8d4fcf1021f106486c`
+(`feat: add campaign projection error summary comparisons`). Read this file and
+inspect the existing projection-error summary comparison APIs, then implement
+the exact next smallest task: **Explicit ordered campaign projection-error
+comparison sets**. Preserve the documented scope, run the required verification
+commands, commit the completed capability, and do not push. Do not touch the
+existing untracked `.vscode/`.
