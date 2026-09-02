@@ -1089,6 +1089,29 @@ no aggregation, comparison, ranking, probability modeling, Monte Carlo work,
 simulation, or persistence. The first validation or projection error propagates
 and no partial result is returned.
 
+`campaign_projection_envelopes(scenario_results)` reduces one explicit finite
+ordered scenario set to immutable per-metric predicted-change bounds:
+
+```python
+from flightlab.analysis import campaign_projection_envelopes
+
+envelopes = campaign_projection_envelopes(results)
+```
+
+Each frozen `CampaignMetricProjectionEnvelope` retains the metric name, minimum
+predicted change and attaining scenario name, and maximum predicted change and
+attaining scenario name. Metrics remain in projection order. Only defined
+finite predictions participate; `None` is never treated as zero. If every
+scenario is undefined for a metric, both bounds and both scenario names are
+`None`.
+
+Exact ties select the first attaining scenario in caller scenario order. The
+envelope therefore reports the best/worst predicted metric excursions across
+the explicit finite scenario set, but does not rank scenarios globally or
+claim probabilistic robustness. Empty scenario input returns `()`. The pure
+analysis performs no projection recomputation, simulation, sampling,
+optimization, plotting, or persistence.
+
 An execution failure propagates unchanged and prevents all campaign
 persistence. Any run, manifest, or membership failure propagates after
 execution and rolls back every newly inserted campaign row. Existing records

@@ -7,6 +7,7 @@ from flightlab.analysis import (
     CampaignComparisonEntry,
     CampaignDeltaEntry,
     CampaignMetricChangeProjection,
+    CampaignMetricProjectionEnvelope,
     CampaignParameterChange,
     CampaignProjectionScenario,
     CampaignProjectionScenarioResult,
@@ -14,6 +15,7 @@ from flightlab.analysis import (
     CampaignSensitivityMatrix,
     SensitivityMatrixParameter,
     campaign_metric_deltas,
+    campaign_projection_envelopes,
     campaign_secant_sensitivities,
     campaign_sensitivity_matrix,
     compare_campaign_runs,
@@ -997,5 +999,143 @@ def test_scenario_results_are_immutable_deterministic_and_detached():
     assert first[0].projection.parameter_changes == (1.0, 2.0)
     with pytest.raises(FrozenInstanceError):
         first[0].name = "changed"
+    with pytest.raises(TypeError):
+        first[0] = first[0]
+
+
+def _scenario_result(name, iae, ise):
+    return CampaignProjectionScenarioResult(
+        name=name,
+        projection=CampaignMetricChangeProjection(
+            parameter_names=("gain",),
+            metric_names=("iae", "ise"),
+            parameter_changes=(1.0,),
+            predicted_metric_changes=(iae, ise),
+        ),
+    )
+
+
+def test_one_scenario_is_both_minimum_and_maximum():
+    assert campaign_projection_envelopes((_scenario_result("only", 2.0, -1.0),)) == (
+        CampaignMetricProjectionEnvelope("iae", 2.0, "only", 2.0, "only"),
+        CampaignMetricProjectionEnvelope("ise", -1.0, "only", -1.0, "only"),
+    )
+
+
+def test_projection_envelopes_find_signed_extrema_in_metric_order():
+    scenarios = (
+        _scenario_result("middle", 1.0, -2.0),
+        _scenario_result("low-iae", -3.0, 4.0),
+        _scenario_result("high-iae", 5.0, -6.0),
+    )
+
+    assert campaign_projection_envelopes(scenarios) == (
+        CampaignMetricProjectionEnvelope(
+            "iae", -3.0, "low-iae", 5.0, "high-iae"
+        ),
+        CampaignMetricProjectionEnvelope(
+            "ise", -6.0, "high-iae", 4.0, "low-iae"
+        ),
+    )
+
+
+def test_projection_envelope_ties_select_first_scenario_in_input_order():
+    scenarios = (
+        _scenario_result("first", -1.0, 3.0),
+        _scenario_result("second", -1.0, 3.0),
+    )
+
+    envelopes = campaign_projection_envelopes(scenarios)
+
+    assert envelopes[0].minimum_scenario == "first"
+    assert envelopes[0].maximum_scenario == "first"
+    assert envelopes[1].minimum_scenario == "first"
+    assert envelopes[1].maximum_scenario == "first"
+
+
+def test_envelopes_ignore_some_none_values_and_preserve_all_none_as_undefined():
+    scenarios = (
+        _scenario_result("undefined", None, None),
+        _scenario_result("defined", 2.0, None),
+        _scenario_result("lower", -1.0, None),
+    )
+
+    assert campaign_projection_envelopes(scenarios) == (
+        CampaignMetricProjectionEnvelope("iae", -1.0, "lower", 2.0, "defined"),
+        CampaignMetricProjectionEnvelope("ise", None, None, None, None),
+    )
+
+
+def test_empty_scenario_results_have_no_metric_envelopes():
+    assert campaign_projection_envelopes(()) == ()
+
+
+def test_projection_envelopes_materialize_generator_inputs():
+    scenarios = (
+        _scenario_result(name, value, -value)
+        for name, value in (("first", 1.0), ("second", 2.0))
+    )
+
+    envelopes = campaign_projection_envelopes(scenarios)
+
+    assert envelopes[0].maximum_scenario == "second"
+    assert envelopes[1].minimum_scenario == "second"
+
+
+def test_envelopes_reject_blank_and_duplicate_scenario_names():
+    with pytest.raises(ValueError, match="name must be non-empty"):
+        campaign_projection_envelopes((_scenario_result(" ", 1.0, 2.0),))
+    with pytest.raises(ValueError, match="duplicate scenario name 'same'"):
+        campaign_projection_envelopes(
+            (_scenario_result("same", 1.0, 2.0), _scenario_result("same", 2.0, 3.0))
+        )
+
+
+def test_envelopes_reject_incompatible_projection_layouts():
+    incompatible = CampaignProjectionScenarioResult(
+        "other",
+        CampaignMetricChangeProjection(
+            ("gain",), ("ise", "iae"), (1.0,), (2.0, 1.0)
+        ),
+    )
+
+    with pytest.raises(ValueError, match="matching parameter and metric layouts"):
+        campaign_projection_envelopes(
+            (_scenario_result("first", 1.0, 2.0), incompatible)
+        )
+
+
+@pytest.mark.parametrize("value", [True, "bad", float("inf"), float("nan")])
+def test_envelopes_reject_nonnumeric_or_nonfinite_predictions(value):
+    with pytest.raises(ValueError, match=r"predicted_metric_changes\[0\].*(numeric|finite)"):
+        campaign_projection_envelopes((_scenario_result("invalid", value, 1.0),))
+
+
+def test_envelopes_reject_malformed_projection_metadata():
+    malformed = CampaignProjectionScenarioResult(
+        "malformed",
+        CampaignMetricChangeProjection(("gain",), ("iae",), (), (1.0,)),
+    )
+    with pytest.raises(ValueError, match="parameter metadata has inconsistent lengths"):
+        campaign_projection_envelopes((malformed,))
+
+    with pytest.raises(TypeError, match="CampaignProjectionScenarioResult"):
+        campaign_projection_envelopes((object(),))
+
+
+def test_projection_envelopes_are_immutable_deterministic_and_detached():
+    source = [
+        _scenario_result("first", -1.0, 2.0),
+        _scenario_result("second", 3.0, -4.0),
+    ]
+    first = campaign_projection_envelopes(source)
+    repeated = campaign_projection_envelopes(source)
+
+    assert first == repeated
+    source.clear()
+    assert first[0].minimum == -1.0
+    assert first[0].maximum == 3.0
+    with pytest.raises(FrozenInstanceError):
+        first[0].minimum = 0.0
     with pytest.raises(TypeError):
         first[0] = first[0]

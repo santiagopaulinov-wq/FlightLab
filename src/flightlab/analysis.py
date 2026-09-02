@@ -88,6 +88,116 @@ class CampaignProjectionScenarioResult:
     projection: CampaignMetricChangeProjection
 
 
+@dataclass(frozen=True, slots=True)
+class CampaignMetricProjectionEnvelope:
+    """Immutable per-metric extrema across explicit projection scenarios."""
+
+    metric_name: str
+    minimum: float | None
+    minimum_scenario: str | None
+    maximum: float | None
+    maximum_scenario: str | None
+
+
+def campaign_projection_envelopes(
+    scenario_results: Iterable[CampaignProjectionScenarioResult],
+) -> tuple[CampaignMetricProjectionEnvelope, ...]:
+    """Reduce ordered named projections to deterministic per-metric extrema."""
+    try:
+        result_iterator = iter(scenario_results)
+    except TypeError as error:
+        raise TypeError("scenario_results must be an iterable") from error
+    scenario_results = tuple(result_iterator)
+    if not scenario_results:
+        return ()
+
+    names = set()
+    expected_parameter_names = None
+    expected_metric_names = None
+    for index, result in enumerate(scenario_results):
+        if not isinstance(result, CampaignProjectionScenarioResult):
+            raise TypeError(
+                f"scenario_results[{index}] must be a "
+                "CampaignProjectionScenarioResult"
+            )
+        if type(result.name) is not str or not result.name.strip():
+            raise ValueError(f"scenario_results[{index}].name must be non-empty")
+        if result.name in names:
+            raise ValueError(f"duplicate scenario name {result.name!r}")
+        names.add(result.name)
+        parameter_names, metric_names = _validate_projection(
+            result.projection, f"scenario_results[{index}].projection"
+        )
+        if expected_parameter_names is None:
+            expected_parameter_names = parameter_names
+            expected_metric_names = metric_names
+        elif (
+            parameter_names != expected_parameter_names
+            or metric_names != expected_metric_names
+        ):
+            raise ValueError(
+                "scenario projections must have matching parameter and metric layouts"
+            )
+
+    envelopes = []
+    for metric_index, metric_name in enumerate(expected_metric_names):
+        minimum = None
+        minimum_scenario = None
+        maximum = None
+        maximum_scenario = None
+        for result in scenario_results:
+            value = result.projection.predicted_metric_changes[metric_index]
+            if value is None:
+                continue
+            value = float(value)
+            if minimum is None or value < minimum:
+                minimum = value
+                minimum_scenario = result.name
+            if maximum is None or value > maximum:
+                maximum = value
+                maximum_scenario = result.name
+        envelopes.append(
+            CampaignMetricProjectionEnvelope(
+                metric_name=metric_name,
+                minimum=minimum,
+                minimum_scenario=minimum_scenario,
+                maximum=maximum,
+                maximum_scenario=maximum_scenario,
+            )
+        )
+    return tuple(envelopes)
+
+
+def _validate_projection(projection, name):
+    if not isinstance(projection, CampaignMetricChangeProjection):
+        raise TypeError(f"{name} must be a CampaignMetricChangeProjection")
+    for field_name, value in (
+        ("parameter_names", projection.parameter_names),
+        ("metric_names", projection.metric_names),
+        ("parameter_changes", projection.parameter_changes),
+        ("predicted_metric_changes", projection.predicted_metric_changes),
+    ):
+        if type(value) is not tuple:
+            raise TypeError(f"{name}.{field_name} must be a tuple")
+    if len(projection.parameter_names) != len(projection.parameter_changes):
+        raise ValueError(f"{name} parameter metadata has inconsistent lengths")
+    if len(projection.metric_names) != len(projection.predicted_metric_changes):
+        raise ValueError(f"{name} metric metadata has inconsistent lengths")
+    if not projection.parameter_names and projection.metric_names:
+        raise ValueError(f"{name} empty parameter layout must have no metrics")
+    _validate_unique_nonblank(projection.parameter_names, f"{name} parameter name")
+    _validate_unique_nonblank(projection.metric_names, f"{name} metric name")
+    for metric_name in projection.metric_names:
+        if metric_name not in _METRIC_KEYS:
+            raise ValueError(f"{name} has unknown metric {metric_name!r}")
+    for index, value in enumerate(projection.parameter_changes):
+        _finite_numeric(f"{name}.parameter_changes[{index}]", value)
+    for index, value in enumerate(projection.predicted_metric_changes):
+        if value is not None:
+            _finite_numeric(f"{name}.predicted_metric_changes[{index}]", value)
+    return projection.parameter_names, projection.metric_names
+
+
 def project_campaign_scenarios(
     matrix: CampaignSensitivityMatrix,
     scenarios: Iterable[CampaignProjectionScenario],

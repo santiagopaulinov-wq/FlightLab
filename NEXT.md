@@ -47,7 +47,8 @@ The seventeenth layer applies that matrix to one explicit aligned parameter-
 change vector to produce immutable linear predicted metric changes.
 The eighteenth layer applies the same matrix to a finite explicit ordered
 collection of named change scenarios while retaining one immutable projection
-per scenario.
+per scenario. The nineteenth layer reduces those existing scenario projections
+to deterministic per-metric finite extrema and first-attaining scenario names.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -93,14 +94,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: explicit ordered named campaign sensitivity-projection
-  scenarios with complete prevalidation and delegated single-vector projection.
+- Completed capability: deterministic immutable per-metric projection envelopes
+  over explicit ordered campaign scenarios.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add ordered campaign projection scenarios`).
+  (`feat: add deterministic campaign projection envelopes`).
 
 ## Current verification baseline
 
-- Test count: 1125 tests.
+- Test count: 1139 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -326,6 +327,13 @@ or EXACT set matching for both inclusions and exclusions.
 - Each frozen `CampaignProjectionScenarioResult` preserves caller scenario
   order and contains its name plus the existing immutable detached projection.
   Empty input returns `()`; failures produce no partial returned collection.
+- `campaign_projection_envelopes()` validates one finite ordered named scenario
+  result collection and reports defined finite minimum and maximum predicted
+  changes for every metric in existing metric order.
+- Each frozen `CampaignMetricProjectionEnvelope` retains its metric, optional
+  bounds, and first-attaining scenario names. Exact ties use scenario order;
+  `None` predictions are excluded, and an all-undefined metric has no bounds or
+  attaining names.
 
 ## Completed continuous-time structural-analysis layer
 
@@ -1032,11 +1040,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Keep the next robustness layer limited to deterministic per-metric min/max
-  envelopes over one existing explicit ordered scenario-projection result. Do
-  not add probabilities, sampling, Monte Carlo work, percentiles, distributions,
-  scenario ranking, optimization, plotting, persistence, or CLI/UI workflows
-  yet.
+- Keep the next robustness layer limited to checking existing projection
+  envelopes against caller-supplied explicit per-metric lower and upper
+  predicted-change limits. Do not infer limits, add probabilities, sampling,
+  Monte Carlo work, global scenario ranking, optimization, plotting,
+  persistence, or CLI/UI workflows yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -1051,31 +1059,31 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Deterministic campaign projection envelopes
+### Explicit campaign projection-envelope limit checks
 
-Add a small pure analysis API that summarizes one existing ordered collection
-of named scenario projections as immutable per-metric minimum and maximum
-predicted changes with the scenario names attaining each bound.
+Add a small pure analysis API that compares existing ordered metric projection
+envelopes with caller-supplied explicit allowable lower and upper predicted-
+change limits and returns immutable ordered margins and pass/fail results.
 
 ## Suggested implementation direction
 
-- Reuse existing immutable scenario projections without revisiting the matrix
-  or parameter vectors.
-- Require unique scenario names and identical parameter/metric metadata and
-  ordering across all projections.
-- For each metric, preserve metric order and report finite minimum/maximum
-  predicted changes plus all exactly tied scenario names in scenario order.
-- Define explicit whole-metric behavior for unavailable `None` predictions;
-  never treat them as zero or silently omit them.
-- Add no probability model, sampling, percentile, distribution, scenario
-  ranking, scoring, optimization, plotting, or persistence.
+- Require one unique explicit metric limit specification per envelope in exact
+  metric order; infer no threshold or alignment.
+- Compute lower margin as `envelope.minimum - allowed_lower` and upper margin as
+  `allowed_upper - envelope.maximum`, with nonnegative margins passing.
+- Preserve attaining scenario names so failed limits remain traceable to the
+  explicit scenario set.
+- Define unavailable-envelope behavior explicitly without treating missing
+  extrema as passing or zero.
+- Add no aggregate score, global pass ranking, probability model, sampling,
+  optimization, plotting, or persistence.
 
 ## Focused tests to add
 
-- Verify empty, one, and multiple scenarios; positive/negative bounds; exact
-  metric and tied-name order; unavailable metrics; duplicate names; mismatched
-  metadata/layouts; nonfinite rejection; deterministic output, immutability,
-  and source isolation.
+- Verify passing and failing lower/upper margins, exact metric order, boundary
+  equality, attaining-name retention, unavailable envelopes, malformed limits,
+  duplicate/mismatched metrics, nonfinite values, empty input, deterministic
+  output, immutability, and source isolation.
 
 ## Commands that must pass
 
