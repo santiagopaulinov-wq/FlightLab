@@ -87,7 +87,9 @@ report to a fresh deterministic JSON-compatible plain record without I/O.
 The thirty-sixth layer applies that converter to a finite caller-ordered
 collection of uniquely named assessment reports while preserving each name and
 detached record. The thirty-seventh layer extracts their stored overall and
-ordered per-metric pass states into a compact deterministic plain overview.
+ordered per-metric pass states into a compact deterministic plain overview. The
+thirty-eighth layer reduces the same validated named reports to one immutable
+collection verdict with ordered passing, failing, and undefined report names.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -133,13 +135,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: ordered named comparison-envelope verdict overview.
+- Completed capability: named comparison-envelope assessment collection
+  verdict.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add named projection error verdict overview`).
+  (`feat: add projection error assessment collection verdict`).
 
 ## Current verification baseline
 
-- Test count: 1356 tests.
+- Test count: 1363 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1091,9 +1094,9 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Move beyond the named overview only by reducing its source reports' existing
-  verdict categories to one explicit ordered collection-level verdict over
-  report names. Do not infer priorities, add probabilistic claims, regression,
+- Move beyond the named collection verdict only by assembling it with the
+  validated ordered named reports into one immutable traceable collection
+  report. Do not infer priorities, add probabilistic claims, regression,
   automatic correction, ranking, optimization, plotting, persistence, or
   CLI/UI workflows yet.
 - Do not resume the previously suggested observer-based integral output
@@ -1110,31 +1113,33 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Named comparison-envelope assessment collection verdict
+### Named comparison-envelope assessment collection report
 
-Add a small pure analysis API that reduces an explicit ordered named assessment
-collection to one immutable verdict with ordered passing, failing, and
-undefined report names.
+Add a small pure analysis API that assembles one validated ordered named
+assessment collection with its existing collection verdict into one immutable,
+traceable, consistency-validated report.
 
 ## Suggested implementation direction
 
-- Reuse only existing validated overall-verdict categories; do not recompute
-  field checks, margins, or metric verdicts.
-- A named report is undefined when any stored undefined identity exists,
-  failing when it is defined and non-passing, and passing otherwise.
-- Preserve report order within mutually exclusive categories and retain
-  explicit report names.
-- Define empty-input overall behavior explicitly and reject malformed or
-  duplicate named inputs before classification.
+- Materialize and validate the complete finite named collection, then invoke
+  `campaign_projection_error_comparison_envelope_assessment_collection_verdict()`
+  exactly once.
+- Retain detached ordered named reports and that existing verdict; do not
+  duplicate classification or recompute analytical values.
+- Verify exact category coverage and source order, mutual exclusivity,
+  undefined precedence, and agreement of global pass/fail with stored reports.
+- Empty input retains no named reports and the existing explicit non-passing
+  empty collection verdict; perform no conversion or I/O.
 - Add no aggregation across comparisons, weighting, acceptance score,
   confidence interval, regression fit, automatic correction, ranking,
   optimization, plotting, persistence, or simulation.
 
 ## Focused tests to add
 
-- Verify all-passing, failing, undefined, and mixed collections, precedence and
-  exact category order, malformed and duplicate names, empty and generator
-  input, immutability, deterministic repeated calls, and source isolation.
+- Verify passing, failing, undefined, mixed, and empty reports, exact
+  report/category order, source/verdict agreement, malformed and inconsistent
+  inputs, exact delegation, generator input, immutability, detachment, and
+  deterministic repeated calls.
 
 ## Commands that must pass
 
@@ -1148,9 +1153,8 @@ git status
 ## Restart instruction
 
 Continue from the latest implementation commit. Read this file and inspect the
-existing named comparison-envelope assessment APIs, then implement the exact
-next smallest task: **Named comparison-envelope assessment collection
-verdict**.
+existing named assessment collection verdict API, then implement the exact next
+smallest task: **Named comparison-envelope assessment collection report**.
 Preserve the documented scope, run the required verification commands, commit
 the completed capability, and do not push. Do not touch the existing untracked
 `.vscode/`.

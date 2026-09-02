@@ -1400,6 +1400,22 @@ fresh detached JSON-compatible dictionaries and lists. The overview does not
 include limit results, extrema, margins, residuals, or identity-category lists,
 and it infers no scores, rankings, probabilities, or acceptance conclusions.
 
+`campaign_projection_error_comparison_envelope_assessment_collection_verdict(
+entries)` reduces the validated ordered named collection to one frozen
+`CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionVerdict`. It
+retains the overall pass state plus ordered passing, failing, and undefined
+report-name tuples.
+
+A report is undefined when its stored overall verdict contains any undefined
+metric/field identity; this classification takes precedence over an ordinary
+failure. Otherwise, its stored overall pass state determines passing or
+failing. The collection passes only when it is nonempty and every report is
+defined and passing. Empty input returns an explicit non-passing verdict with
+three empty categories. This verdict summarizes deterministic caller-defined
+assessment reports only; it is not external or statistical validation,
+certification, scoring, ranking, calibration, fitting, regression,
+optimization, or automatic model correction.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

@@ -19,6 +19,7 @@ from flightlab.analysis import (
     CampaignMetricResidualToleranceResult,
     CampaignMetricValidationResidualEnvelope,
     CampaignParameterChange,
+    CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionVerdict,
     CampaignProjectionErrorComparisonEnvelopeAssessmentReport,
     CampaignProjectionErrorComparisonEnvelopeLimitVerdict,
     CampaignProjectionErrorMetricEnvelopeLimitVerdict,
@@ -42,6 +43,7 @@ from flightlab.analysis import (
     SensitivityMatrixParameter,
     campaign_metric_deltas,
     campaign_projection_envelopes,
+    campaign_projection_error_comparison_envelope_assessment_collection_verdict,
     campaign_projection_error_comparison_envelope_assessment_record,
     campaign_projection_error_comparison_envelope_assessment_report,
     campaign_projection_error_comparison_envelope_limit_verdict,
@@ -3476,6 +3478,146 @@ def test_named_assessment_verdict_overview_empty_generator_plain_and_detached():
         "overall_passed": True,
         "metrics": [{"metric": "iae", "passed": True}],
     }
+
+
+def test_named_assessment_collection_verdict_all_reports_passing():
+    verdict = campaign_projection_error_comparison_envelope_assessment_collection_verdict(
+        (_named_assessment_report("first"), _named_assessment_report("second"))
+    )
+    assert verdict == (
+        CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionVerdict(
+            True, ("first", "second"), (), ()
+        )
+    )
+
+
+def test_named_assessment_collection_verdict_one_and_multiple_failures():
+    one = campaign_projection_error_comparison_envelope_assessment_collection_verdict(
+        (
+            _named_assessment_report("pass"),
+            _named_assessment_report("fail", ("fail", *("pass",) * 6)),
+        )
+    )
+    assert one.overall_passed is False
+    assert one.passing_report_names == ("pass",)
+    assert one.failing_report_names == ("fail",)
+
+    multiple = campaign_projection_error_comparison_envelope_assessment_collection_verdict(
+        (
+            _named_assessment_report("fail-a", ("fail", *("pass",) * 6)),
+            _named_assessment_report("pass"),
+            _named_assessment_report("fail-b", ("pass", "fail", *("pass",) * 5)),
+        )
+    )
+    assert multiple.failing_report_names == ("fail-a", "fail-b")
+
+
+def test_named_assessment_collection_verdict_undefined_precedes_failure():
+    verdict = campaign_projection_error_comparison_envelope_assessment_collection_verdict(
+        (
+            _named_assessment_report(
+                "undefined-and-failing",
+                ("undefined", "fail", *("pass",) * 5),
+            ),
+        )
+    )
+    assert verdict.passing_report_names == ()
+    assert verdict.failing_report_names == ()
+    assert verdict.undefined_report_names == ("undefined-and-failing",)
+
+
+def test_named_assessment_collection_verdict_mixed_categories_preserve_order():
+    entries = (
+        _named_assessment_report("undefined-a", ("undefined", *("pass",) * 6)),
+        _named_assessment_report("fail-a", ("fail", *("pass",) * 6)),
+        _named_assessment_report("pass-a"),
+        _named_assessment_report("undefined-b", ("pass", "undefined", *("pass",) * 5)),
+        _named_assessment_report("fail-b", ("pass", "fail", *("pass",) * 5)),
+        _named_assessment_report("pass-b"),
+    )
+    verdict = campaign_projection_error_comparison_envelope_assessment_collection_verdict(
+        entries
+    )
+    assert verdict.passing_report_names == ("pass-a", "pass-b")
+    assert verdict.failing_report_names == ("fail-a", "fail-b")
+    assert verdict.undefined_report_names == ("undefined-a", "undefined-b")
+
+
+def test_named_assessment_collection_verdict_rejects_names_and_malformed_members():
+    report = _named_assessment_report().report
+    with pytest.raises(ValueError, match="name must be non-empty"):
+        campaign_projection_error_comparison_envelope_assessment_collection_verdict(
+            (CampaignProjectionErrorNamedAssessmentReport(" ", report),)
+        )
+    same = CampaignProjectionErrorNamedAssessmentReport("same", report)
+    with pytest.raises(ValueError, match="duplicate assessment report name"):
+        campaign_projection_error_comparison_envelope_assessment_collection_verdict(
+            (same, same)
+        )
+    with pytest.raises(TypeError, match="NamedAssessmentReport"):
+        campaign_projection_error_comparison_envelope_assessment_collection_verdict(
+            (object(),)
+        )
+    with pytest.raises(TypeError, match=r"entries\[0\].report"):
+        campaign_projection_error_comparison_envelope_assessment_collection_verdict(
+            (CampaignProjectionErrorNamedAssessmentReport("bad", object()),)
+        )
+
+
+def test_named_assessment_collection_verdict_rejects_inconsistent_stored_verdicts():
+    report = _named_assessment_report().report
+    impossible_overall = CampaignProjectionErrorComparisonEnvelopeLimitVerdict(
+        False,
+        report.overall_verdict.passing_identities,
+        report.overall_verdict.failing_identities,
+        report.overall_verdict.undefined_identities,
+    )
+    malformed = CampaignProjectionErrorComparisonEnvelopeAssessmentReport(
+        report.limit_results, impossible_overall, report.metric_verdicts
+    )
+    with pytest.raises(ValueError, match="overall verdict pass state"):
+        campaign_projection_error_comparison_envelope_assessment_collection_verdict(
+            (CampaignProjectionErrorNamedAssessmentReport("bad", malformed),)
+        )
+
+    undefined = _named_assessment_report(
+        "undefined", ("undefined", *("pass",) * 6)
+    ).report
+    inconsistent = CampaignProjectionErrorComparisonEnvelopeAssessmentReport(
+        undefined.limit_results,
+        CampaignProjectionErrorComparisonEnvelopeLimitVerdict(
+            False,
+            undefined.overall_verdict.passing_identities,
+            undefined.overall_verdict.failing_identities,
+            (),
+        ),
+        undefined.metric_verdicts,
+    )
+    with pytest.raises(ValueError, match="identities do not match|classifications disagree"):
+        campaign_projection_error_comparison_envelope_assessment_collection_verdict(
+            (CampaignProjectionErrorNamedAssessmentReport("bad", inconsistent),)
+        )
+
+
+def test_named_assessment_collection_verdict_empty_generator_immutable_deterministic():
+    assert campaign_projection_error_comparison_envelope_assessment_collection_verdict(
+        ()
+    ) == CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionVerdict(
+        False, (), (), ()
+    )
+    source = [_named_assessment_report("first"), _named_assessment_report("second")]
+    first = campaign_projection_error_comparison_envelope_assessment_collection_verdict(
+        entry for entry in source
+    )
+    repeated = campaign_projection_error_comparison_envelope_assessment_collection_verdict(
+        source
+    )
+    assert first == repeated
+    assert first is not repeated
+    source.clear()
+    assert first.passing_report_names == ("first", "second")
+    with pytest.raises(FrozenInstanceError):
+        first.overall_passed = False
 
 
 def test_one_scenario_is_both_minimum_and_maximum():
