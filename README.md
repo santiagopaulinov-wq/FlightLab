@@ -1536,6 +1536,18 @@ and passing. Empty input returns an explicit non-passing verdict with empty
 categories. No nested classification, pass state, or analytical value is
 recomputed.
 
+`campaign_projection_error_comparison_envelope_named_assessment_collection_verdict_collection_verdict_record(
+verdict)` validates one existing aggregate verdict and returns a fresh plain
+dictionary containing its stored `overall_passed` Boolean and ordered
+`passing_verdict_names`, `failing_verdict_names`, and
+`undefined_verdict_names` lists.
+
+The conversion validates the frozen verdict's type, Boolean state, tuple
+categories, nonblank unique mutually exclusive names, and overall-pass
+consistency. It invokes no aggregation or lower-level classification. The
+empty non-passing verdict produces the same schema with three empty lists, and
+every call returns equal but fully detached JSON-compatible data.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 
