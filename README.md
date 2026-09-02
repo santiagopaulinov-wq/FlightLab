@@ -1387,6 +1387,19 @@ entries are never skipped, delegated report validation failures propagate, and
 no partial list is returned. Returned nested structures are detached from both
 the named entries and their source reports.
 
+`campaign_projection_error_comparison_envelope_verdict_overview(entries)`
+extracts a deliberately compact plain overview from the same explicitly named
+assessment reports. Each output dictionary contains only `name`, the stored
+`overall_passed` state, and an ordered `metrics` list of `{metric, passed}`
+dictionaries.
+
+The complete named collection and every report's stored cross-view verdict
+structure are validated before extraction. Report order and per-report metric
+order are preserved exactly. Empty input returns `[]`, and every call returns
+fresh detached JSON-compatible dictionaries and lists. The overview does not
+include limit results, extrema, margins, residuals, or identity-category lists,
+and it infers no scores, rankings, probabilities, or acceptance conclusions.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

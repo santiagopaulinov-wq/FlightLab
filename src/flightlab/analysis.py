@@ -1512,6 +1512,42 @@ def campaign_projection_error_comparison_envelope_assessment_record(report):
 
 def campaign_projection_error_comparison_envelope_named_assessment_records(entries):
     """Convert ordered named assessment reports to detached plain records."""
+    entries = _validated_projection_error_named_assessment_reports(entries)
+    return [
+        {
+            "name": entry.name,
+            "report": (
+                campaign_projection_error_comparison_envelope_assessment_record(
+                    entry.report
+                )
+            ),
+        }
+        for entry in entries
+    ]
+
+
+def campaign_projection_error_comparison_envelope_verdict_overview(entries):
+    """Extract stored overall and per-metric verdict states as plain values."""
+    entries = _validated_projection_error_named_assessment_reports(entries)
+    for entry in entries:
+        _validated_projection_error_assessment_report(entry.report)
+    return [
+        {
+            "name": entry.name,
+            "overall_passed": entry.report.overall_verdict.overall_passed,
+            "metrics": [
+                {
+                    "metric": verdict.metric_name,
+                    "passed": verdict.overall_passed,
+                }
+                for verdict in entry.report.metric_verdicts
+            ],
+        }
+        for entry in entries
+    ]
+
+
+def _validated_projection_error_named_assessment_reports(entries):
     try:
         entry_iterator = iter(entries)
     except TypeError as error:
@@ -1537,18 +1573,7 @@ def campaign_projection_error_comparison_envelope_named_assessment_records(entri
                 f"{prefix}.report must be a "
                 "CampaignProjectionErrorComparisonEnvelopeAssessmentReport"
             )
-
-    return [
-        {
-            "name": entry.name,
-            "report": (
-                campaign_projection_error_comparison_envelope_assessment_record(
-                    entry.report
-                )
-            ),
-        }
-        for entry in entries
-    ]
+    return entries
 
 
 def _validated_projection_error_assessment_report(report):
