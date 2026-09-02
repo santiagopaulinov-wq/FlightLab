@@ -554,6 +554,42 @@ calls therefore produce identical detached JSON-compatible records without a
 new V&V result or serialization type. This is software verification against a
 mathematical oracle, not physical validation of an aircraft or controller.
 
+`run_scipy_linear_state_space_verification_benchmark()` adds a second fixed
+software-verification check through independently maintained SciPy APIs:
+
+```python
+from flightlab.verification import (
+    run_scipy_linear_state_space_verification_benchmark,
+)
+
+run = run_scipy_linear_state_space_verification_benchmark()
+
+assert run.user_metadata["passed"] is True
+assert run.reference["library"] == "scipy"
+```
+
+The benchmark compares `StateSpace.eigenvalues()` with
+`scipy.linalg.eigvals()` and compares exact physical-coordinate propagation
+with `scipy.signal.lsim(..., interp=False)`. Its fixed damped oscillator uses
+`A = [[0, 1], [-4, -0.8]]`, `B = [[0], [1]]`, `C = [[1, 0.25]]`,
+`D = [[0.1]]`, initial state `[0.75, -0.25]`, a uniform `0.125`-second grid
+from `0` through `2` seconds, and three explicit zero-order-hold input levels.
+This adds complex-conjugate poles, input transitions, mixed-state output, and
+direct feedthrough beyond the analytical benchmark.
+
+Maximum absolute residual limits are `1e-12` for eigenvalues and `1e-10` for
+states and outputs. Exact returned-time equality and exact initial-state
+preservation by both implementations are also required. Malformed reference
+evidence raises `ValueError`; well-formed evidence outside a limit returns an
+existing `ExperimentRun` with `passed = False`. The run records the resolved
+SciPy version and fixed provenance, so repeated calls in the same locked
+environment produce equal detached JSON-compatible records.
+
+SciPy is intentionally a development/test dependency, imported only inside
+this runner. Importing `flightlab.verification` and using the analytical
+benchmark remain NumPy-only. This comparison is corroborating software
+verification, not physical aircraft validation.
+
 ## Experimental Platform: SISO response metrics
 
 `response_metrics(time, y, reference)` evaluates a finite sampled SISO

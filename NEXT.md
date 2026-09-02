@@ -116,9 +116,9 @@ fixed, independent closed-form verification benchmark for the existing
 continuous-time linear `StateSpace` eigenvalue and physical-coordinate exact-
 propagation foundation. It returns deterministic evidence through the existing
 `ExperimentRun` record machinery. This is software verification against a
-mathematical oracle, not physical validation of an aircraft model. The next
-capability is now defined as one fixed SciPy cross-check of a different coupled
-oscillatory system, using SciPy only as a development/test verification
+mathematical oracle, not physical validation of an aircraft model. The second
+V&V capability is now complete: one fixed SciPy cross-check of a different
+coupled oscillatory system, using SciPy only as a development/test verification
 dependency and reusing the same existing evidence machinery.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
@@ -165,17 +165,15 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: definition of the independent-library linear
-  verification cross-check and its SciPy dependency and evidence contracts.
-- Selected capability: one fixed coupled damped-oscillator comparison of
+- Completed capability: one fixed coupled damped-oscillator comparison of
   FlightLab eigenvalues and exact sampled zero-order-hold propagation with
   `scipy.linalg.eigvals()` and `scipy.signal.lsim(..., interp=False)`.
-- Phase-definition checkpoint commit: this checkpoint's documentation commit
-  (`docs: define scipy state-space verification cross-check`).
+- Completed capability commit: this checkpoint's implementation commit
+  (`feat: add scipy state-space verification benchmark`).
 
 ## Current verification baseline
 
-- Test count: 1456 tests.
+- Test count: 1479 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1119,9 +1117,8 @@ or EXACT set matching for both inclusions and exclusions.
   conventions.
 - Preserve complex modal mathematics and use explicit numerical tolerances for
   conjugate matching.
-- Keep required runtime dependencies unchanged and avoid unrelated refactors;
-  the next benchmark may add only its explicitly scoped development/test SciPy
-  dependency.
+- Keep required runtime dependencies unchanged, keep SciPy development/test-
+  only, and avoid unrelated refactors.
 - Preserve the physical-state augmented-matrix exact propagation and its
   left-endpoint zero-order-hold input convention.
 - Do not resume expanding modal numerical response helpers unless a later
@@ -1143,24 +1140,22 @@ or EXACT set matching for both inclusions and exclusions.
 - Do not add real aircraft data or controllers.
 - Do not change the verified numerical modal infrastructure, flight-dynamics
   equations, or sign conventions without a demonstrated inconsistency.
-- Do not add any dependency other than the exactly scoped development/test
-  SciPy requirement or perform unrelated refactors.
+- Do not add dependencies or perform unrelated refactors.
 
 ## Exact next smallest task
 
-### Implement the fixed SciPy damped-oscillator cross-check
+### Define the first published aircraft flight-dynamics benchmark
 
-Add `scipy>=1.18.0,<1.19` only to the development dependency group and update
-the lockfile. Add exactly one
-`run_scipy_linear_state_space_verification_benchmark()` runner beside the
-analytical runner in `flightlab.verification`, importing SciPy locally so the
-base package and analytical benchmark remain NumPy-only. Implement the fixed
-system, sampled input, SciPy calls, validation, residuals, limits, failure
-semantics, provenance, and deterministic existing `ExperimentRun` evidence
-specified below. Add focused tests using the real SciPy APIs plus the existing
-monkeypatch seam for malformed and over-limit evidence. Do not refactor the
-analytical runner or extract shared V&V infrastructure merely to remove small
-local repetition.
+Review the completed analytical and SciPy verification evidence, then select
+and specify one authoritative published linear aircraft flight-dynamics
+benchmark before implementing it. Record the exact source and edition, model
+matrices or coefficients, units and conventions, FlightLab quantities under
+comparison, published reference quantities, tolerances, provenance, and
+acceptance semantics. Explicitly classify each proposed comparison as software
+verification against a published computational result or physical validation
+against measured evidence; do not conflate the two. Do not add production code,
+tests, data files, dependencies, or reporting types during that definition
+step.
 
 ## Selected second V&V capability
 
@@ -1172,6 +1167,14 @@ fixed, coupled, stable oscillatory continuous-time system. It must call each
 library through its public API and compare their returned values directly; it
 must not use the completed analytical formula as either implementation's
 reference.
+
+`flightlab.verification.run_scipy_linear_state_space_verification_benchmark()`
+now executes the comparison with locked SciPy 1.18.1. The verified baseline has
+maximum absolute residuals `0.0` for the eigenvalues,
+`1.4432899320127035e-15` for the physical states, and
+`7.771561172376096e-16` for the output. SciPy's returned grid and both initial
+states are exactly equal to their fixed inputs, so the benchmark passes without
+a FlightLab core correction.
 
 This remains **software verification**. Agreement establishes evidence about
 the generic linear numerical implementation for this fixed problem. It does not
@@ -1272,13 +1275,13 @@ sample. Equality with a limit passes.
 
 SciPy is a **development/test-only verification dependency**, not a required
 runtime dependency and not a transitive requirement for ordinary FlightLab
-users. The implementation step must add `scipy>=1.18.0,<1.19` to
-`[dependency-groups].dev` and update `uv.lock`; it must not add SciPy to
-`[project].dependencies`. The narrow runner must import SciPy inside the
-function, so importing `flightlab.verification` and invoking the analytical
-benchmark still work in a base NumPy-only installation. Calling the SciPy
-runner without development dependencies installed raises the ordinary
-`ModuleNotFoundError` before constructing evidence.
+users. `scipy>=1.18.0,<1.19` is in `[dependency-groups].dev`, is locked to
+SciPy 1.18.1 in `uv.lock`, and is absent from `[project].dependencies`. The
+narrow runner imports SciPy inside the function, so importing
+`flightlab.verification` and invoking the analytical benchmark still work in a
+base NumPy-only installation. Calling the SciPy runner without development
+dependencies installed raises the ordinary `ModuleNotFoundError` before
+constructing evidence.
 
 The lower bound fixes the reviewed `eigvals` and `lsim` contracts. The minor-
 version upper bound prevents an unreviewed API generation from silently
@@ -1483,20 +1486,8 @@ passes.
 
 ## Focused tests to add
 
-- With the real development SciPy dependency, verify the exact fixed matrices,
-  input, time, initial state, public API arguments including `interp=False`,
-  returned shapes, finiteness, exact time and initial-state checks, all three
-  residual definitions, limits, and nominal passing result.
-- Verify independent over-limit failure for each residual and failed exact
-  initial-state checks through the smallest existing monkeypatch seam; verify
-  malformed shapes, nonfinite/complex trajectories, time mismatch, and
-  inconsistent output-residual evidence raise the specified errors.
-- Verify the result is the existing `ExperimentRun`, its SciPy-versioned
-  provenance is complete, response maximum absolute error equals the direct
-  output residual, and two same-environment calls return exactly equal detached
-  JSON-compatible reproducibility records.
-- Verify the analytical benchmark and import of `flightlab.verification` retain
-  their NumPy-only behavior when SciPy has not been imported.
+- No implementation tests are prescribed until the published benchmark source,
+  evidence classification, and comparison contract are explicitly selected.
 
 ## Commands that must pass
 
@@ -1510,12 +1501,10 @@ git status
 ## Restart instruction
 
 Continue from the latest implementation commit. Read this file and inspect the
-completed analytical benchmark and only the directly relevant `StateSpace`,
-Experimental Platform evidence, dependency, and test surfaces, then perform the
-exact next smallest task: **implement the fixed SciPy damped-oscillator
-cross-check** exactly as specified above. Keep SciPy development-only; do not
-broaden the benchmark, begin aircraft physical validation, or extend the
-serialization hierarchy.
+completed analytical and SciPy benchmark evidence, then perform the exact next
+smallest task: **define the first published aircraft flight-dynamics
+benchmark**. Do not implement it, add dependencies, conflate computational
+verification with physical validation, or extend the serialization hierarchy.
 Preserve the documented scope, run the required verification commands, commit
 the completed capability, and do not push. Do not touch the existing untracked
 `.vscode/`.
