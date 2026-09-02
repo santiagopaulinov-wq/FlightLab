@@ -74,7 +74,10 @@ collections through immutable right-minus-left descriptive differences. The
 twenty-ninth layer applies that existing comparison to one explicit baseline
 and a finite caller-ordered set of explicitly named summary collections. The
 thirtieth layer reduces the stored comparison-set differences to immutable
-per-metric finite extrema with first-attaining comparison identities.
+per-metric finite extrema with first-attaining comparison identities. The
+thirty-first layer checks those existing extrema against explicit aligned
+allowable difference intervals and reports deterministic margins and pass/fail
+states.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -120,14 +123,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: campaign projection-error comparison-set metric
-  envelopes.
+- Completed capability: explicit campaign projection-error comparison-envelope
+  limits.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add projection error comparison envelopes`).
+  (`feat: add projection error comparison envelope limits`).
 
 ## Current verification baseline
 
-- Test count: 1290 tests.
+- Test count: 1308 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1079,10 +1082,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Move beyond comparison-set envelopes only through explicit caller-ordered
-  allowable difference intervals. Do not infer priorities, add probabilistic
-  claims, regression, automatic correction, ranking, optimization, plotting,
-  persistence, or CLI/UI workflows yet.
+- Move beyond comparison-envelope limit checks only by reducing their existing
+  pass/fail states to one deterministic verdict with ordered metric/field
+  identities. Do not infer priorities, add probabilistic claims, regression,
+  automatic correction, ranking, optimization, plotting, persistence, or
+  CLI/UI workflows yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -1097,31 +1101,29 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Explicit campaign projection-error comparison-envelope limits
+### Campaign projection-error comparison-envelope limit verdict
 
-Add a small pure analysis API that checks existing ordered comparison-set metric
-envelopes against explicit caller-ordered allowable minimum and maximum
-difference intervals.
+Add a small pure analysis API that reduces one existing ordered collection of
+comparison-envelope limit results to an immutable overall verdict with ordered
+passing, failing, and undefined metric/difference-field identities.
 
 ## Suggested implementation direction
 
-- Consume only existing immutable difference envelopes; do not recompute
-  summaries, comparisons, or extrema.
-- Require one explicit finite lower/upper interval for each metric/field in
-  exact envelope order.
-- Report deterministic lower and upper margins plus pass/fail state while
-  retaining metric and difference-field identity.
-- Define undefined-envelope and empty-input behavior explicitly and reject
-  malformed, duplicate, missing, reordered, or extra limits.
+- Consume and fully validate only existing immutable limit results; do not
+  recompute envelopes, margins, or pass states.
+- Preserve result order within passing, failing, and undefined classifications.
+- Retain metric and difference-field identity together in every category.
+- Define empty-input overall-verdict behavior explicitly and reject duplicate,
+  malformed, inconsistent, or nonfinite result records.
 - Add no aggregation across comparisons, weighting, acceptance score,
   confidence interval, regression fit, automatic correction, ranking,
   optimization, plotting, persistence, or simulation.
 
 ## Focused tests to add
 
-- Verify exact boundary passes, lower and upper failures, signed margins,
-  undefined envelopes, multiple metrics and fields, exact ordering, malformed
-  and incompatible limits, empty and generator inputs, deterministic output,
+- Verify all-passing, failing, undefined, and mixed result sets, exact category
+  order, metric/field identity, duplicate and malformed results, inconsistent
+  margins/pass states, empty and generator inputs, deterministic output,
   immutability, and source isolation.
 
 ## Commands that must pass
@@ -1136,9 +1138,9 @@ git status
 ## Restart instruction
 
 Continue from the latest implementation commit. Read this file and inspect the
-existing projection-error comparison-envelope APIs, then implement the exact
-next smallest task: **Explicit campaign projection-error comparison-envelope
-limits**.
+existing projection-error comparison-envelope limit APIs, then implement the
+exact next smallest task: **Campaign projection-error comparison-envelope limit
+verdict**.
 Preserve the documented scope, run the required verification commands, commit
 the completed capability, and do not push. Do not touch the existing untracked
 `.vscode/`.

@@ -1276,6 +1276,26 @@ They are not statistical confidence bounds, probabilistic uncertainty,
 ranking, scoring, validation thresholds, calibration, regression, fitting,
 optimization, or physical-certification bounds.
 
+`check_campaign_projection_error_comparison_envelope_limits(envelopes,
+limits)` checks each existing metric/difference-field envelope against one
+explicit aligned `CampaignProjectionErrorSummaryDifferenceLimit`. Limits must
+provide exact metric and difference-field coverage in envelope order, with
+finite non-boolean bounds satisfying `allowable_minimum_difference <=
+allowable_maximum_difference`.
+
+Each frozen `CampaignProjectionErrorSummaryDifferenceLimitResult` retains the
+metric and field identity, observed extrema, allowable interval, margins, and
+pass state. The margins are `observed_minimum - allowable_minimum` and
+`allowable_maximum - observed_maximum`; a defined field passes only when both
+are nonnegative. An undefined envelope produces `None` margins and does not
+pass. Empty envelopes plus empty limits return `()`.
+
+This pure check only determines whether observed finite comparison-envelope
+differences remain inside explicit caller-defined deterministic intervals. It
+is not statistical significance testing, a confidence interval, probabilistic
+uncertainty, physical validation, automatic acceptance criteria, calibration,
+regression, fitting, optimization, or certification.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

@@ -21,6 +21,8 @@ from flightlab.analysis import (
     CampaignProjectionErrorSummaryCollection,
     CampaignProjectionErrorSummaryComparisonSetResult,
     CampaignProjectionErrorSummaryDifferenceEnvelope,
+    CampaignProjectionErrorSummaryDifferenceLimit,
+    CampaignProjectionErrorSummaryDifferenceLimitResult,
     CampaignProjectionResiduals,
     CampaignProjectionResidualToleranceResults,
     CampaignProjectionScenario,
@@ -43,6 +45,7 @@ from flightlab.analysis import (
     campaign_secant_sensitivities,
     campaign_sensitivity_matrix,
     check_campaign_projection_envelope_limits,
+    check_campaign_projection_error_comparison_envelope_limits,
     check_campaign_projection_residual_tolerances,
     compare_campaign_projection_error_summaries,
     compare_campaign_projection_error_summary_collections,
@@ -2506,6 +2509,207 @@ def test_comparison_set_envelopes_support_empty_generator_and_detached_results()
     assert first[0].metric_name == "iae"
     with pytest.raises(FrozenInstanceError):
         first[0].minimum_difference = 0.0
+
+
+_DIFFERENCE_FIELDS = (
+    "defined_residual_count_difference",
+    "undefined_residual_count_difference",
+    "minimum_residual_difference",
+    "maximum_residual_difference",
+    "mean_residual_difference",
+    "mean_absolute_residual_difference",
+    "maximum_absolute_residual_difference",
+)
+
+
+def _difference_envelopes(metric="iae", minimum=-2.0, maximum=3.0):
+    if minimum is None:
+        return tuple(
+            CampaignProjectionErrorSummaryDifferenceEnvelope(
+                metric, field, None, None, None, None
+            )
+            for field in _DIFFERENCE_FIELDS
+        )
+    return tuple(
+        CampaignProjectionErrorSummaryDifferenceEnvelope(
+            metric, field, minimum, "minimum", maximum, "maximum"
+        )
+        for field in _DIFFERENCE_FIELDS
+    )
+
+
+def _difference_limits(envelopes, lower=-5.0, upper=7.0):
+    return tuple(
+        CampaignProjectionErrorSummaryDifferenceLimit(
+            envelope.metric_name, envelope.difference_field, lower, upper
+        )
+        for envelope in envelopes
+    )
+
+
+def test_comparison_envelope_limit_clear_pass_and_exact_margins():
+    envelopes = _difference_envelopes()
+    results = check_campaign_projection_error_comparison_envelope_limits(
+        envelopes, _difference_limits(envelopes)
+    )
+
+    assert results[0] == CampaignProjectionErrorSummaryDifferenceLimitResult(
+        "iae", _DIFFERENCE_FIELDS[0], -2.0, 3.0, -5.0, 7.0, 3.0, 4.0, True
+    )
+
+
+@pytest.mark.parametrize(
+    "lower, upper, expected_margins",
+    [
+        (-1.0, 5.0, (-1.0, 2.0)),
+        (-5.0, 2.0, (3.0, -1.0)),
+        (-1.0, 2.0, (-1.0, -1.0)),
+    ],
+    ids=("lower", "upper", "both"),
+)
+def test_comparison_envelope_limits_report_bound_failures(
+    lower, upper, expected_margins
+):
+    envelopes = _difference_envelopes()
+    result = check_campaign_projection_error_comparison_envelope_limits(
+        envelopes, _difference_limits(envelopes, lower, upper)
+    )[0]
+    assert (result.lower_margin, result.upper_margin) == expected_margins
+    assert result.passed is False
+
+
+@pytest.mark.parametrize(
+    "minimum, maximum, lower, upper",
+    [(-2.0, 3.0, -2.0, 3.0), (0.0, 0.0, 0.0, 0.0), (-4.0, -1.0, -4.0, -1.0)],
+)
+def test_comparison_envelope_limits_exact_and_zero_width_boundaries_pass(
+    minimum, maximum, lower, upper
+):
+    envelopes = _difference_envelopes(minimum=minimum, maximum=maximum)
+    result = check_campaign_projection_error_comparison_envelope_limits(
+        envelopes, _difference_limits(envelopes, lower, upper)
+    )[0]
+    assert (result.lower_margin, result.upper_margin, result.passed) == (0.0, 0.0, True)
+
+
+def test_comparison_envelope_limits_preserve_multiple_metric_and_field_order():
+    envelopes = _difference_envelopes("ise") + _difference_envelopes("iae", 1.0, 2.0)
+    results = check_campaign_projection_error_comparison_envelope_limits(
+        envelopes, _difference_limits(envelopes)
+    )
+    assert tuple((result.metric_name, result.difference_field) for result in results) == tuple(
+        (envelope.metric_name, envelope.difference_field) for envelope in envelopes
+    )
+
+
+def test_comparison_envelope_limit_undefined_has_no_margins_and_does_not_pass():
+    envelopes = _difference_envelopes(minimum=None, maximum=None)
+    result = check_campaign_projection_error_comparison_envelope_limits(
+        envelopes, _difference_limits(envelopes)
+    )[0]
+    assert result.observed_minimum_difference is None
+    assert result.observed_maximum_difference is None
+    assert result.lower_margin is None
+    assert result.upper_margin is None
+    assert result.passed is False
+
+
+def test_comparison_envelope_limits_reject_missing_extra_and_misordered_limits():
+    envelopes = _difference_envelopes()
+    limits = _difference_limits(envelopes)
+    with pytest.raises(ValueError, match="exact metric and field coverage"):
+        check_campaign_projection_error_comparison_envelope_limits(envelopes, limits[:-1])
+    with pytest.raises(ValueError, match="exact metric and field coverage"):
+        check_campaign_projection_error_comparison_envelope_limits(
+            envelopes, limits + (limits[-1],)
+        )
+    with pytest.raises(ValueError, match=r"limits\[0\] identity"):
+        check_campaign_projection_error_comparison_envelope_limits(
+            envelopes, (limits[1], limits[0], *limits[2:])
+        )
+
+
+def test_comparison_envelope_limits_reject_malformed_envelope_layouts():
+    envelopes = _difference_envelopes()
+    with pytest.raises(ValueError, match="complete difference-field layouts"):
+        check_campaign_projection_error_comparison_envelope_limits(
+            envelopes[:-1], _difference_limits(envelopes[:-1])
+        )
+    malformed = (
+        CampaignProjectionErrorSummaryDifferenceEnvelope(
+            " ", _DIFFERENCE_FIELDS[0], -1.0, "a", 1.0, "b"
+        ),
+        *envelopes[1:],
+    )
+    with pytest.raises(ValueError, match="metric_name must be non-empty"):
+        check_campaign_projection_error_comparison_envelope_limits(
+            malformed, _difference_limits(malformed)
+        )
+
+
+@pytest.mark.parametrize("value, match", [(True, "numeric"), ("bad", "numeric"), (float("inf"), "finite"), (float("nan"), "finite")])
+def test_comparison_envelope_limits_reject_invalid_bounds(value, match):
+    envelopes = _difference_envelopes()
+    limits = list(_difference_limits(envelopes))
+    limits[0] = CampaignProjectionErrorSummaryDifferenceLimit(
+        "iae", _DIFFERENCE_FIELDS[0], value, 7.0
+    )
+    with pytest.raises(ValueError, match=match):
+        check_campaign_projection_error_comparison_envelope_limits(envelopes, limits)
+
+
+def test_comparison_envelope_limits_reject_reversed_bounds_and_nonfinite_margins():
+    envelopes = _difference_envelopes()
+    with pytest.raises(ValueError, match="must not exceed"):
+        check_campaign_projection_error_comparison_envelope_limits(
+            envelopes, _difference_limits(envelopes, 2.0, -2.0)
+        )
+    huge = _difference_envelopes(minimum=1e308, maximum=1e308)
+    with pytest.raises(ValueError, match="margins must be finite"):
+        check_campaign_projection_error_comparison_envelope_limits(
+            huge, _difference_limits(huge, -1e308, 1e308)
+        )
+
+
+def test_comparison_envelope_limits_reject_malformed_stored_values_and_states():
+    envelopes = list(_difference_envelopes())
+    envelopes[0] = CampaignProjectionErrorSummaryDifferenceEnvelope(
+        "iae", _DIFFERENCE_FIELDS[0], float("inf"), "a", 1.0, "b"
+    )
+    with pytest.raises(ValueError, match="finite"):
+        check_campaign_projection_error_comparison_envelope_limits(
+            envelopes, _difference_limits(envelopes)
+        )
+    envelopes[0] = CampaignProjectionErrorSummaryDifferenceEnvelope(
+        "iae", _DIFFERENCE_FIELDS[0], None, "a", None, None
+    )
+    with pytest.raises(ValueError, match="inconsistent optional state"):
+        check_campaign_projection_error_comparison_envelope_limits(
+            envelopes, _difference_limits(envelopes)
+        )
+    envelopes[0] = CampaignProjectionErrorSummaryDifferenceEnvelope(
+        "iae", _DIFFERENCE_FIELDS[0], 2.0, "a", 1.0, "b"
+    )
+    with pytest.raises(ValueError, match="must not exceed"):
+        check_campaign_projection_error_comparison_envelope_limits(
+            envelopes, _difference_limits(envelopes)
+        )
+
+
+def test_comparison_envelope_limits_support_empty_generators_and_immutability():
+    assert check_campaign_projection_error_comparison_envelope_limits((), ()) == ()
+    envelopes = _difference_envelopes()
+    limits = _difference_limits(envelopes)
+    first = check_campaign_projection_error_comparison_envelope_limits(
+        (item for item in envelopes), (item for item in limits)
+    )
+    repeated = check_campaign_projection_error_comparison_envelope_limits(
+        envelopes, limits
+    )
+    assert first == repeated
+    assert first is not repeated
+    with pytest.raises(FrozenInstanceError):
+        first[0].passed = False
 
 
 def test_one_scenario_is_both_minimum_and_maximum():

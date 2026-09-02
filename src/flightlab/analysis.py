@@ -241,6 +241,31 @@ class CampaignProjectionErrorSummaryDifferenceEnvelope:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignProjectionErrorSummaryDifferenceLimit:
+    """One explicit allowable interval for a metric summary difference."""
+
+    metric_name: str
+    difference_field: str
+    allowable_minimum_difference: int | float
+    allowable_maximum_difference: int | float
+
+
+@dataclass(frozen=True, slots=True)
+class CampaignProjectionErrorSummaryDifferenceLimitResult:
+    """Immutable margins for one comparison-envelope limit check."""
+
+    metric_name: str
+    difference_field: str
+    observed_minimum_difference: int | float | None
+    observed_maximum_difference: int | float | None
+    allowable_minimum_difference: float
+    allowable_maximum_difference: float
+    lower_margin: float | None
+    upper_margin: float | None
+    passed: bool
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -1200,6 +1225,165 @@ def campaign_projection_error_comparison_set_metric_envelopes(
                 )
             )
     return tuple(envelopes)
+
+
+def check_campaign_projection_error_comparison_envelope_limits(
+    envelopes: Iterable[CampaignProjectionErrorSummaryDifferenceEnvelope],
+    limits: Iterable[CampaignProjectionErrorSummaryDifferenceLimit],
+) -> tuple[CampaignProjectionErrorSummaryDifferenceLimitResult, ...]:
+    """Check stored comparison envelopes against explicit aligned intervals."""
+    envelopes = _validated_projection_error_difference_envelopes(envelopes)
+    try:
+        limit_iterator = iter(limits)
+    except TypeError as error:
+        raise TypeError("limits must be an iterable") from error
+    limits = tuple(limit_iterator)
+    if len(envelopes) != len(limits):
+        raise ValueError("limits must provide exact metric and field coverage")
+
+    validated = []
+    limit_identities = set()
+    for index, (envelope, limit) in enumerate(zip(envelopes, limits)):
+        if not isinstance(limit, CampaignProjectionErrorSummaryDifferenceLimit):
+            raise TypeError(
+                f"limits[{index}] must be a "
+                "CampaignProjectionErrorSummaryDifferenceLimit"
+            )
+        for field_name in ("metric_name", "difference_field"):
+            value = getattr(limit, field_name)
+            if type(value) is not str or not value.strip():
+                raise ValueError(f"limits[{index}].{field_name} must be non-empty")
+        identity = (limit.metric_name, limit.difference_field)
+        if identity in limit_identities:
+            raise ValueError(f"duplicate limit identity {identity!r}")
+        limit_identities.add(identity)
+        expected_identity = (envelope.metric_name, envelope.difference_field)
+        if identity != expected_identity:
+            raise ValueError(
+                f"limits[{index}] identity must be {expected_identity!r}"
+            )
+        lower = _finite_numeric(
+            f"limits[{index}].allowable_minimum_difference",
+            limit.allowable_minimum_difference,
+        )
+        upper = _finite_numeric(
+            f"limits[{index}].allowable_maximum_difference",
+            limit.allowable_maximum_difference,
+        )
+        if lower > upper:
+            raise ValueError(
+                f"limits[{index}] allowable_minimum_difference must not exceed "
+                "allowable_maximum_difference"
+            )
+        validated.append((envelope, lower, upper))
+
+    results = []
+    for envelope, lower, upper in validated:
+        if envelope.minimum_difference is None:
+            lower_margin = None
+            upper_margin = None
+            passed = False
+        else:
+            lower_margin = envelope.minimum_difference - lower
+            upper_margin = upper - envelope.maximum_difference
+            if not math.isfinite(lower_margin) or not math.isfinite(upper_margin):
+                raise ValueError(
+                    f"metric {envelope.metric_name!r} field "
+                    f"{envelope.difference_field!r} margins must be finite"
+                )
+            passed = lower_margin >= 0.0 and upper_margin >= 0.0
+        results.append(
+            CampaignProjectionErrorSummaryDifferenceLimitResult(
+                metric_name=envelope.metric_name,
+                difference_field=envelope.difference_field,
+                observed_minimum_difference=envelope.minimum_difference,
+                observed_maximum_difference=envelope.maximum_difference,
+                allowable_minimum_difference=lower,
+                allowable_maximum_difference=upper,
+                lower_margin=lower_margin,
+                upper_margin=upper_margin,
+                passed=passed,
+            )
+        )
+    return tuple(results)
+
+
+def _validated_projection_error_difference_envelopes(envelopes):
+    try:
+        envelope_iterator = iter(envelopes)
+    except TypeError as error:
+        raise TypeError("envelopes must be an iterable") from error
+    envelopes = tuple(envelope_iterator)
+    field_count = len(_PROJECTION_ERROR_COMPARISON_DIFFERENCE_FIELDS)
+    if len(envelopes) % field_count:
+        raise ValueError("envelopes must contain complete difference-field layouts")
+
+    metric_names = set()
+    for block_start in range(0, len(envelopes), field_count):
+        block = envelopes[block_start : block_start + field_count]
+        metric_name = None
+        for offset, (envelope, expected_field) in enumerate(
+            zip(block, _PROJECTION_ERROR_COMPARISON_DIFFERENCE_FIELDS)
+        ):
+            index = block_start + offset
+            prefix = f"envelopes[{index}]"
+            if not isinstance(
+                envelope, CampaignProjectionErrorSummaryDifferenceEnvelope
+            ):
+                raise TypeError(
+                    f"{prefix} must be a "
+                    "CampaignProjectionErrorSummaryDifferenceEnvelope"
+                )
+            if type(envelope.metric_name) is not str or not envelope.metric_name.strip():
+                raise ValueError(f"{prefix}.metric_name must be non-empty")
+            if metric_name is None:
+                metric_name = envelope.metric_name
+                if metric_name in metric_names:
+                    raise ValueError(f"duplicate envelope metric {metric_name!r}")
+                metric_names.add(metric_name)
+            elif envelope.metric_name != metric_name:
+                raise ValueError(f"{prefix} has malformed metric layout")
+            if envelope.difference_field != expected_field:
+                raise ValueError(
+                    f"{prefix}.difference_field must be {expected_field!r}"
+                )
+
+            values_undefined = (
+                envelope.minimum_difference is None
+                and envelope.maximum_difference is None
+            )
+            names_undefined = (
+                envelope.minimum_comparison_collection_name is None
+                and envelope.maximum_comparison_collection_name is None
+            )
+            if (
+                (envelope.minimum_difference is None)
+                != (envelope.maximum_difference is None)
+                or (envelope.minimum_comparison_collection_name is None)
+                != (envelope.maximum_comparison_collection_name is None)
+                or values_undefined != names_undefined
+            ):
+                raise ValueError(f"{prefix} has inconsistent optional state")
+            if values_undefined:
+                continue
+            minimum = _finite_numeric(
+                f"{prefix}.minimum_difference", envelope.minimum_difference
+            )
+            maximum = _finite_numeric(
+                f"{prefix}.maximum_difference", envelope.maximum_difference
+            )
+            if minimum > maximum:
+                raise ValueError(
+                    f"{prefix}.minimum_difference must not exceed maximum_difference"
+                )
+            for name_field in (
+                "minimum_comparison_collection_name",
+                "maximum_comparison_collection_name",
+            ):
+                name = getattr(envelope, name_field)
+                if type(name) is not str or not name.strip():
+                    raise ValueError(f"{prefix}.{name_field} must be non-empty")
+    return envelopes
 
 
 def _validated_projection_error_comparison_set_results(comparison_set_results):
