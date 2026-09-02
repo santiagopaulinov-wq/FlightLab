@@ -284,6 +284,17 @@ class CampaignProjectionErrorComparisonEnvelopeLimitVerdict:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignProjectionErrorMetricEnvelopeLimitVerdict:
+    """Immutable comparison-envelope limit verdict for one metric."""
+
+    metric_name: str
+    overall_passed: bool
+    passing_identities: tuple[CampaignProjectionErrorMetricFieldIdentity, ...]
+    failing_identities: tuple[CampaignProjectionErrorMetricFieldIdentity, ...]
+    undefined_identities: tuple[CampaignProjectionErrorMetricFieldIdentity, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -1352,6 +1363,43 @@ def campaign_projection_error_comparison_envelope_limit_verdict(
         failing_identities=tuple(failing),
         undefined_identities=tuple(undefined),
     )
+
+
+def campaign_projection_error_comparison_envelope_metric_verdicts(
+    limit_results: Iterable[CampaignProjectionErrorSummaryDifferenceLimitResult],
+) -> tuple[CampaignProjectionErrorMetricEnvelopeLimitVerdict, ...]:
+    """Classify validated comparison-envelope limit results for each metric."""
+    limit_results, states = _validated_projection_error_difference_limit_results(
+        limit_results
+    )
+    field_count = len(_PROJECTION_ERROR_COMPARISON_DIFFERENCE_FIELDS)
+    verdicts = []
+    for block_start in range(0, len(limit_results), field_count):
+        result_block = limit_results[block_start : block_start + field_count]
+        state_block = states[block_start : block_start + field_count]
+        passing = []
+        failing = []
+        undefined = []
+        for result, state in zip(result_block, state_block):
+            identity = CampaignProjectionErrorMetricFieldIdentity(
+                result.metric_name, result.difference_field
+            )
+            if state == "undefined":
+                undefined.append(identity)
+            elif result.passed:
+                passing.append(identity)
+            else:
+                failing.append(identity)
+        verdicts.append(
+            CampaignProjectionErrorMetricEnvelopeLimitVerdict(
+                metric_name=result_block[0].metric_name,
+                overall_passed=not failing and not undefined,
+                passing_identities=tuple(passing),
+                failing_identities=tuple(failing),
+                undefined_identities=tuple(undefined),
+            )
+        )
+    return tuple(verdicts)
 
 
 def _validated_projection_error_difference_limit_results(limit_results):

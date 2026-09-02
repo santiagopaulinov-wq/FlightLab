@@ -19,6 +19,7 @@ from flightlab.analysis import (
     CampaignMetricValidationResidualEnvelope,
     CampaignParameterChange,
     CampaignProjectionErrorComparisonEnvelopeLimitVerdict,
+    CampaignProjectionErrorMetricEnvelopeLimitVerdict,
     CampaignProjectionErrorMetricFieldIdentity,
     CampaignProjectionErrorSummaryCollection,
     CampaignProjectionErrorSummaryComparisonSetResult,
@@ -39,6 +40,7 @@ from flightlab.analysis import (
     campaign_metric_deltas,
     campaign_projection_envelopes,
     campaign_projection_error_comparison_envelope_limit_verdict,
+    campaign_projection_error_comparison_envelope_metric_verdicts,
     campaign_projection_error_comparison_set_metric_envelopes,
     campaign_projection_error_summaries,
     campaign_projection_residuals,
@@ -2869,6 +2871,110 @@ def test_comparison_envelope_limit_verdict_empty_is_nonpassing_and_immutable():
     assert len(first.passing_identities) == 7
     with pytest.raises(FrozenInstanceError):
         first.overall_passed = False
+
+
+def test_comparison_envelope_metric_verdict_all_fields_passing():
+    verdicts = campaign_projection_error_comparison_envelope_metric_verdicts(
+        _difference_limit_result_block()
+    )
+    assert verdicts == (
+        CampaignProjectionErrorMetricEnvelopeLimitVerdict(
+            "iae",
+            True,
+            tuple(
+                CampaignProjectionErrorMetricFieldIdentity("iae", field)
+                for field in _DIFFERENCE_FIELDS
+            ),
+            (),
+            (),
+        ),
+    )
+
+
+def test_comparison_envelope_metric_verdict_one_and_multiple_failures():
+    one = campaign_projection_error_comparison_envelope_metric_verdicts(
+        _difference_limit_result_block(states=("pass", "fail", *("pass",) * 5))
+    )[0]
+    assert tuple(item.difference_field for item in one.failing_identities) == (
+        _DIFFERENCE_FIELDS[1],
+    )
+    assert one.overall_passed is False
+
+    multiple = campaign_projection_error_comparison_envelope_metric_verdicts(
+        _difference_limit_result_block(states=("fail", "pass", "fail", *("pass",) * 4))
+    )[0]
+    assert tuple(item.difference_field for item in multiple.failing_identities) == (
+        _DIFFERENCE_FIELDS[0], _DIFFERENCE_FIELDS[2]
+    )
+
+
+def test_comparison_envelope_metric_verdict_mixed_categories_preserve_field_order():
+    verdict = campaign_projection_error_comparison_envelope_metric_verdicts(
+        _difference_limit_result_block(
+            states=("undefined", "pass", "fail", "undefined", "pass", "fail", "pass")
+        )
+    )[0]
+    assert tuple(item.difference_field for item in verdict.passing_identities) == (
+        _DIFFERENCE_FIELDS[1], _DIFFERENCE_FIELDS[4], _DIFFERENCE_FIELDS[6]
+    )
+    assert tuple(item.difference_field for item in verdict.failing_identities) == (
+        _DIFFERENCE_FIELDS[2], _DIFFERENCE_FIELDS[5]
+    )
+    assert tuple(item.difference_field for item in verdict.undefined_identities) == (
+        _DIFFERENCE_FIELDS[0], _DIFFERENCE_FIELDS[3]
+    )
+    assert verdict.overall_passed is False
+
+
+def test_comparison_envelope_metric_verdicts_preserve_exact_metric_order():
+    results = _difference_limit_result_block("ise") + _difference_limit_result_block("iae")
+    verdicts = campaign_projection_error_comparison_envelope_metric_verdicts(results)
+    assert tuple(verdict.metric_name for verdict in verdicts) == ("ise", "iae")
+    assert all(verdict.overall_passed for verdict in verdicts)
+
+
+def test_comparison_envelope_metric_verdicts_reject_incomplete_duplicate_and_reordered_layouts():
+    results = _difference_limit_result_block()
+    with pytest.raises(ValueError, match="complete difference-field layouts"):
+        campaign_projection_error_comparison_envelope_metric_verdicts(results[:-1])
+    with pytest.raises(ValueError, match="duplicate limit-result metric"):
+        campaign_projection_error_comparison_envelope_metric_verdicts(results + results)
+    with pytest.raises(ValueError, match="difference_field must be"):
+        campaign_projection_error_comparison_envelope_metric_verdicts(
+            (results[1], results[0], *results[2:])
+        )
+
+
+def test_comparison_envelope_metric_verdicts_reject_impossible_states_and_values():
+    results = list(_difference_limit_result_block())
+    results[0] = _copy_difference_limit_result(results[0], passed=False)
+    with pytest.raises(ValueError, match="pass state is inconsistent"):
+        campaign_projection_error_comparison_envelope_metric_verdicts(results)
+
+    results = list(_difference_limit_result_block())
+    results[0] = _copy_difference_limit_result(results[0], lower_margin=float("inf"))
+    with pytest.raises(ValueError, match="finite"):
+        campaign_projection_error_comparison_envelope_metric_verdicts(results)
+
+    results = list(_difference_limit_result_block())
+    results[0] = _copy_difference_limit_result(results[0], upper_margin=None)
+    with pytest.raises(ValueError, match="inconsistent optional state"):
+        campaign_projection_error_comparison_envelope_metric_verdicts(results)
+
+
+def test_comparison_envelope_metric_verdicts_empty_generator_and_immutable():
+    assert campaign_projection_error_comparison_envelope_metric_verdicts(()) == ()
+    source = list(_difference_limit_result_block())
+    first = campaign_projection_error_comparison_envelope_metric_verdicts(
+        item for item in source
+    )
+    repeated = campaign_projection_error_comparison_envelope_metric_verdicts(source)
+    assert first == repeated
+    assert first is not repeated
+    source.clear()
+    assert len(first[0].passing_identities) == 7
+    with pytest.raises(FrozenInstanceError):
+        first[0].overall_passed = False
 
 
 def test_one_scenario_is_both_minimum_and_maximum():

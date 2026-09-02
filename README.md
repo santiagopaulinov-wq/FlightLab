@@ -1316,6 +1316,24 @@ caller-defined comparison-envelope interval checks. It is not statistical or
 physical validation, probabilistic or safety certification, scoring, ranking,
 calibration, regression, fitting, optimization, or automatic model correction.
 
+`campaign_projection_error_comparison_envelope_metric_verdicts(limit_results)`
+uses the same complete stored-result validation and returns one frozen
+`CampaignProjectionErrorMetricEnvelopeLimitVerdict` per metric in original
+metric order. Every verdict retains its metric name, metric-level pass state,
+and ordered passing, failing, and undefined
+`CampaignProjectionErrorMetricFieldIdentity` values.
+
+A metric passes only when its complete nonempty difference-field layout is
+defined and every stored field result passes. Defined non-passing fields and
+structurally undefined non-passing fields remain in separate mutually exclusive
+categories. Field order is preserved within each category. Empty input returns
+`()`.
+
+These per-metric verdicts only localize existing deterministic caller-defined
+comparison-envelope interval checks. They are not statistical or physical
+validation, probabilistic or safety certification, scoring, ranking,
+calibration, regression, fitting, optimization, or automatic model correction.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 
