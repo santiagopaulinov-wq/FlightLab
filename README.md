@@ -1216,6 +1216,26 @@ explicit validation set. They are not statistical validation, confidence
 intervals, probability estimates, external physical validation, calibration,
 regression, model fitting, ranking, or automatic model correction.
 
+`compare_campaign_projection_error_summaries(left_name, left, right_name,
+right)` compares two explicitly identified existing summary collections in
+exact metric order. Each frozen
+`CampaignMetricProjectionErrorSummaryComparison` retains both collection names,
+the metric name, detached copies of the left and right summaries, and
+right-minus-left differences for defined/undefined counts, signed extrema,
+mean signed residual, mean absolute residual, and maximum absolute residual.
+
+Every optional difference is `None` when either source value is `None`; missing
+values are never treated as zero. Both collections are materialized and fully
+validated before comparison, including unique metric names, common case counts,
+count totals, defined/undefined consistency, finite values, signed extrema, and
+absolute-error relationships. Empty plus empty returns `()`; one empty and one
+nonempty collection is incompatible.
+
+The comparison exposes deterministic descriptive changes only. A negative
+absolute-error difference describes a smaller supplied summary value, but the
+API does not infer that a collection is better or perform scoring, ranking,
+normalization, significance testing, fitting, calibration, or acceptance.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

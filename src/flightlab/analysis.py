@@ -194,6 +194,24 @@ class CampaignMetricProjectionErrorSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignMetricProjectionErrorSummaryComparison:
+    """Immutable right-minus-left comparison for one projection-error metric."""
+
+    left_collection_name: str
+    right_collection_name: str
+    metric_name: str
+    left_summary: CampaignMetricProjectionErrorSummary
+    right_summary: CampaignMetricProjectionErrorSummary
+    defined_residual_count_difference: int
+    undefined_residual_count_difference: int
+    minimum_residual_difference: float | None
+    maximum_residual_difference: float | None
+    mean_residual_difference: float | None
+    mean_absolute_residual_difference: float | None
+    maximum_absolute_residual_difference: float | None
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -974,6 +992,177 @@ def campaign_projection_error_summaries(
             )
         )
     return tuple(summaries)
+
+
+def compare_campaign_projection_error_summaries(
+    left_collection_name: str,
+    left_summaries: Iterable[CampaignMetricProjectionErrorSummary],
+    right_collection_name: str,
+    right_summaries: Iterable[CampaignMetricProjectionErrorSummary],
+) -> tuple[CampaignMetricProjectionErrorSummaryComparison, ...]:
+    """Compare aligned projection-error summaries as right minus left."""
+    for name, value in (
+        ("left_collection_name", left_collection_name),
+        ("right_collection_name", right_collection_name),
+    ):
+        if type(value) is not str or not value.strip():
+            raise ValueError(f"{name} must be non-empty")
+    if left_collection_name == right_collection_name:
+        raise ValueError("collection names must be distinct")
+
+    left_summaries = _validated_projection_error_summaries(
+        left_summaries, "left_summaries"
+    )
+    right_summaries = _validated_projection_error_summaries(
+        right_summaries, "right_summaries"
+    )
+    left_metric_names = tuple(summary.metric_name for summary in left_summaries)
+    right_metric_names = tuple(summary.metric_name for summary in right_summaries)
+    if left_metric_names != right_metric_names:
+        raise ValueError(
+            "left and right summaries must have identical metric names and order"
+        )
+
+    comparisons = []
+    optional_fields = (
+        "minimum_residual",
+        "maximum_residual",
+        "mean_residual",
+        "mean_absolute_residual",
+        "maximum_absolute_residual",
+    )
+    for left, right in zip(left_summaries, right_summaries):
+        differences = {}
+        for field_name in optional_fields:
+            left_value = getattr(left, field_name)
+            right_value = getattr(right, field_name)
+            if left_value is None or right_value is None:
+                difference = None
+            else:
+                difference = right_value - left_value
+                if not math.isfinite(difference):
+                    raise ValueError(
+                        f"metric {left.metric_name!r} {field_name} difference "
+                        "must be finite"
+                    )
+            differences[field_name] = difference
+        comparisons.append(
+            CampaignMetricProjectionErrorSummaryComparison(
+                left_collection_name=left_collection_name,
+                right_collection_name=right_collection_name,
+                metric_name=left.metric_name,
+                left_summary=_copy_projection_error_summary(left),
+                right_summary=_copy_projection_error_summary(right),
+                defined_residual_count_difference=(
+                    right.defined_residual_count - left.defined_residual_count
+                ),
+                undefined_residual_count_difference=(
+                    right.undefined_residual_count - left.undefined_residual_count
+                ),
+                minimum_residual_difference=differences["minimum_residual"],
+                maximum_residual_difference=differences["maximum_residual"],
+                mean_residual_difference=differences["mean_residual"],
+                mean_absolute_residual_difference=differences[
+                    "mean_absolute_residual"
+                ],
+                maximum_absolute_residual_difference=differences[
+                    "maximum_absolute_residual"
+                ],
+            )
+        )
+    return tuple(comparisons)
+
+
+def _validated_projection_error_summaries(summaries, name):
+    try:
+        summary_iterator = iter(summaries)
+    except TypeError as error:
+        raise TypeError(f"{name} must be an iterable") from error
+    summaries = tuple(summary_iterator)
+    metric_names = set()
+    validation_case_count = None
+    optional_fields = (
+        "minimum_residual",
+        "maximum_residual",
+        "mean_residual",
+        "mean_absolute_residual",
+        "maximum_absolute_residual",
+    )
+    for index, summary in enumerate(summaries):
+        prefix = f"{name}[{index}]"
+        if not isinstance(summary, CampaignMetricProjectionErrorSummary):
+            raise TypeError(f"{prefix} must be a CampaignMetricProjectionErrorSummary")
+        if type(summary.metric_name) is not str or not summary.metric_name.strip():
+            raise ValueError(f"{prefix}.metric_name must be non-empty")
+        if summary.metric_name in metric_names:
+            raise ValueError(f"{name} has duplicate metric {summary.metric_name!r}")
+        metric_names.add(summary.metric_name)
+        for field_name in (
+            "validation_case_count",
+            "defined_residual_count",
+            "undefined_residual_count",
+        ):
+            value = getattr(summary, field_name)
+            if type(value) is not int or value < 0:
+                raise ValueError(f"{prefix}.{field_name} must be a nonnegative integer")
+        if summary.validation_case_count == 0:
+            raise ValueError(f"{prefix}.validation_case_count must be positive")
+        if (
+            summary.defined_residual_count + summary.undefined_residual_count
+            != summary.validation_case_count
+        ):
+            raise ValueError(f"{prefix} has inconsistent residual counts")
+        if validation_case_count is None:
+            validation_case_count = summary.validation_case_count
+        elif summary.validation_case_count != validation_case_count:
+            raise ValueError(f"{name} has inconsistent validation case counts")
+
+        values = tuple(getattr(summary, field_name) for field_name in optional_fields)
+        if summary.defined_residual_count == 0:
+            if any(value is not None for value in values):
+                raise ValueError(f"{prefix} has inconsistent undefined summaries")
+            continue
+        if any(value is None for value in values):
+            raise ValueError(f"{prefix} has incomplete defined summaries")
+        checked = {
+            field_name: _finite_numeric(f"{prefix}.{field_name}", value)
+            for field_name, value in zip(optional_fields, values)
+        }
+        if checked["minimum_residual"] > checked["maximum_residual"]:
+            raise ValueError(f"{prefix} minimum residual must not exceed maximum")
+        if not (
+            checked["minimum_residual"]
+            <= checked["mean_residual"]
+            <= checked["maximum_residual"]
+        ):
+            raise ValueError(f"{prefix} mean residual must lie within its extrema")
+        if (
+            checked["mean_absolute_residual"] < 0.0
+            or checked["maximum_absolute_residual"] < 0.0
+            or checked["mean_absolute_residual"]
+            > checked["maximum_absolute_residual"]
+            or checked["maximum_absolute_residual"]
+            != max(
+                abs(checked["minimum_residual"]),
+                abs(checked["maximum_residual"]),
+            )
+        ):
+            raise ValueError(f"{prefix} has inconsistent absolute residual summaries")
+    return summaries
+
+
+def _copy_projection_error_summary(summary):
+    return CampaignMetricProjectionErrorSummary(
+        metric_name=summary.metric_name,
+        validation_case_count=summary.validation_case_count,
+        defined_residual_count=summary.defined_residual_count,
+        undefined_residual_count=summary.undefined_residual_count,
+        minimum_residual=summary.minimum_residual,
+        maximum_residual=summary.maximum_residual,
+        mean_residual=summary.mean_residual,
+        mean_absolute_residual=summary.mean_absolute_residual,
+        maximum_absolute_residual=summary.maximum_absolute_residual,
+    )
 
 
 def _validated_projection_validation_results(validation_results):

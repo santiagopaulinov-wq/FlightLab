@@ -10,6 +10,7 @@ from flightlab.analysis import (
     CampaignMetricChangeProjection,
     CampaignMetricProjectionEnvelope,
     CampaignMetricProjectionErrorSummary,
+    CampaignMetricProjectionErrorSummaryComparison,
     CampaignMetricProjectionLimit,
     CampaignMetricProjectionLimitResult,
     CampaignMetricResidual,
@@ -39,6 +40,7 @@ from flightlab.analysis import (
     campaign_sensitivity_matrix,
     check_campaign_projection_envelope_limits,
     check_campaign_projection_residual_tolerances,
+    compare_campaign_projection_error_summaries,
     compare_campaign_runs,
     project_campaign_metric_changes,
     project_campaign_scenarios,
@@ -1916,6 +1918,198 @@ def test_projection_error_summaries_are_immutable_deterministic_and_detached():
     assert first[0].mean_residual == 2.0
     with pytest.raises(FrozenInstanceError):
         first[0].mean_residual = 0.0
+
+
+def _error_summary(
+    metric="iae",
+    *,
+    cases=2,
+    defined=2,
+    undefined=0,
+    minimum=-1.0,
+    maximum=3.0,
+    mean=1.0,
+    mean_absolute=2.0,
+    maximum_absolute=3.0,
+):
+    return CampaignMetricProjectionErrorSummary(
+        metric,
+        cases,
+        defined,
+        undefined,
+        minimum,
+        maximum,
+        mean,
+        mean_absolute,
+        maximum_absolute,
+    )
+
+
+def test_error_summary_comparison_identical_values_have_zero_differences():
+    summary = _error_summary()
+
+    comparison = compare_campaign_projection_error_summaries(
+        "left", (summary,), "right", (summary,)
+    )[0]
+
+    assert comparison == CampaignMetricProjectionErrorSummaryComparison(
+        "left", "right", "iae", summary, summary, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0
+    )
+    assert comparison.left_summary is not summary
+    assert comparison.right_summary is not summary
+
+
+def test_error_summary_comparison_reports_increases_decreases_and_counts():
+    left = _error_summary(cases=3, defined=2, undefined=1)
+    right = _error_summary(
+        cases=4,
+        defined=3,
+        undefined=1,
+        minimum=-2.0,
+        maximum=4.0,
+        mean=0.5,
+        mean_absolute=2.5,
+        maximum_absolute=4.0,
+    )
+
+    comparison = compare_campaign_projection_error_summaries(
+        "baseline", (left,), "candidate", (right,)
+    )[0]
+
+    assert comparison.defined_residual_count_difference == 1
+    assert comparison.undefined_residual_count_difference == 0
+    assert comparison.minimum_residual_difference == -1.0
+    assert comparison.maximum_residual_difference == 1.0
+    assert comparison.mean_residual_difference == -0.5
+    assert comparison.mean_absolute_residual_difference == 0.5
+    assert comparison.maximum_absolute_residual_difference == 1.0
+
+
+def test_error_summary_comparison_propagates_optional_none_values():
+    undefined = _error_summary(
+        cases=2,
+        defined=0,
+        undefined=2,
+        minimum=None,
+        maximum=None,
+        mean=None,
+        mean_absolute=None,
+        maximum_absolute=None,
+    )
+    defined = _error_summary()
+
+    comparison = compare_campaign_projection_error_summaries(
+        "undefined", (undefined,), "defined", (defined,)
+    )[0]
+
+    assert comparison.defined_residual_count_difference == 2
+    assert comparison.undefined_residual_count_difference == -2
+    assert comparison.minimum_residual_difference is None
+    assert comparison.maximum_residual_difference is None
+    assert comparison.mean_residual_difference is None
+    assert comparison.mean_absolute_residual_difference is None
+    assert comparison.maximum_absolute_residual_difference is None
+
+
+def test_error_summary_comparison_preserves_multiple_metric_order_and_generators():
+    left = (_error_summary("iae"), _error_summary("ise", minimum=0.0, maximum=2.0, mean=1.0, mean_absolute=1.0, maximum_absolute=2.0))
+    right = tuple(_copy for _copy in left)
+
+    comparisons = compare_campaign_projection_error_summaries(
+        "left", (item for item in left), "right", (item for item in right)
+    )
+
+    assert tuple(item.metric_name for item in comparisons) == ("iae", "ise")
+
+
+@pytest.mark.parametrize(("left_name", "right_name"), [("", "right"), ("left", " "), ("same", "same")])
+def test_error_summary_comparison_rejects_invalid_collection_names(left_name, right_name):
+    with pytest.raises(ValueError, match="non-empty|distinct"):
+        compare_campaign_projection_error_summaries(
+            left_name, (), right_name, ()
+        )
+
+
+def test_error_summary_comparison_requires_identical_metric_layouts():
+    with pytest.raises(ValueError, match="identical metric names and order"):
+        compare_campaign_projection_error_summaries(
+            "left", (_error_summary("iae"),), "right", (_error_summary("ise"),)
+        )
+    with pytest.raises(ValueError, match="identical metric names and order"):
+        compare_campaign_projection_error_summaries(
+            "left", (), "right", (_error_summary(),)
+        )
+
+
+@pytest.mark.parametrize(
+    ("summary", "match"),
+    [
+        (object(), "CampaignMetricProjectionErrorSummary"),
+        (_error_summary(" "), "metric_name"),
+        (_error_summary(cases=True), "nonnegative integer"),
+        (_error_summary(cases=3), "inconsistent residual counts"),
+        (_error_summary(minimum=float("inf")), "finite"),
+        (_error_summary(mean=4.0), "mean residual"),
+        (_error_summary(mean_absolute=4.0), "absolute residual summaries"),
+    ],
+)
+def test_error_summary_comparison_rejects_malformed_summaries(summary, match):
+    with pytest.raises((TypeError, ValueError), match=match):
+        compare_campaign_projection_error_summaries(
+            "left", (summary,), "right", (_error_summary(),)
+        )
+
+
+def test_error_summary_comparison_rejects_duplicate_metric_names():
+    duplicates = (_error_summary(), _error_summary())
+    with pytest.raises(ValueError, match="duplicate metric"):
+        compare_campaign_projection_error_summaries(
+            "left", duplicates, "right", duplicates
+        )
+
+
+def test_error_summary_comparison_rejects_nonfinite_difference():
+    left = _error_summary(
+        minimum=-1e308,
+        maximum=1e308,
+        mean=-1e308,
+        mean_absolute=1e308,
+        maximum_absolute=1e308,
+    )
+    right = _error_summary(
+        minimum=-1e308,
+        maximum=1e308,
+        mean=1e308,
+        mean_absolute=1e308,
+        maximum_absolute=1e308,
+    )
+    with pytest.raises(ValueError, match="difference must be finite"):
+        compare_campaign_projection_error_summaries(
+            "left", (left,), "right", (right,)
+        )
+
+
+def test_error_summary_comparison_empty_collections_return_empty():
+    assert compare_campaign_projection_error_summaries(
+        "left", (), "right", ()
+    ) == ()
+
+
+def test_error_summary_comparisons_are_immutable_deterministic_and_detached():
+    source = [_error_summary()]
+    first = compare_campaign_projection_error_summaries(
+        "left", source, "right", source
+    )
+    repeated = compare_campaign_projection_error_summaries(
+        "left", source, "right", source
+    )
+
+    assert first == repeated
+    assert first is not repeated
+    source.clear()
+    assert first[0].metric_name == "iae"
+    with pytest.raises(FrozenInstanceError):
+        first[0].mean_residual_difference = 1.0
 
 
 def test_one_scenario_is_both_minimum_and_maximum():
