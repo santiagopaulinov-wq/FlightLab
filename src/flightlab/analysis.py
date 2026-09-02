@@ -322,6 +322,16 @@ class CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionVerdict:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionReport:
+    """Immutable named assessments plus their collection verdict."""
+
+    named_reports: tuple[CampaignProjectionErrorNamedAssessmentReport, ...]
+    collection_verdict: (
+        CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionVerdict
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -1581,6 +1591,144 @@ def campaign_projection_error_comparison_envelope_assessment_collection_verdict(
         passing_report_names=tuple(passing),
         failing_report_names=tuple(failing),
         undefined_report_names=tuple(undefined),
+    )
+
+
+def campaign_projection_error_comparison_envelope_assessment_collection_report(
+    entries,
+):
+    """Assemble detached named assessments with their existing verdict."""
+    entries = _validated_projection_error_named_assessment_reports(entries)
+    collection_verdict = (
+        campaign_projection_error_comparison_envelope_assessment_collection_verdict(
+            entries
+        )
+    )
+    _validate_projection_error_assessment_collection_consistency(
+        entries, collection_verdict
+    )
+    return CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionReport(
+        named_reports=tuple(
+            CampaignProjectionErrorNamedAssessmentReport(
+                entry.name, _copy_projection_error_assessment_report(entry.report)
+            )
+            for entry in entries
+        ),
+        collection_verdict=collection_verdict,
+    )
+
+
+def _validate_projection_error_assessment_collection_consistency(entries, verdict):
+    if not isinstance(
+        verdict,
+        CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionVerdict,
+    ):
+        raise TypeError(
+            "collection verdict must be a "
+            "CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionVerdict"
+        )
+    if type(verdict.overall_passed) is not bool:
+        raise ValueError("collection verdict overall_passed must be a boolean")
+    source_names = tuple(entry.name for entry in entries)
+    source_positions = {name: index for index, name in enumerate(source_names)}
+    categories = {}
+    for category_name, names in (
+        ("passing", verdict.passing_report_names),
+        ("failing", verdict.failing_report_names),
+        ("undefined", verdict.undefined_report_names),
+    ):
+        if type(names) is not tuple:
+            raise TypeError(f"collection verdict {category_name} names must be a tuple")
+        positions = []
+        for index, name in enumerate(names):
+            if type(name) is not str or not name.strip():
+                raise ValueError(
+                    f"collection verdict {category_name} names[{index}] "
+                    "must be non-empty"
+                )
+            if name in categories:
+                raise ValueError("collection verdict categories are not mutually exclusive")
+            if name not in source_positions:
+                raise ValueError("collection verdict contains an unknown report name")
+            categories[name] = category_name
+            positions.append(source_positions[name])
+        if positions != sorted(positions):
+            raise ValueError("collection verdict report-name order is inconsistent")
+    if set(categories) != set(source_names):
+        raise ValueError("collection verdict report names do not match named reports")
+
+    for entry in entries:
+        stored_verdict = entry.report.overall_verdict
+        expected_category = (
+            "undefined"
+            if stored_verdict.undefined_identities
+            else "passing"
+            if stored_verdict.overall_passed
+            else "failing"
+        )
+        if categories[entry.name] != expected_category:
+            raise ValueError(
+                "collection verdict classification disagrees with named reports"
+            )
+    expected_pass = bool(entries) and all(
+        category == "passing" for category in categories.values()
+    )
+    if verdict.overall_passed is not expected_pass:
+        raise ValueError("collection verdict overall pass state is inconsistent")
+
+
+def _copy_projection_error_assessment_report(report):
+    return CampaignProjectionErrorComparisonEnvelopeAssessmentReport(
+        limit_results=tuple(
+            _copy_projection_error_difference_limit_result(result)
+            for result in report.limit_results
+        ),
+        overall_verdict=CampaignProjectionErrorComparisonEnvelopeLimitVerdict(
+            overall_passed=report.overall_verdict.overall_passed,
+            passing_identities=tuple(
+                CampaignProjectionErrorMetricFieldIdentity(
+                    identity.metric_name, identity.difference_field
+                )
+                for identity in report.overall_verdict.passing_identities
+            ),
+            failing_identities=tuple(
+                CampaignProjectionErrorMetricFieldIdentity(
+                    identity.metric_name, identity.difference_field
+                )
+                for identity in report.overall_verdict.failing_identities
+            ),
+            undefined_identities=tuple(
+                CampaignProjectionErrorMetricFieldIdentity(
+                    identity.metric_name, identity.difference_field
+                )
+                for identity in report.overall_verdict.undefined_identities
+            ),
+        ),
+        metric_verdicts=tuple(
+            CampaignProjectionErrorMetricEnvelopeLimitVerdict(
+                metric_name=verdict.metric_name,
+                overall_passed=verdict.overall_passed,
+                passing_identities=tuple(
+                    CampaignProjectionErrorMetricFieldIdentity(
+                        identity.metric_name, identity.difference_field
+                    )
+                    for identity in verdict.passing_identities
+                ),
+                failing_identities=tuple(
+                    CampaignProjectionErrorMetricFieldIdentity(
+                        identity.metric_name, identity.difference_field
+                    )
+                    for identity in verdict.failing_identities
+                ),
+                undefined_identities=tuple(
+                    CampaignProjectionErrorMetricFieldIdentity(
+                        identity.metric_name, identity.difference_field
+                    )
+                    for identity in verdict.undefined_identities
+                ),
+            )
+            for verdict in report.metric_verdicts
+        ),
     )
 
 

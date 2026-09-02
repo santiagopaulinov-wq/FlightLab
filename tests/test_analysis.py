@@ -19,6 +19,7 @@ from flightlab.analysis import (
     CampaignMetricResidualToleranceResult,
     CampaignMetricValidationResidualEnvelope,
     CampaignParameterChange,
+    CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionReport,
     CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionVerdict,
     CampaignProjectionErrorComparisonEnvelopeAssessmentReport,
     CampaignProjectionErrorComparisonEnvelopeLimitVerdict,
@@ -43,6 +44,7 @@ from flightlab.analysis import (
     SensitivityMatrixParameter,
     campaign_metric_deltas,
     campaign_projection_envelopes,
+    campaign_projection_error_comparison_envelope_assessment_collection_report,
     campaign_projection_error_comparison_envelope_assessment_collection_verdict,
     campaign_projection_error_comparison_envelope_assessment_record,
     campaign_projection_error_comparison_envelope_assessment_report,
@@ -3618,6 +3620,162 @@ def test_named_assessment_collection_verdict_empty_generator_immutable_determini
     assert first.passing_report_names == ("first", "second")
     with pytest.raises(FrozenInstanceError):
         first.overall_passed = False
+
+
+def test_named_assessment_collection_report_retains_passing_reports_and_verdict():
+    entries = (_named_assessment_report("first"), _named_assessment_report("second"))
+    report = campaign_projection_error_comparison_envelope_assessment_collection_report(
+        entries
+    )
+    assert report.collection_verdict == (
+        CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionVerdict(
+            True, ("first", "second"), (), ()
+        )
+    )
+    assert tuple(entry.name for entry in report.named_reports) == ("first", "second")
+    assert report.named_reports[0] is not entries[0]
+    assert report.named_reports[0].report is not entries[0].report
+
+
+def test_named_assessment_collection_report_handles_failing_and_undefined_reports():
+    entries = (
+        _named_assessment_report("pass"),
+        _named_assessment_report("fail", ("fail", *("pass",) * 6)),
+        _named_assessment_report("undefined", ("undefined", *("pass",) * 6)),
+    )
+    report = campaign_projection_error_comparison_envelope_assessment_collection_report(
+        entries
+    )
+    assert report.collection_verdict.overall_passed is False
+    assert report.collection_verdict.passing_report_names == ("pass",)
+    assert report.collection_verdict.failing_report_names == ("fail",)
+    assert report.collection_verdict.undefined_report_names == ("undefined",)
+
+
+def test_named_assessment_collection_report_preserves_nested_and_report_order():
+    multi_metric = campaign_projection_error_comparison_envelope_assessment_report(
+        _difference_limit_result_block("ise") + _difference_limit_result_block("iae")
+    )
+    entries = (
+        CampaignProjectionErrorNamedAssessmentReport("multi", multi_metric),
+        _named_assessment_report("single", metric="settling_time"),
+    )
+    report = campaign_projection_error_comparison_envelope_assessment_collection_report(
+        entry for entry in entries
+    )
+    assert tuple(entry.name for entry in report.named_reports) == ("multi", "single")
+    assert tuple(
+        verdict.metric_name for verdict in report.named_reports[0].report.metric_verdicts
+    ) == ("ise", "iae")
+    assert tuple(
+        result.difference_field
+        for result in report.named_reports[0].report.limit_results[:7]
+    ) == _DIFFERENCE_FIELDS
+
+
+def test_named_assessment_collection_report_delegates_collection_verdict_once(
+    monkeypatch,
+):
+    original = (
+        analysis.campaign_projection_error_comparison_envelope_assessment_collection_verdict
+    )
+    calls = []
+
+    def recording(entries):
+        calls.append(entries)
+        return original(entries)
+
+    monkeypatch.setattr(
+        analysis,
+        "campaign_projection_error_comparison_envelope_assessment_collection_verdict",
+        recording,
+    )
+    entries = (_named_assessment_report("first"), _named_assessment_report("second"))
+    campaign_projection_error_comparison_envelope_assessment_collection_report(entries)
+    assert len(calls) == 1
+    assert calls[0] == entries
+
+
+def test_named_assessment_collection_report_rejects_inconsistent_delegated_verdict(
+    monkeypatch,
+):
+    def inconsistent(entries):
+        return CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionVerdict(
+            True, ("second", "first"), (), ()
+        )
+
+    monkeypatch.setattr(
+        analysis,
+        "campaign_projection_error_comparison_envelope_assessment_collection_verdict",
+        inconsistent,
+    )
+    with pytest.raises(ValueError, match="report-name order is inconsistent"):
+        campaign_projection_error_comparison_envelope_assessment_collection_report(
+            (_named_assessment_report("first"), _named_assessment_report("second"))
+        )
+
+
+def test_named_assessment_collection_report_rejects_bad_names_and_nested_reports():
+    report = _named_assessment_report().report
+    with pytest.raises(ValueError, match="name must be non-empty"):
+        campaign_projection_error_comparison_envelope_assessment_collection_report(
+            (CampaignProjectionErrorNamedAssessmentReport(" ", report),)
+        )
+    same = CampaignProjectionErrorNamedAssessmentReport("same", report)
+    with pytest.raises(ValueError, match="duplicate assessment report name"):
+        campaign_projection_error_comparison_envelope_assessment_collection_report(
+            (same, same)
+        )
+    with pytest.raises(TypeError, match="NamedAssessmentReport"):
+        campaign_projection_error_comparison_envelope_assessment_collection_report(
+            (object(),)
+        )
+
+    malformed_overall = CampaignProjectionErrorComparisonEnvelopeLimitVerdict(
+        False,
+        report.overall_verdict.passing_identities,
+        report.overall_verdict.failing_identities,
+        report.overall_verdict.undefined_identities,
+    )
+    malformed = CampaignProjectionErrorComparisonEnvelopeAssessmentReport(
+        report.limit_results, malformed_overall, report.metric_verdicts
+    )
+    with pytest.raises(ValueError, match="overall verdict pass state"):
+        campaign_projection_error_comparison_envelope_assessment_collection_report(
+            (CampaignProjectionErrorNamedAssessmentReport("bad", malformed),)
+        )
+
+
+def test_named_assessment_collection_report_empty_is_explicit_and_nonpassing():
+    report = campaign_projection_error_comparison_envelope_assessment_collection_report(
+        ()
+    )
+    assert report == CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionReport(
+        (),
+        CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionVerdict(
+            False, (), (), ()
+        ),
+    )
+
+
+def test_named_assessment_collection_report_is_immutable_deterministic_and_detached():
+    source = [_named_assessment_report("first"), _named_assessment_report("second")]
+    first = campaign_projection_error_comparison_envelope_assessment_collection_report(
+        source
+    )
+    repeated = campaign_projection_error_comparison_envelope_assessment_collection_report(
+        source
+    )
+    assert first == repeated
+    assert first is not repeated
+    assert first.named_reports[0] is not repeated.named_reports[0]
+    assert first.named_reports[0].report.limit_results[0] is not (
+        source[0].report.limit_results[0]
+    )
+    source.clear()
+    assert tuple(entry.name for entry in first.named_reports) == ("first", "second")
+    with pytest.raises(FrozenInstanceError):
+        first.collection_verdict = repeated.collection_verdict
 
 
 def test_one_scenario_is_both_minimum_and_maximum():

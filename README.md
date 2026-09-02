@@ -1416,6 +1416,23 @@ assessment reports only; it is not external or statistical validation,
 certification, scoring, ranking, calibration, fitting, regression,
 optimization, or automatic model correction.
 
+`campaign_projection_error_comparison_envelope_assessment_collection_report(
+entries)` assembles the validated ordered named reports and their existing
+collection verdict into one frozen
+`CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionReport`. The
+collection-verdict API is invoked exactly once; collection classification is
+not duplicated and no analytical values are recomputed.
+
+The report retains detached deep copies of every named assessment report in
+caller order, including all nested metric and difference-field ordering, plus
+the existing overall collection verdict. Before returning, it checks exact
+report-name coverage and source order, mutually exclusive categories,
+undefined precedence, agreement with every stored assessment verdict, and the
+collection pass state. Empty input retains `()` named reports and the existing
+explicit non-passing empty verdict. This is orchestration of already-validated
+analytical evidence only, not validation, certification, scoring, ranking,
+calibration, regression, fitting, optimization, or model correction.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 
