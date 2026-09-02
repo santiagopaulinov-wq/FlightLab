@@ -1089,6 +1089,28 @@ no aggregation, comparison, ranking, probability modeling, Monte Carlo work,
 simulation, or persistence. The first validation or projection error propagates
 and no partial result is returned.
 
+`campaign_projection_residuals(scenario_result, observed_delta)` compares one
+explicit named scenario projection with one caller-selected observed
+`CampaignDeltaEntry`. For every metric in exact projection order it computes:
+
+```text
+residual = observed metric delta - projected metric change
+```
+
+The frozen `CampaignProjectionResiduals` retains the scenario name, observed
+run ID, and immutable ordered `CampaignMetricResidual` entries containing the
+metric name, projected change, observed change, and residual. A zero residual
+is exact agreement. A positive residual means the signed observed change is
+greater than predicted (under-prediction by this convention); a negative
+residual means it is smaller than predicted (over-prediction).
+
+Projected and observed metric layouts must match exactly in name and order.
+When either value is `None`, its residual is also `None`; missing values are
+never treated as zero. All defined inputs and computed residuals must be finite.
+This pure comparison reuses existing deltas and projections and performs no
+simulation, metric calculation, projection, fitting, statistics, correction,
+or persistence.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

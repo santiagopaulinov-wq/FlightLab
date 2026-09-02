@@ -10,7 +10,9 @@ from flightlab.analysis import (
     CampaignMetricProjectionEnvelope,
     CampaignMetricProjectionLimit,
     CampaignMetricProjectionLimitResult,
+    CampaignMetricResidual,
     CampaignParameterChange,
+    CampaignProjectionResiduals,
     CampaignProjectionScenario,
     CampaignProjectionScenarioResult,
     CampaignRobustnessVerdict,
@@ -19,6 +21,7 @@ from flightlab.analysis import (
     SensitivityMatrixParameter,
     campaign_metric_deltas,
     campaign_projection_envelopes,
+    campaign_projection_residuals,
     campaign_robustness_verdict,
     campaign_secant_sensitivities,
     campaign_sensitivity_matrix,
@@ -1018,6 +1021,112 @@ def _scenario_result(name, iae, ise):
             predicted_metric_changes=(iae, ise),
         ),
     )
+
+
+def _observed_delta(run_id="observed", iae=2.0, ise=-1.0):
+    return CampaignDeltaEntry(
+        run_id=run_id,
+        parameter_delta=1.0,
+        metric_deltas=(("iae", iae), ("ise", ise)),
+    )
+
+
+def test_projection_residuals_compute_signed_values_and_retain_identities():
+    result = campaign_projection_residuals(
+        _scenario_result("stress", 2.0, 3.0),
+        _observed_delta("measured", 2.0, 1.0),
+    )
+
+    assert result == CampaignProjectionResiduals(
+        scenario_name="stress",
+        observed_run_id="measured",
+        metric_residuals=(
+            CampaignMetricResidual("iae", 2.0, 2.0, 0.0),
+            CampaignMetricResidual("ise", 3.0, 1.0, -2.0),
+        ),
+    )
+
+
+def test_projection_residuals_preserve_metric_order_and_positive_residual():
+    result = campaign_projection_residuals(
+        _scenario_result("scenario", -3.0, 1.0),
+        _observed_delta(iae=-1.0, ise=4.0),
+    )
+
+    assert tuple(item.metric_name for item in result.metric_residuals) == ("iae", "ise")
+    assert tuple(item.residual for item in result.metric_residuals) == (2.0, 3.0)
+
+
+@pytest.mark.parametrize(
+    ("projected", "observed"),
+    [(None, 1.0), (1.0, None), (None, None)],
+)
+def test_projection_residuals_propagate_undefined_values(projected, observed):
+    result = campaign_projection_residuals(
+        _scenario_result("scenario", projected, 0.0),
+        _observed_delta(iae=observed, ise=0.0),
+    )
+
+    assert result.metric_residuals[0] == CampaignMetricResidual(
+        "iae", projected, observed, None
+    )
+
+
+def test_projection_residuals_reject_incompatible_metric_layouts():
+    observed = CampaignDeltaEntry(
+        "observed", 1.0, (("ise", 1.0), ("iae", 2.0))
+    )
+    with pytest.raises(ValueError, match="match exactly in name and order"):
+        campaign_projection_residuals(_scenario_result("scenario", 1.0, 2.0), observed)
+
+
+@pytest.mark.parametrize(
+    ("observed", "match"),
+    [
+        (object(), "CampaignDeltaEntry"),
+        (CampaignDeltaEntry(" ", 1.0, (("iae", 1.0),)), "run_id"),
+        (CampaignDeltaEntry("run", True, (("iae", 1.0),)), "numeric"),
+        (CampaignDeltaEntry("run", 1.0, ()), "must not be empty"),
+        (CampaignDeltaEntry("run", 1.0, (("unknown", 1.0),)), "unknown metric"),
+        (
+            CampaignDeltaEntry("run", 1.0, (("iae", 1.0), ("iae", 2.0))),
+            "duplicate metric",
+        ),
+        (CampaignDeltaEntry("run", 1.0, (("iae", True),)), "numeric"),
+        (CampaignDeltaEntry("run", 1.0, (("iae", float("inf")),)), "finite"),
+    ],
+)
+def test_projection_residuals_reject_malformed_observed_entries(observed, match):
+    with pytest.raises((TypeError, ValueError), match=match):
+        campaign_projection_residuals(_scenario_result("scenario", 1.0, 2.0), observed)
+
+
+def test_projection_residuals_reject_malformed_scenarios_and_overflow():
+    with pytest.raises(TypeError, match="CampaignProjectionScenarioResult"):
+        campaign_projection_residuals(object(), _observed_delta())
+    with pytest.raises(ValueError, match="name must be non-empty"):
+        campaign_projection_residuals(_scenario_result(" ", 1.0, 2.0), _observed_delta())
+    with pytest.raises(ValueError, match="residual must be finite"):
+        campaign_projection_residuals(
+            _scenario_result("scenario", -1e308, 0.0),
+            _observed_delta(iae=1e308, ise=0.0),
+        )
+
+
+def test_projection_residuals_are_immutable_deterministic_and_detached():
+    scenario = _scenario_result("scenario", 1.0, -2.0)
+    observed = _observed_delta("run", 3.0, 4.0)
+
+    first = campaign_projection_residuals(scenario, observed)
+    repeated = campaign_projection_residuals(scenario, observed)
+
+    assert first == repeated
+    assert first is not repeated
+    assert first.metric_residuals[0] is not repeated.metric_residuals[0]
+    with pytest.raises(FrozenInstanceError):
+        first.scenario_name = "changed"
+    with pytest.raises(FrozenInstanceError):
+        first.metric_residuals[0].residual = 0.0
 
 
 def test_one_scenario_is_both_minimum_and_maximum():

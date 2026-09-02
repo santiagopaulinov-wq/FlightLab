@@ -89,6 +89,25 @@ class CampaignProjectionScenarioResult:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignMetricResidual:
+    """One immutable observed-versus-projected metric residual."""
+
+    metric_name: str
+    projected_change: float | None
+    observed_change: float | None
+    residual: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class CampaignProjectionResiduals:
+    """Immutable ordered residuals for one scenario and observed run."""
+
+    scenario_name: str
+    observed_run_id: str
+    metric_residuals: tuple[CampaignMetricResidual, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -451,6 +470,89 @@ def _validate_projection(projection, name):
         if value is not None:
             _finite_numeric(f"{name}.predicted_metric_changes[{index}]", value)
     return projection.parameter_names, projection.metric_names
+
+
+def campaign_projection_residuals(
+    scenario_result: CampaignProjectionScenarioResult,
+    observed_delta: CampaignDeltaEntry,
+) -> CampaignProjectionResiduals:
+    """Compare observed metric deltas with one named scenario projection."""
+    if not isinstance(scenario_result, CampaignProjectionScenarioResult):
+        raise TypeError("scenario_result must be a CampaignProjectionScenarioResult")
+    if type(scenario_result.name) is not str or not scenario_result.name.strip():
+        raise ValueError("scenario_result.name must be non-empty")
+    _, projected_metric_names = _validate_projection(
+        scenario_result.projection, "scenario_result.projection"
+    )
+    observed_metric_names, observed_values = _validated_observed_delta(observed_delta)
+    if observed_metric_names != projected_metric_names:
+        raise ValueError(
+            "observed and projected metric layouts must match exactly in name and order"
+        )
+
+    residuals = []
+    for metric_name, projected_change, observed_change in zip(
+        projected_metric_names,
+        scenario_result.projection.predicted_metric_changes,
+        observed_values,
+    ):
+        if projected_change is None or observed_change is None:
+            residual = None
+        else:
+            residual = float(observed_change) - float(projected_change)
+            if not math.isfinite(residual):
+                raise ValueError(f"metric {metric_name!r} residual must be finite")
+        residuals.append(
+            CampaignMetricResidual(
+                metric_name=metric_name,
+                projected_change=(
+                    None if projected_change is None else float(projected_change)
+                ),
+                observed_change=(
+                    None if observed_change is None else float(observed_change)
+                ),
+                residual=residual,
+            )
+        )
+    return CampaignProjectionResiduals(
+        scenario_name=scenario_result.name,
+        observed_run_id=observed_delta.run_id,
+        metric_residuals=tuple(residuals),
+    )
+
+
+def _validated_observed_delta(observed_delta):
+    if not isinstance(observed_delta, CampaignDeltaEntry):
+        raise TypeError("observed_delta must be a CampaignDeltaEntry")
+    if type(observed_delta.run_id) is not str or not observed_delta.run_id.strip():
+        raise ValueError("observed_delta.run_id must be non-empty")
+    _finite_numeric("observed_delta.parameter_delta", observed_delta.parameter_delta)
+    if type(observed_delta.metric_deltas) is not tuple:
+        raise TypeError("observed_delta.metric_deltas must be a tuple")
+    if not observed_delta.metric_deltas:
+        raise ValueError("observed_delta.metric_deltas must not be empty")
+
+    metric_names = []
+    values = []
+    for index, metric_item in enumerate(observed_delta.metric_deltas):
+        if type(metric_item) is not tuple or len(metric_item) != 2:
+            raise ValueError(
+                f"observed_delta.metric_deltas[{index}] must be a name/value pair"
+            )
+        metric_name, value = metric_item
+        if type(metric_name) is not str or not metric_name:
+            raise ValueError("observed_delta metric name must be a non-empty string")
+        if metric_name not in _METRIC_KEYS:
+            raise ValueError(f"observed_delta has unknown metric {metric_name!r}")
+        if metric_name in metric_names:
+            raise ValueError(f"observed_delta has duplicate metric {metric_name!r}")
+        metric_names.append(metric_name)
+        values.append(
+            None
+            if value is None
+            else _finite_numeric(f"observed_delta metric {metric_name!r}", value)
+        )
+    return tuple(metric_names), tuple(values)
 
 
 def project_campaign_scenarios(
