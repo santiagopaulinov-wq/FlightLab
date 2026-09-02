@@ -110,7 +110,12 @@ passing, failing, and undefined verdict names. The forty-eighth layer converts
 that aggregate verdict to a fresh deterministic JSON-compatible plain record.
 The forty-ninth layer applies the converter to a finite caller-ordered
 collection of explicitly named aggregate verdicts, completing the current
-aggregate-verdict record family.
+aggregate-verdict record family. FlightLab is now at the explicit Verification
+& Validation phase boundary. The first selected V&V capability is one fixed,
+independent closed-form verification benchmark for the existing continuous-time
+linear `StateSpace` eigenvalue and physical-coordinate exact-propagation
+foundation. This is software verification against a mathematical oracle, not
+physical validation of an aircraft model.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -156,10 +161,13 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: explicit ordered named assessment-collection aggregate
-  verdict records.
-- Completed capability commit: this checkpoint's implementation commit
-  (`feat: add named assessment collection aggregate verdict records`).
+- Completed capability: definition of the first Verification & Validation
+  capability and its evidence contract.
+- Selected capability: one independent analytical two-state continuous-time
+  linear state-space benchmark covering eigenvalues and exact constant-input
+  propagation.
+- Phase-definition checkpoint commit: this checkpoint's documentation commit
+  (`docs: define first linear state-space verification benchmark`).
 
 ## Current verification baseline
 
@@ -1115,11 +1123,8 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Move beyond the compact overview only by classifying the same validated named
-  collection reports into ordered passing, failing, and undefined collection
-  names using their stored verdict structures. Do not infer priorities, add
-  probabilistic claims, regression, automatic correction, ranking,
-  optimization, plotting, persistence, or CLI/UI workflows yet.
+- Do not extend the named-record, overview, aggregate-verdict, reporting, or
+  serialization hierarchy for the benchmark.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -1134,29 +1139,154 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Verification & Validation phase boundary
+### Implement the independent analytical linear state-space benchmark
 
-Review the completed Experimental Platform reporting and aggregation evidence,
-then explicitly choose and specify the first Verification & Validation
-capability before adding another implementation layer.
+Add one narrowly scoped benchmark runner in `flightlab.verification` and its
+focused tests. The runner must construct only the fixed two-state system and
+input defined below, evaluate the independent scalar closed-form reference,
+call the existing public `StateSpace.eigenvalues()` and
+`StateSpace.simulate(..., method="exact")` APIs, calculate the three specified
+maximum absolute residuals, and return one existing immutable `ExperimentRun`.
+The run must compare the FlightLab SISO output with the analytical output and
+record fixed benchmark provenance, the eigenvalue and state residuals, the
+acceptance tolerance, and the overall Boolean pass state in existing simple
+metadata. Use an explicit stable run ID and aware UTC timestamp so two
+invocations have identical `reproducibility_record()` values. Add no generic
+benchmark abstraction, V&V result type, persistence behavior, or serializer.
 
-## Suggested implementation direction
+## Chosen first V&V capability
 
-- Treat the named aggregate-verdict record collection as the endpoint of the
-  current reporting/aggregation serialization family.
-- Define the evidence question, scope, terminology, inputs, outputs, and
-  deterministic validation semantics for the first V&V capability before
-  implementation.
-- Distinguish analytical consistency checks from validation against external
-  physical evidence, and do not imply certification, confidence, or safety
-  assurance without an explicit evidence basis.
-- Do not automatically extend the named-record, overview, aggregate-verdict,
-  or serialization hierarchy.
+### Independent analytical two-state linear state-space benchmark
+
+The first capability answers one deliberately small evidence question: for one
+stable, coupled, continuous-time SISO system, do FlightLab's reported
+eigenvalues and exact zero-order-hold physical-state trajectory agree with a
+closed-form mathematical solution that does not use FlightLab's eigensystem,
+modal, matrix-exponential, exact-step, or simulation implementation?
+
+The fixed benchmark is
+
+```text
+A = [[-1,  1]]    B = [[0]]    C = [[1, 0]]    D = [[0]]
+    [[ 0, -2]]        [[1]]
+
+x(0) = [1.5, -0.5]
+u(t) = 2.0
+t    = [0.0, 0.125, 0.5, 1.25, 2.0]
+```
+
+The nonzero off-diagonal term makes the first state depend on the second; the
+nonzero constant input exercises forced propagation; and the nonuniform grid
+exercises repeated exact propagation over unequal intervals. `C` exposes the
+coupled first state as the single output, and `D = 0` keeps the reference
+formula transparent.
+
+## Verification target
+
+- `StateSpace.eigenvalues()` for the fixed continuous-time `A` matrix.
+- `StateSpace.simulate(x0, u, time, method="exact")` in physical coordinates,
+  including both state components and the SISO output at every fixed time.
+- The left-endpoint zero-order-hold convention only for the constant input;
+  because the input is constant, the benchmark does not attempt to distinguish
+  alternative discontinuity conventions.
+- Deterministic evidence composition through the existing `ExperimentRun` and
+  `reproducibility_record()` contracts. The experiment reference trajectory is
+  the analytical `y(t)` and the FlightLab trajectory is the measured output.
+  Existing overshoot and settling fields may be retained by that contract but
+  are not V&V acceptance quantities.
+
+This is **software verification** of the generic linear numerical foundation:
+it checks implementation output against an independently derived mathematical
+answer. It is not **physical validation**. No claim is made that an aircraft
+model, aerodynamic derivative, controller, mode label, or simulated trajectory
+represents flight-test or other real-world evidence.
+
+## Independent reference source and selection decision
+
+For elapsed time `tau = t - t[0]`, direct solution of the two scalar ordinary
+differential equations gives
+
+```text
+lambda = {-1, -2}
+x2(tau) = 1 - 1.5 exp(-2 tau)
+x1(tau) = 1 - exp(-tau) + 1.5 exp(-2 tau)
+y(tau)  = x1(tau)
+```
+
+The benchmark reference must encode these scalar expressions directly using
+only the standard scalar exponential function and fixed constants. It must not
+derive expected values with `numpy.linalg`, a matrix exponential, numerical
+integration, a second `StateSpace`, or any FlightLab propagation or modal API.
+The formula follows from the characteristic polynomial
+`(-1 - lambda)(-2 - lambda)` and direct integrating-factor solutions of
+`x2_dot = -2 x2 + 2` and `x1_dot = -x1 + x2`.
+
+This analytical reference is selected before SciPy. It is smaller, introduces
+no dependency, is inspectable line by line, and is algorithmically independent
+of FlightLab's NumPy eigensolver and augmented-matrix exponential. A SciPy-first
+reference would broaden system coverage but would provide less transparent
+first evidence and add a dependency while likely exercising another general
+matrix-exponential algorithm. Combining both now would add a second oracle
+without answering a second necessary question. SciPy/python-control
+cross-checks and published aircraft flight-dynamics benchmarks remain natural
+later increments after this analytical seed passes.
+
+## Exact acceptance criteria
+
+The benchmark passes if and only if all of these conditions hold:
+
+1. After deterministic ascending real-value sorting, FlightLab returns exactly
+   two finite eigenvalues and the maximum absolute difference from
+   `[-2.0, -1.0]` is at most `1.0e-12`.
+2. The physical state trajectory has shape `(5, 2)`, contains only finite real
+   values, preserves the specified initial state at the first sample, and its
+   maximum absolute componentwise difference from the closed-form `x1` and
+   `x2` values over all five samples is at most `1.0e-12`.
+3. The output trajectory has shape `(5, 1)`, contains only finite real values,
+   and its maximum absolute difference from analytical `y = x1` is at most
+   `1.0e-12`.
+4. The returned existing `ExperimentRun` records method `exact`, the fixed
+   matrices/input/time/reference identity in its supported flat metadata, the
+   three maximum absolute residuals, the single `1.0e-12` tolerance, and an
+   overall pass Boolean equal to the conjunction of criteria 1--3. Its existing
+   maximum-absolute-tracking-error metric must equal the independently computed
+   output residual up to floating-point roundoff and must be at most
+   `1.0e-12`.
+5. Fixed run identity and fixed aware UTC creation time make two independent
+   benchmark invocations produce exactly equal, JSON-compatible detached
+   `reproducibility_record()` dictionaries.
+
+No rounded display value is used for acceptance. The full-precision residuals
+and fixed threshold determine the Boolean result; equality with the threshold
+passes.
+
+## Explicit non-goals
+
+- No physical validation, calibration, uncertainty quantification,
+  certification, safety claim, or comparison with flight-test data.
+- No aircraft-specific longitudinal or lateral-directional model, physical-mode
+  classification, controller, observer, campaign, sweep, or optimization.
+- No generic V&V framework, benchmark registry, plug-in oracle interface,
+  tolerance policy, new verdict/report class, new serializer, database schema,
+  persistence workflow, CLI, plotting, or generated checked-in evidence file.
+- No SciPy, python-control, new dependency, alternate numerical integrator, or
+  published aircraft benchmark in this first increment.
+- No verification of eigenvectors, modal participation, transfer functions,
+  controllability/observability, numerical conditioning, MIMO behavior,
+  time-varying inputs, discontinuity handling, or broad matrix families.
+- No change to production state-space mathematics, simulation semantics,
+  Experimental Platform reporting, or existing tests except the focused tests
+  required to implement this benchmark.
 
 ## Focused tests to add
 
-- No implementation tests are prescribed until the first V&V capability and
-  its evidence contract are explicitly selected.
+- Verify the benchmark's independently encoded eigenvalue, state, and output
+  residuals and all exact acceptance boundaries above.
+- Verify the runner uses the existing experiment record without adding a new
+  result or serialization family and that the analytical output is its sampled
+  reference trajectory.
+- Verify fixed identity, timestamp, metadata, immutability, detached record
+  behavior, exact record repeatability, and JSON compatibility.
 
 ## Commands that must pass
 
@@ -1170,10 +1300,10 @@ git status
 ## Restart instruction
 
 Continue from the latest implementation commit. Read this file and inspect the
-completed Experimental Platform reporting and aggregation APIs, then perform
-the exact next smallest task: **Verification & Validation phase boundary**.
-Specify the first evidence-backed V&V capability before implementing it; do not
-automatically extend the serialization hierarchy.
+existing `StateSpace`, exact simulation, and Experimental Platform run APIs,
+then perform the exact next smallest task: **implement the independent
+analytical linear state-space benchmark** exactly as specified above. Do not
+broaden the benchmark or extend the serialization hierarchy.
 Preserve the documented scope, run the required verification commands, commit
 the completed capability, and do not push. Do not touch the existing untracked
 `.vscode/`.
