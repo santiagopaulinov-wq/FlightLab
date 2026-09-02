@@ -70,7 +70,9 @@ The twenty-seventh layer reports immutable per-metric counts, signed extrema,
 signed means, and absolute-error summaries over the validated deterministic
 residuals.
 The twenty-eighth layer compares two explicitly identified aligned error-summary
-collections through immutable right-minus-left descriptive differences.
+collections through immutable right-minus-left descriptive differences. The
+twenty-ninth layer applies that existing comparison to one explicit baseline
+and a finite caller-ordered set of explicitly named summary collections.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -116,14 +118,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: explicit deterministic metric-aligned comparisons of
-  two campaign projection-error summary collections.
+- Completed capability: explicit ordered campaign projection-error comparison
+  sets against one named baseline collection.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add campaign projection error summary comparisons`).
+  (`feat: add campaign projection error comparison sets`).
 
 ## Current verification baseline
 
-- Test count: 1266 tests.
+- Test count: 1280 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1075,11 +1077,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Move beyond one pairwise comparison only by applying the existing comparison
-  API to an explicit ordered set of named summary collections against one
-  caller-selected baseline. Do not infer priorities, add probabilistic claims,
-  regression, automatic correction, ranking, optimization, plotting,
-  persistence, or CLI/UI workflows yet.
+- Move beyond the ordered comparison set only by reducing its existing finite
+  differences to explicit per-metric extrema with first-attaining identities.
+  Do not infer priorities, add probabilistic claims, regression, automatic
+  correction, ranking, optimization, plotting, persistence, or CLI/UI workflows
+  yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -1094,33 +1096,33 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Explicit ordered campaign projection-error comparison sets
+### Campaign projection-error comparison-set metric envelopes
 
-Add a small pure analysis API that compares one explicitly named baseline
-projection-error summary collection with a finite caller-ordered collection of
-explicitly named comparison summary collections.
+Add a small pure analysis API that reduces one existing ordered projection-error
+comparison set to per-metric finite minimum and maximum differences, retaining
+the first-attaining comparison collection identity for each bound.
 
 ## Suggested implementation direction
 
-- Require one explicit nonblank baseline name and unique nonblank comparison
-  names in exact desired order; infer no baseline or ordering.
-- Materialize and validate all collection definitions before evaluation, then
-  reuse `compare_campaign_projection_error_summaries()` exactly once per
-  comparison collection.
-- Preserve comparison-collection order and metric order, retaining each name
-  and its immutable detached pairwise comparison results.
-- Define empty comparison input explicitly and propagate every validation or
-  pairwise comparison failure without partial returned output.
+- Consume only the existing immutable comparison-set results; do not recompute
+  summaries or pairwise differences.
+- Preserve metric order and require identical layouts and baseline identity
+  across the complete finite input.
+- For each numeric difference field, report finite minima and maxima plus the
+  first-attaining comparison collection name; preserve `None` when no value is
+  defined.
+- Define empty input explicitly and reject malformed or inconsistent results
+  before reduction.
 - Add no aggregation across comparisons, weighting, acceptance score,
   confidence interval, regression fit, automatic correction, ranking,
   optimization, plotting, persistence, or simulation.
 
 ## Focused tests to add
 
-- Verify one and multiple comparison collections, exact collection/metric order,
-  distinct identities, delegation to the pairwise API, undefined propagation,
-  incompatible or malformed summaries, empty and generator inputs, failure
-  propagation, deterministic output, immutability, and source isolation.
+- Verify one and multiple comparison collections, exact metric order, signed
+  extrema, first-attaining ties, undefined fields, inconsistent identities and
+  layouts, malformed entries, empty and generator inputs, deterministic output,
+  immutability, and source isolation.
 
 ## Commands that must pass
 
@@ -1133,10 +1135,9 @@ git status
 
 ## Restart instruction
 
-Continue from commit `228eb1890542d716793c9c8d4fcf1021f106486c`
-(`feat: add campaign projection error summary comparisons`). Read this file and
-inspect the existing projection-error summary comparison APIs, then implement
-the exact next smallest task: **Explicit ordered campaign projection-error
-comparison sets**. Preserve the documented scope, run the required verification
-commands, commit the completed capability, and do not push. Do not touch the
-existing untracked `.vscode/`.
+Continue from the latest implementation commit. Read this file and inspect the
+existing projection-error comparison-set APIs, then implement the exact next
+smallest task: **Campaign projection-error comparison-set metric envelopes**.
+Preserve the documented scope, run the required verification commands, commit
+the completed capability, and do not push. Do not touch the existing untracked
+`.vscode/`.

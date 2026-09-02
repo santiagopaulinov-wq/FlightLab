@@ -18,6 +18,8 @@ from flightlab.analysis import (
     CampaignMetricResidualToleranceResult,
     CampaignMetricValidationResidualEnvelope,
     CampaignParameterChange,
+    CampaignProjectionErrorSummaryCollection,
+    CampaignProjectionErrorSummaryComparisonSetResult,
     CampaignProjectionResiduals,
     CampaignProjectionResidualToleranceResults,
     CampaignProjectionScenario,
@@ -41,6 +43,7 @@ from flightlab.analysis import (
     check_campaign_projection_envelope_limits,
     check_campaign_projection_residual_tolerances,
     compare_campaign_projection_error_summaries,
+    compare_campaign_projection_error_summary_collections,
     compare_campaign_runs,
     project_campaign_metric_changes,
     project_campaign_scenarios,
@@ -87,9 +90,7 @@ def _bundle_record(runs):
 
 
 def test_compare_campaign_runs_preserves_run_and_metric_order():
-    record = _bundle_record(
-        (_run("third", 3.0), _run("first", 1.0, overshoot=False))
-    )
+    record = _bundle_record((_run("third", 3.0), _run("first", 1.0, overshoot=False)))
 
     comparison = compare_campaign_runs(
         record,
@@ -300,12 +301,16 @@ def test_optional_metric_delta_is_none_when_either_value_is_none():
 
 
 def test_empty_comparison_cannot_contain_the_explicit_baseline():
-    with pytest.raises(ValueError, match="baseline run_id 'baseline'.*not in comparison"):
+    with pytest.raises(
+        ValueError, match="baseline run_id 'baseline'.*not in comparison"
+    ):
         campaign_metric_deltas((), "baseline")
 
 
 def test_unknown_baseline_and_duplicate_run_ids_are_rejected():
-    with pytest.raises(ValueError, match="baseline run_id 'unknown'.*not in comparison"):
+    with pytest.raises(
+        ValueError, match="baseline run_id 'unknown'.*not in comparison"
+    ):
         campaign_metric_deltas(_comparison(), "unknown")
 
     duplicate = (_comparison()[0], _comparison()[0])
@@ -642,9 +647,7 @@ def test_sensitivity_matrix_is_immutable_deterministic_and_detached():
 
 
 def test_projection_with_one_parameter_and_metric():
-    matrix = CampaignSensitivityMatrix(
-        ("gain",), ("iae",), ("gain-run",), ((2.5,),)
-    )
+    matrix = CampaignSensitivityMatrix(("gain",), ("iae",), ("gain-run",), ((2.5,),))
 
     assert project_campaign_metric_changes(
         matrix, (CampaignParameterChange("gain", -2.0),)
@@ -740,9 +743,7 @@ def test_projection_rejects_dimension_and_parameter_order_mismatches():
 
 @pytest.mark.parametrize("value", [True, "bad", None, float("inf"), float("nan")])
 def test_projection_rejects_nonnumeric_or_nonfinite_changes(value):
-    matrix = CampaignSensitivityMatrix(
-        ("gain",), ("iae",), ("gain-run",), ((1.0,),)
-    )
+    matrix = CampaignSensitivityMatrix(("gain",), ("iae",), ("gain-run",), ((1.0,),))
 
     with pytest.raises(ValueError, match=r"parameter_changes\[0\].*(numeric|finite)"):
         project_campaign_metric_changes(
@@ -794,9 +795,7 @@ def test_projection_rejects_nonfinite_products_and_sums():
 
 
 def test_projection_is_immutable_deterministic_and_detached():
-    matrix = CampaignSensitivityMatrix(
-        ("gain",), ("iae",), ("gain-run",), ((2.0,),)
-    )
+    matrix = CampaignSensitivityMatrix(("gain",), ("iae",), ("gain-run",), ((2.0,),))
     changes = [CampaignParameterChange("gain", 3.0)]
 
     first = project_campaign_metric_changes(matrix, changes)
@@ -961,7 +960,9 @@ def test_scenarios_validate_complete_collection_before_any_projection(monkeypatc
         calls.append(args)
         raise AssertionError("projection must not run")
 
-    monkeypatch.setattr("flightlab.analysis.project_campaign_metric_changes", projection)
+    monkeypatch.setattr(
+        "flightlab.analysis.project_campaign_metric_changes", projection
+    )
     valid = CampaignProjectionScenario(
         "valid",
         (
@@ -985,7 +986,9 @@ def test_scenarios_delegate_each_projection_exactly_once(monkeypatch):
         calls.append((matrix, changes))
         return expected
 
-    monkeypatch.setattr("flightlab.analysis.project_campaign_metric_changes", projection)
+    monkeypatch.setattr(
+        "flightlab.analysis.project_campaign_metric_changes", projection
+    )
     scenarios = tuple(
         CampaignProjectionScenario(
             name,
@@ -1089,9 +1092,7 @@ def test_projection_residuals_propagate_undefined_values(projected, observed):
 
 
 def test_projection_residuals_reject_incompatible_metric_layouts():
-    observed = CampaignDeltaEntry(
-        "observed", 1.0, (("ise", 1.0), ("iae", 2.0))
-    )
+    observed = CampaignDeltaEntry("observed", 1.0, (("ise", 1.0), ("iae", 2.0)))
     with pytest.raises(ValueError, match="match exactly in name and order"):
         campaign_projection_residuals(_scenario_result("scenario", 1.0, 2.0), observed)
 
@@ -1121,7 +1122,9 @@ def test_projection_residuals_reject_malformed_scenarios_and_overflow():
     with pytest.raises(TypeError, match="CampaignProjectionScenarioResult"):
         campaign_projection_residuals(object(), _observed_delta())
     with pytest.raises(ValueError, match="name must be non-empty"):
-        campaign_projection_residuals(_scenario_result(" ", 1.0, 2.0), _observed_delta())
+        campaign_projection_residuals(
+            _scenario_result(" ", 1.0, 2.0), _observed_delta()
+        )
     with pytest.raises(ValueError, match="residual must be finite"):
         campaign_projection_residuals(
             _scenario_result("scenario", -1e308, 0.0),
@@ -1173,9 +1176,7 @@ def test_residual_tolerances_cover_pass_fail_boundary_and_traceability():
         "observed-run",
         (
             CampaignMetricResidualToleranceResult("iae", 2.0, 2.0, 2.0, 0.0, True),
-            CampaignMetricResidualToleranceResult(
-                "ise", -3.0, 3.0, 2.0, -1.0, False
-            ),
+            CampaignMetricResidualToleranceResult("ise", -3.0, 3.0, 2.0, -1.0, False),
         ),
     )
 
@@ -1313,7 +1314,9 @@ def test_validation_cases_preserve_order_identities_and_mixed_metric_states():
     assert tuple(result.name for result in results) == ("first", "second")
     assert tuple(result.scenario_name for result in results) == ("nominal", "stress")
     assert tuple(result.observed_run_id for result in results) == ("run-a", "run-b")
-    assert tuple(item.passed for item in results[0].tolerance_results.metric_results) == (
+    assert tuple(
+        item.passed for item in results[0].tolerance_results.metric_results
+    ) == (
         True,
         False,
     )
@@ -1354,7 +1357,9 @@ def test_validation_cases_delegate_once_to_existing_analysis_apis(monkeypatch):
 def test_validation_cases_materialize_generator_and_support_empty_input():
     source = (_validation_case(name) for name in ("first", "second"))
 
-    assert tuple(result.name for result in validate_campaign_projection_cases(source)) == (
+    assert tuple(
+        result.name for result in validate_campaign_projection_cases(source)
+    ) == (
         "first",
         "second",
     )
@@ -1370,7 +1375,9 @@ def test_validation_cases_validate_all_metadata_before_evaluation(monkeypatch):
     )
 
     with pytest.raises(ValueError, match="name must be non-empty"):
-        validate_campaign_projection_cases((_validation_case("valid"), _validation_case(" ")))
+        validate_campaign_projection_cases(
+            (_validation_case("valid"), _validation_case(" "))
+        )
     assert calls == []
 
 
@@ -1448,7 +1455,10 @@ def _validation_result(name, iae, ise):
 
 
 def test_validation_verdict_passes_only_when_all_cases_pass():
-    results = (_validation_result("first", 2.0, 3.0), _validation_result("second", 1.0, 2.0))
+    results = (
+        _validation_result("first", 2.0, 3.0),
+        _validation_result("second", 1.0, 2.0),
+    )
 
     assert campaign_projection_validation_verdict(results) == (
         CampaignProjectionValidationVerdict(True, ("first", "second"), (), ())
@@ -1507,7 +1517,11 @@ def test_validation_verdict_empty_input_is_explicitly_nonpassing():
 def test_validation_verdict_rejects_blank_and_duplicate_case_names():
     valid = _validation_result("valid", 2.0, 3.0)
     blank = CampaignProjectionValidationResult(
-        " ", valid.scenario_name, valid.observed_run_id, valid.residuals, valid.tolerance_results
+        " ",
+        valid.scenario_name,
+        valid.observed_run_id,
+        valid.residuals,
+        valid.tolerance_results,
     )
     duplicate = CampaignProjectionValidationResult(
         "valid",
@@ -1540,13 +1554,27 @@ def test_validation_verdict_rejects_inconsistent_identity_metadata():
 @pytest.mark.parametrize(
     ("replacement", "match"),
     [
-        (CampaignMetricResidualToleranceResult("iae", 1.0, 1.0, 1.0, 0.0, False), "defined state"),
-        (CampaignMetricResidualToleranceResult("iae", 1.0, 2.0, 1.0, -1.0, False), "defined state"),
-        (CampaignMetricResidualToleranceResult("iae", 1.0, 1.0, -1.0, -2.0, False), "nonnegative"),
-        (CampaignMetricResidualToleranceResult("iae", 1.0, 1.0, 1.0, 0.0, 1), "boolean"),
+        (
+            CampaignMetricResidualToleranceResult("iae", 1.0, 1.0, 1.0, 0.0, False),
+            "defined state",
+        ),
+        (
+            CampaignMetricResidualToleranceResult("iae", 1.0, 2.0, 1.0, -1.0, False),
+            "defined state",
+        ),
+        (
+            CampaignMetricResidualToleranceResult("iae", 1.0, 1.0, -1.0, -2.0, False),
+            "nonnegative",
+        ),
+        (
+            CampaignMetricResidualToleranceResult("iae", 1.0, 1.0, 1.0, 0.0, 1),
+            "boolean",
+        ),
     ],
 )
-def test_validation_verdict_rejects_malformed_defined_tolerance_results(replacement, match):
+def test_validation_verdict_rejects_malformed_defined_tolerance_results(
+    replacement, match
+):
     valid = _validation_result("valid", 2.0, 3.0)
     malformed_checks = CampaignProjectionResidualToleranceResults(
         valid.scenario_name,
@@ -1571,7 +1599,10 @@ def test_validation_verdict_rejects_inconsistent_undefined_state_and_layout():
     impossible = CampaignProjectionResidualToleranceResults(
         undefined.scenario_name,
         undefined.observed_run_id,
-        (checks[0], CampaignMetricResidualToleranceResult("ise", None, 0.0, 1.0, 1.0, True)),
+        (
+            checks[0],
+            CampaignMetricResidualToleranceResult("ise", None, 0.0, 1.0, 1.0, True),
+        ),
     )
     malformed = CampaignProjectionValidationResult(
         undefined.name,
@@ -1590,7 +1621,11 @@ def test_validation_verdict_rejects_inconsistent_undefined_state_and_layout():
         tuple(reversed(valid.tolerance_results.metric_results)),
     )
     malformed = CampaignProjectionValidationResult(
-        valid.name, valid.scenario_name, valid.observed_run_id, valid.residuals, reordered
+        valid.name,
+        valid.scenario_name,
+        valid.observed_run_id,
+        valid.residuals,
+        reordered,
     )
     with pytest.raises(ValueError, match="metric layouts"):
         campaign_projection_validation_verdict((malformed,))
@@ -1674,13 +1709,9 @@ def test_validation_residual_envelopes_reject_incompatible_metric_layouts():
     first = _validation_result("first", 2.0, 3.0)
     scenario = CampaignProjectionScenarioResult(
         "reordered-scenario",
-        CampaignMetricChangeProjection(
-            ("gain",), ("ise", "iae"), (1.0,), (2.0, 1.0)
-        ),
+        CampaignMetricChangeProjection(("gain",), ("ise", "iae"), (1.0,), (2.0, 1.0)),
     )
-    observed = CampaignDeltaEntry(
-        "reordered-run", 1.0, (("ise", 3.0), ("iae", 2.0))
-    )
+    observed = CampaignDeltaEntry("reordered-run", 1.0, (("ise", 3.0), ("iae", 2.0)))
     residuals = campaign_projection_residuals(scenario, observed)
     checked = check_campaign_projection_residual_tolerances(
         residuals,
@@ -1731,7 +1762,11 @@ def test_validation_residual_envelopes_reject_malformed_and_nonfinite_results():
 def test_validation_residual_envelopes_reject_blank_duplicate_and_bad_metadata():
     valid = _validation_result("valid", 2.0, 3.0)
     blank = CampaignProjectionValidationResult(
-        " ", valid.scenario_name, valid.observed_run_id, valid.residuals, valid.tolerance_results
+        " ",
+        valid.scenario_name,
+        valid.observed_run_id,
+        valid.residuals,
+        valid.tolerance_results,
     )
     with pytest.raises(ValueError, match="name must be non-empty"):
         campaign_projection_validation_residual_envelopes((blank,))
@@ -1739,7 +1774,11 @@ def test_validation_residual_envelopes_reject_blank_duplicate_and_bad_metadata()
         campaign_projection_validation_residual_envelopes((valid, valid))
 
     inconsistent = CampaignProjectionValidationResult(
-        "other", "wrong", valid.observed_run_id, valid.residuals, valid.tolerance_results
+        "other",
+        "wrong",
+        valid.observed_run_id,
+        valid.residuals,
+        valid.tolerance_results,
     )
     with pytest.raises(ValueError, match="inconsistent scenario/run metadata"):
         campaign_projection_validation_residual_envelopes((inconsistent,))
@@ -1755,9 +1794,9 @@ def test_validation_residual_envelopes_support_empty_and_generator_inputs():
         )
     )
 
-    assert campaign_projection_validation_residual_envelopes(source)[0].validation_case_name == (
-        "second"
-    )
+    assert campaign_projection_validation_residual_envelopes(source)[
+        0
+    ].validation_case_name == ("second")
 
 
 def test_validation_residual_envelopes_are_immutable_deterministic_and_detached():
@@ -1777,9 +1816,7 @@ def test_projection_error_summary_for_one_case_has_exact_counts_and_values():
     result = _validation_result("only", 3.0, 1.0)
 
     assert campaign_projection_error_summaries((result,)) == (
-        CampaignMetricProjectionErrorSummary(
-            "iae", 1, 1, 0, 2.0, 2.0, 2.0, 2.0, 2.0
-        ),
+        CampaignMetricProjectionErrorSummary("iae", 1, 1, 0, 2.0, 2.0, 2.0, 2.0, 2.0),
         CampaignMetricProjectionErrorSummary(
             "ise", 1, 1, 0, -1.0, -1.0, -1.0, 1.0, 1.0
         ),
@@ -1838,13 +1875,9 @@ def test_projection_error_summaries_reject_incompatible_layouts():
     first = _validation_result("first", 2.0, 3.0)
     scenario = CampaignProjectionScenarioResult(
         "reordered-scenario",
-        CampaignMetricChangeProjection(
-            ("gain",), ("ise", "iae"), (1.0,), (2.0, 1.0)
-        ),
+        CampaignMetricChangeProjection(("gain",), ("ise", "iae"), (1.0,), (2.0, 1.0)),
     )
-    observed = CampaignDeltaEntry(
-        "reordered-run", 1.0, (("ise", 3.0), ("iae", 2.0))
-    )
+    observed = CampaignDeltaEntry("reordered-run", 1.0, (("ise", 3.0), ("iae", 2.0)))
     residuals = campaign_projection_residuals(scenario, observed)
     checked = check_campaign_projection_residual_tolerances(
         residuals,
@@ -1870,11 +1903,7 @@ def _large_residual_validation_result(name):
     checked = CampaignProjectionResidualToleranceResults(
         residuals.scenario_name,
         residuals.observed_run_id,
-        (
-            CampaignMetricResidualToleranceResult(
-                "iae", 1e308, 1e308, 1e308, 0.0, True
-            ),
-        ),
+        (CampaignMetricResidualToleranceResult("iae", 1e308, 1e308, 1e308, 0.0, True),),
     )
     return CampaignProjectionValidationResult(
         name,
@@ -1890,7 +1919,10 @@ def test_projection_error_summaries_reject_malformed_and_nonfinite_arithmetic():
         campaign_projection_error_summaries((object(),))
     with pytest.raises(ValueError, match="summary arithmetic must be finite"):
         campaign_projection_error_summaries(
-            (_large_residual_validation_result("first"), _large_residual_validation_result("second"))
+            (
+                _large_residual_validation_result("first"),
+                _large_residual_validation_result("second"),
+            )
         )
 
 
@@ -2012,7 +2044,17 @@ def test_error_summary_comparison_propagates_optional_none_values():
 
 
 def test_error_summary_comparison_preserves_multiple_metric_order_and_generators():
-    left = (_error_summary("iae"), _error_summary("ise", minimum=0.0, maximum=2.0, mean=1.0, mean_absolute=1.0, maximum_absolute=2.0))
+    left = (
+        _error_summary("iae"),
+        _error_summary(
+            "ise",
+            minimum=0.0,
+            maximum=2.0,
+            mean=1.0,
+            mean_absolute=1.0,
+            maximum_absolute=2.0,
+        ),
+    )
     right = tuple(_copy for _copy in left)
 
     comparisons = compare_campaign_projection_error_summaries(
@@ -2022,12 +2064,14 @@ def test_error_summary_comparison_preserves_multiple_metric_order_and_generators
     assert tuple(item.metric_name for item in comparisons) == ("iae", "ise")
 
 
-@pytest.mark.parametrize(("left_name", "right_name"), [("", "right"), ("left", " "), ("same", "same")])
-def test_error_summary_comparison_rejects_invalid_collection_names(left_name, right_name):
+@pytest.mark.parametrize(
+    ("left_name", "right_name"), [("", "right"), ("left", " "), ("same", "same")]
+)
+def test_error_summary_comparison_rejects_invalid_collection_names(
+    left_name, right_name
+):
     with pytest.raises(ValueError, match="non-empty|distinct"):
-        compare_campaign_projection_error_summaries(
-            left_name, (), right_name, ()
-        )
+        compare_campaign_projection_error_summaries(left_name, (), right_name, ())
 
 
 def test_error_summary_comparison_requires_identical_metric_layouts():
@@ -2084,22 +2128,16 @@ def test_error_summary_comparison_rejects_nonfinite_difference():
         maximum_absolute=1e308,
     )
     with pytest.raises(ValueError, match="difference must be finite"):
-        compare_campaign_projection_error_summaries(
-            "left", (left,), "right", (right,)
-        )
+        compare_campaign_projection_error_summaries("left", (left,), "right", (right,))
 
 
 def test_error_summary_comparison_empty_collections_return_empty():
-    assert compare_campaign_projection_error_summaries(
-        "left", (), "right", ()
-    ) == ()
+    assert compare_campaign_projection_error_summaries("left", (), "right", ()) == ()
 
 
 def test_error_summary_comparisons_are_immutable_deterministic_and_detached():
     source = [_error_summary()]
-    first = compare_campaign_projection_error_summaries(
-        "left", source, "right", source
-    )
+    first = compare_campaign_projection_error_summaries("left", source, "right", source)
     repeated = compare_campaign_projection_error_summaries(
         "left", source, "right", source
     )
@@ -2110,6 +2148,195 @@ def test_error_summary_comparisons_are_immutable_deterministic_and_detached():
     assert first[0].metric_name == "iae"
     with pytest.raises(FrozenInstanceError):
         first[0].mean_residual_difference = 1.0
+
+
+def test_error_summary_collection_comparison_handles_one_collection():
+    baseline = _error_summary(mean=1.0)
+    candidate = _error_summary(mean=2.0)
+
+    result = compare_campaign_projection_error_summary_collections(
+        "baseline",
+        (baseline,),
+        (CampaignProjectionErrorSummaryCollection("candidate", (candidate,)),),
+    )
+
+    assert len(result) == 1
+    assert result[0].baseline_collection_name == "baseline"
+    assert result[0].comparison_collection_name == "candidate"
+    assert result[0].comparisons[0].mean_residual_difference == 1.0
+
+
+def test_error_summary_collection_comparison_preserves_collection_and_metric_order():
+    baseline = (_error_summary("iae"), _error_summary("ise"))
+    collections = (
+        CampaignProjectionErrorSummaryCollection("second", baseline),
+        CampaignProjectionErrorSummaryCollection("first", baseline),
+    )
+
+    result = compare_campaign_projection_error_summary_collections(
+        "baseline", baseline, collections
+    )
+
+    assert tuple(item.comparison_collection_name for item in result) == (
+        "second",
+        "first",
+    )
+    assert tuple(item.metric_name for item in result[0].comparisons) == ("iae", "ise")
+
+
+def test_error_summary_collection_comparison_delegates_once_and_reuses_baseline(
+    monkeypatch,
+):
+    baseline = (_error_summary(),)
+    calls = []
+    original = analysis.compare_campaign_projection_error_summaries
+
+    def recording_comparison(left_name, left, right_name, right):
+        calls.append((left_name, left, right_name, right))
+        return original(left_name, left, right_name, right)
+
+    monkeypatch.setattr(
+        analysis, "compare_campaign_projection_error_summaries", recording_comparison
+    )
+    collections = (
+        CampaignProjectionErrorSummaryCollection("a", baseline),
+        CampaignProjectionErrorSummaryCollection("b", baseline),
+    )
+
+    compare_campaign_projection_error_summary_collections(
+        "baseline", baseline, collections
+    )
+
+    assert len(calls) == 2
+    assert calls[0][1] is calls[1][1]
+    assert tuple(call[2] for call in calls) == ("a", "b")
+
+
+@pytest.mark.parametrize("baseline_name", ["", " ", None])
+def test_error_summary_collection_comparison_rejects_blank_baseline_name(baseline_name):
+    with pytest.raises(ValueError, match="baseline_collection_name must be non-empty"):
+        compare_campaign_projection_error_summary_collections(baseline_name, (), ())
+
+
+@pytest.mark.parametrize(
+    "collections, match",
+    [
+        (
+            (CampaignProjectionErrorSummaryCollection(" ", ()),),
+            "name must be non-empty",
+        ),
+        (
+            (
+                CampaignProjectionErrorSummaryCollection("same", ()),
+                CampaignProjectionErrorSummaryCollection("same", ()),
+            ),
+            "duplicate comparison collection name",
+        ),
+        (
+            (CampaignProjectionErrorSummaryCollection("baseline", ()),),
+            "distinct from baseline",
+        ),
+    ],
+)
+def test_error_summary_collection_comparison_rejects_invalid_names(collections, match):
+    with pytest.raises(ValueError, match=match):
+        compare_campaign_projection_error_summary_collections(
+            "baseline", (), collections
+        )
+
+
+def test_error_summary_collection_comparison_validates_all_entries_before_delegation(
+    monkeypatch,
+):
+    calls = []
+    monkeypatch.setattr(
+        analysis,
+        "compare_campaign_projection_error_summaries",
+        lambda *args: calls.append(args),
+    )
+    collections = (
+        CampaignProjectionErrorSummaryCollection("valid", (_error_summary(),)),
+        object(),
+    )
+
+    with pytest.raises(TypeError, match="CampaignProjectionErrorSummaryCollection"):
+        compare_campaign_projection_error_summary_collections(
+            "baseline", (_error_summary(),), collections
+        )
+    assert calls == []
+
+
+def test_error_summary_collection_comparison_rejects_malformed_and_incompatible_summaries():
+    with pytest.raises(TypeError, match="CampaignMetricProjectionErrorSummary"):
+        compare_campaign_projection_error_summary_collections(
+            "baseline",
+            (_error_summary(),),
+            (CampaignProjectionErrorSummaryCollection("bad", (object(),)),),
+        )
+    with pytest.raises(ValueError, match="identical metric names and order"):
+        compare_campaign_projection_error_summary_collections(
+            "baseline",
+            (_error_summary("iae"),),
+            (
+                CampaignProjectionErrorSummaryCollection(
+                    "other", (_error_summary("ise"),)
+                ),
+            ),
+        )
+
+
+def test_error_summary_collection_comparison_propagates_delegated_failure(monkeypatch):
+    def fail(*args):
+        raise RuntimeError("delegated failure")
+
+    monkeypatch.setattr(analysis, "compare_campaign_projection_error_summaries", fail)
+    with pytest.raises(RuntimeError, match="delegated failure"):
+        compare_campaign_projection_error_summary_collections(
+            "baseline",
+            (_error_summary(),),
+            (CampaignProjectionErrorSummaryCollection("other", (_error_summary(),)),),
+        )
+
+
+def test_error_summary_collection_comparison_supports_generator_and_empty_inputs():
+    assert (
+        compare_campaign_projection_error_summary_collections(
+            "baseline", (_error_summary(),), ()
+        )
+        == ()
+    )
+    collections = (
+        item
+        for item in (
+            CampaignProjectionErrorSummaryCollection("a", (_error_summary(),)),
+            CampaignProjectionErrorSummaryCollection("b", (_error_summary(mean=2.0),)),
+        )
+    )
+    result = compare_campaign_projection_error_summary_collections(
+        "baseline", (_error_summary(),), collections
+    )
+    assert tuple(item.comparison_collection_name for item in result) == ("a", "b")
+    assert result[0].comparisons != result[1].comparisons
+
+
+def test_error_summary_collection_comparison_is_immutable_deterministic_and_detached():
+    source = [_error_summary()]
+    collections = [CampaignProjectionErrorSummaryCollection("other", tuple(source))]
+    first = compare_campaign_projection_error_summary_collections(
+        "baseline", source, collections
+    )
+    repeated = compare_campaign_projection_error_summary_collections(
+        "baseline", source, collections
+    )
+
+    assert first == repeated
+    assert first is not repeated
+    assert isinstance(first[0], CampaignProjectionErrorSummaryComparisonSetResult)
+    source.clear()
+    collections.clear()
+    assert first[0].comparisons[0].metric_name == "iae"
+    with pytest.raises(FrozenInstanceError):
+        first[0].comparison_collection_name = "changed"
 
 
 def test_one_scenario_is_both_minimum_and_maximum():
@@ -2127,12 +2354,8 @@ def test_projection_envelopes_find_signed_extrema_in_metric_order():
     )
 
     assert campaign_projection_envelopes(scenarios) == (
-        CampaignMetricProjectionEnvelope(
-            "iae", -3.0, "low-iae", 5.0, "high-iae"
-        ),
-        CampaignMetricProjectionEnvelope(
-            "ise", -6.0, "high-iae", 4.0, "low-iae"
-        ),
+        CampaignMetricProjectionEnvelope("iae", -3.0, "low-iae", 5.0, "high-iae"),
+        CampaignMetricProjectionEnvelope("ise", -6.0, "high-iae", 4.0, "low-iae"),
     )
 
 
@@ -2191,9 +2414,7 @@ def test_envelopes_reject_blank_and_duplicate_scenario_names():
 def test_envelopes_reject_incompatible_projection_layouts():
     incompatible = CampaignProjectionScenarioResult(
         "other",
-        CampaignMetricChangeProjection(
-            ("gain",), ("ise", "iae"), (1.0,), (2.0, 1.0)
-        ),
+        CampaignMetricChangeProjection(("gain",), ("ise", "iae"), (1.0,), (2.0, 1.0)),
     )
 
     with pytest.raises(ValueError, match="matching parameter and metric layouts"):
@@ -2204,7 +2425,9 @@ def test_envelopes_reject_incompatible_projection_layouts():
 
 @pytest.mark.parametrize("value", [True, "bad", float("inf"), float("nan")])
 def test_envelopes_reject_nonnumeric_or_nonfinite_predictions(value):
-    with pytest.raises(ValueError, match=r"predicted_metric_changes\[0\].*(numeric|finite)"):
+    with pytest.raises(
+        ValueError, match=r"predicted_metric_changes\[0\].*(numeric|finite)"
+    ):
         campaign_projection_envelopes((_scenario_result("invalid", value, 1.0),))
 
 
@@ -2372,9 +2595,7 @@ def test_limit_checks_reject_reversed_bounds_and_nonfinite_margins():
 
 
 def test_limit_checks_reject_inconsistent_envelope_state():
-    inconsistent = CampaignMetricProjectionEnvelope(
-        "iae", None, "scenario", None, None
-    )
+    inconsistent = CampaignMetricProjectionEnvelope("iae", None, "scenario", None, None)
     with pytest.raises(ValueError, match="inconsistent undefined state"):
         check_campaign_projection_envelope_limits(
             (inconsistent,), (CampaignMetricProjectionLimit("iae", -1.0, 1.0),)
@@ -2472,8 +2693,7 @@ def test_empty_limit_results_return_an_explicit_nonpassing_verdict():
 
 def test_robustness_verdict_materializes_generator_input():
     results = (
-        _limit_result(metric_name, 1.0, 1.0, True)
-        for metric_name in ("iae", "ise")
+        _limit_result(metric_name, 1.0, 1.0, True) for metric_name in ("iae", "ise")
     )
 
     assert campaign_robustness_verdict(results).passing_metrics == ("iae", "ise")

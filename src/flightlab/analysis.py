@@ -212,6 +212,23 @@ class CampaignMetricProjectionErrorSummaryComparison:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignProjectionErrorSummaryCollection:
+    """One explicitly named projection-error summary collection."""
+
+    name: str
+    summaries: tuple[CampaignMetricProjectionErrorSummary, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CampaignProjectionErrorSummaryComparisonSetResult:
+    """One named baseline-to-comparison result in an ordered comparison set."""
+
+    baseline_collection_name: str
+    comparison_collection_name: str
+    comparisons: tuple[CampaignMetricProjectionErrorSummaryComparison, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -292,8 +309,7 @@ def campaign_robustness_verdict(
 def _validated_limit_result(result, index):
     if not isinstance(result, CampaignMetricProjectionLimitResult):
         raise TypeError(
-            f"limit_results[{index}] must be a "
-            "CampaignMetricProjectionLimitResult"
+            f"limit_results[{index}] must be a CampaignMetricProjectionLimitResult"
         )
     if type(result.metric_name) is not str or not result.metric_name.strip():
         raise ValueError(f"limit_results[{index}].metric_name must be non-empty")
@@ -351,10 +367,7 @@ def _validated_limit_result(result, index):
         expected_upper_margin
     ):
         raise ValueError(f"limit_results[{index}] expected margins must be finite")
-    if (
-        lower_margin != expected_lower_margin
-        or upper_margin != expected_upper_margin
-    ):
+    if lower_margin != expected_lower_margin or upper_margin != expected_upper_margin:
         raise ValueError(f"limit_results[{index}] margins are inconsistent")
     expected_pass = lower_margin >= 0.0 and upper_margin >= 0.0
     if result.passed is not expected_pass:
@@ -389,9 +402,7 @@ def check_campaign_projection_envelope_limits(
             raise ValueError(f"duplicate envelope metric {envelope.metric_name!r}")
         metric_names.add(envelope.metric_name)
         if not isinstance(limit, CampaignMetricProjectionLimit):
-            raise TypeError(
-                f"limits[{index}] must be a CampaignMetricProjectionLimit"
-            )
+            raise TypeError(f"limits[{index}] must be a CampaignMetricProjectionLimit")
         if type(limit.metric_name) is not str or not limit.metric_name.strip():
             raise ValueError(f"limits[{index}].metric_name must be non-empty")
         if limit.metric_name in limit_names:
@@ -448,7 +459,9 @@ def _validated_projection_envelope(envelope, index):
     if type(envelope.metric_name) is not str or not envelope.metric_name.strip():
         raise ValueError(f"envelopes[{index}].metric_name must be non-empty")
     if envelope.metric_name not in _METRIC_KEYS:
-        raise ValueError(f"envelopes[{index}] has unknown metric {envelope.metric_name!r}")
+        raise ValueError(
+            f"envelopes[{index}] has unknown metric {envelope.metric_name!r}"
+        )
 
     values_undefined = envelope.minimum is None and envelope.maximum is None
     names_undefined = (
@@ -456,8 +469,7 @@ def _validated_projection_envelope(envelope, index):
     )
     if (
         (envelope.minimum is None) != (envelope.maximum is None)
-        or (envelope.minimum_scenario is None)
-        != (envelope.maximum_scenario is None)
+        or (envelope.minimum_scenario is None) != (envelope.maximum_scenario is None)
         or values_undefined != names_undefined
     ):
         raise ValueError(f"envelopes[{index}] has inconsistent undefined state")
@@ -495,8 +507,7 @@ def campaign_projection_envelopes(
     for index, result in enumerate(scenario_results):
         if not isinstance(result, CampaignProjectionScenarioResult):
             raise TypeError(
-                f"scenario_results[{index}] must be a "
-                "CampaignProjectionScenarioResult"
+                f"scenario_results[{index}] must be a CampaignProjectionScenarioResult"
             )
         if type(result.name) is not str or not result.name.strip():
             raise ValueError(f"scenario_results[{index}].name must be non-empty")
@@ -876,9 +887,7 @@ def campaign_projection_validation_residual_envelopes(
     validation_results: Iterable[CampaignProjectionValidationResult],
 ) -> tuple[CampaignMetricValidationResidualEnvelope, ...]:
     """Find each metric's worst defined absolute validation residual."""
-    validation_results, _ = _validated_projection_validation_results(
-        validation_results
-    )
+    validation_results, _ = _validated_projection_validation_results(validation_results)
     if not validation_results:
         return ()
 
@@ -933,9 +942,7 @@ def campaign_projection_error_summaries(
     validation_results: Iterable[CampaignProjectionValidationResult],
 ) -> tuple[CampaignMetricProjectionErrorSummary, ...]:
     """Summarize stored validation residuals by metric in layout order."""
-    validation_results, _ = _validated_projection_validation_results(
-        validation_results
-    )
+    validation_results, _ = _validated_projection_validation_results(validation_results)
     if not validation_results:
         return ()
     envelopes = campaign_projection_validation_residual_envelopes(validation_results)
@@ -963,7 +970,9 @@ def campaign_projection_error_summaries(
             maximum = max(values)
             try:
                 mean = math.fsum(values) / defined_count
-                mean_absolute = math.fsum(abs(value) for value in values) / defined_count
+                mean_absolute = (
+                    math.fsum(abs(value) for value in values) / defined_count
+                )
             except OverflowError as error:
                 raise ValueError(
                     f"metric {metric_name!r} summary arithmetic must be finite"
@@ -1062,15 +1071,73 @@ def compare_campaign_projection_error_summaries(
                 minimum_residual_difference=differences["minimum_residual"],
                 maximum_residual_difference=differences["maximum_residual"],
                 mean_residual_difference=differences["mean_residual"],
-                mean_absolute_residual_difference=differences[
-                    "mean_absolute_residual"
-                ],
+                mean_absolute_residual_difference=differences["mean_absolute_residual"],
                 maximum_absolute_residual_difference=differences[
                     "maximum_absolute_residual"
                 ],
             )
         )
     return tuple(comparisons)
+
+
+def compare_campaign_projection_error_summary_collections(
+    baseline_collection_name: str,
+    baseline_summaries: Iterable[CampaignMetricProjectionErrorSummary],
+    comparison_collections: Iterable[CampaignProjectionErrorSummaryCollection],
+) -> tuple[CampaignProjectionErrorSummaryComparisonSetResult, ...]:
+    """Compare ordered named summary collections with one explicit baseline."""
+    if (
+        type(baseline_collection_name) is not str
+        or not baseline_collection_name.strip()
+    ):
+        raise ValueError("baseline_collection_name must be non-empty")
+
+    baseline_summaries = _validated_projection_error_summaries(
+        baseline_summaries, "baseline_summaries"
+    )
+    try:
+        collection_iterator = iter(comparison_collections)
+    except TypeError as error:
+        raise TypeError("comparison_collections must be an iterable") from error
+    comparison_collections = tuple(collection_iterator)
+
+    names = set()
+    validated_collections = []
+    for index, collection in enumerate(comparison_collections):
+        prefix = f"comparison_collections[{index}]"
+        if not isinstance(collection, CampaignProjectionErrorSummaryCollection):
+            raise TypeError(
+                f"{prefix} must be a CampaignProjectionErrorSummaryCollection"
+            )
+        if type(collection.name) is not str or not collection.name.strip():
+            raise ValueError(f"{prefix}.name must be non-empty")
+        if collection.name == baseline_collection_name:
+            raise ValueError(
+                f"{prefix}.name must be distinct from baseline_collection_name"
+            )
+        if collection.name in names:
+            raise ValueError(
+                f"duplicate comparison collection name {collection.name!r}"
+            )
+        names.add(collection.name)
+        summaries = _validated_projection_error_summaries(
+            collection.summaries, f"{prefix}.summaries"
+        )
+        validated_collections.append((collection.name, summaries))
+
+    return tuple(
+        CampaignProjectionErrorSummaryComparisonSetResult(
+            baseline_collection_name=baseline_collection_name,
+            comparison_collection_name=comparison_name,
+            comparisons=compare_campaign_projection_error_summaries(
+                baseline_collection_name,
+                baseline_summaries,
+                comparison_name,
+                comparison_summaries,
+            ),
+        )
+        for comparison_name, comparison_summaries in validated_collections
+    )
 
 
 def _validated_projection_error_summaries(summaries, name):
@@ -1139,8 +1206,7 @@ def _validated_projection_error_summaries(summaries, name):
         if (
             checked["mean_absolute_residual"] < 0.0
             or checked["maximum_absolute_residual"] < 0.0
-            or checked["mean_absolute_residual"]
-            > checked["maximum_absolute_residual"]
+            or checked["mean_absolute_residual"] > checked["maximum_absolute_residual"]
             or checked["maximum_absolute_residual"]
             != max(
                 abs(checked["minimum_residual"]),
@@ -1201,9 +1267,7 @@ def _validated_projection_validation_result(result, index):
         result.residuals
     )
     tolerance_results = result.tolerance_results
-    if not isinstance(
-        tolerance_results, CampaignProjectionResidualToleranceResults
-    ):
+    if not isinstance(tolerance_results, CampaignProjectionResidualToleranceResults):
         raise TypeError(
             f"validation_results[{index}].tolerance_results must be a "
             "CampaignProjectionResidualToleranceResults"
@@ -1254,10 +1318,11 @@ def _validated_projection_validation_result(result, index):
             f"metric_results[{metric_index}]"
         )
         if not isinstance(metric_result, CampaignMetricResidualToleranceResult):
-            raise TypeError(
-                f"{prefix} must be a CampaignMetricResidualToleranceResult"
-            )
-        if type(metric_result.metric_name) is not str or not metric_result.metric_name.strip():
+            raise TypeError(f"{prefix} must be a CampaignMetricResidualToleranceResult")
+        if (
+            type(metric_result.metric_name) is not str
+            or not metric_result.metric_name.strip()
+        ):
             raise ValueError(f"{prefix}.metric_name must be non-empty")
         if metric_result.metric_name in metric_names:
             raise ValueError(f"duplicate metric name {metric_result.metric_name!r}")
@@ -1322,9 +1387,7 @@ def project_campaign_scenarios(
     names = set()
     for index, scenario in enumerate(scenarios):
         if not isinstance(scenario, CampaignProjectionScenario):
-            raise TypeError(
-                f"scenarios[{index}] must be a CampaignProjectionScenario"
-            )
+            raise TypeError(f"scenarios[{index}] must be a CampaignProjectionScenario")
         if type(scenario.name) is not str or not scenario.name.strip():
             raise ValueError(f"scenarios[{index}].name must be non-empty")
         if scenario.name in names:
@@ -1437,9 +1500,7 @@ def _validate_sensitivity_matrix(matrix):
         if type(row) is not tuple:
             raise TypeError(f"matrix.values[{row_index}] must be a tuple")
         if len(row) != len(matrix.parameter_names):
-            raise ValueError(
-                f"matrix.values[{row_index}] must match parameter columns"
-            )
+            raise ValueError(f"matrix.values[{row_index}] must match parameter columns")
         for column_index, sensitivity in enumerate(row):
             if sensitivity is not None:
                 _finite_numeric(
@@ -1473,9 +1534,7 @@ def campaign_sensitivity_matrix(
     expected_metric_names = None
     for index, parameter in enumerate(parameters):
         if not isinstance(parameter, SensitivityMatrixParameter):
-            raise TypeError(
-                f"parameters[{index}] must be a SensitivityMatrixParameter"
-            )
+            raise TypeError(f"parameters[{index}] must be a SensitivityMatrixParameter")
         if type(parameter.name) is not str or not parameter.name.strip():
             raise ValueError(f"parameters[{index}].name must be non-empty")
         if parameter.name in names:
@@ -1490,8 +1549,7 @@ def campaign_sensitivity_matrix(
             )
         if parameter.representative_run_id in representative_ids:
             raise ValueError(
-                "duplicate representative run_id "
-                f"{parameter.representative_run_id!r}"
+                f"duplicate representative run_id {parameter.representative_run_id!r}"
             )
         representative_ids.append(parameter.representative_run_id)
         metric_names, entries_by_id = _validated_sensitivity_entries(
@@ -1501,7 +1559,9 @@ def campaign_sensitivity_matrix(
         if expected_metric_names is None:
             expected_metric_names = metric_names
         elif metric_names != expected_metric_names:
-            raise ValueError("parameter sensitivities must have matching metric layouts")
+            raise ValueError(
+                "parameter sensitivities must have matching metric layouts"
+            )
         if parameter.representative_run_id not in entries_by_id:
             raise ValueError(
                 f"representative run_id {parameter.representative_run_id!r} "
@@ -1575,9 +1635,7 @@ def _validated_sensitivity_entries(sensitivities, name):
                 )
             metric_names.append(metric_name)
             if sensitivity is not None:
-                _finite_numeric(
-                    f"{name}[{index}] metric {metric_name!r}", sensitivity
-                )
+                _finite_numeric(f"{name}[{index}] metric {metric_name!r}", sensitivity)
                 if parameter_delta == 0.0:
                     raise ValueError(
                         f"{name}[{index}] zero parameter delta must have "
@@ -1814,9 +1872,7 @@ def compare_campaign_runs(
     """Extract one explicit provenance parameter and ordered existing metrics."""
     manifest, records = _validated_bundle_record(bundle_record)
     if parameter_category not in _PARAMETER_CATEGORIES:
-        raise ValueError(
-            f"parameter_category must be one of {_PARAMETER_CATEGORIES!r}"
-        )
+        raise ValueError(f"parameter_category must be one of {_PARAMETER_CATEGORIES!r}")
     if type(parameter_key) is not str or not parameter_key.strip():
         raise ValueError("parameter_key must be a non-empty string")
     metric_names = _validated_metric_names(metric_names)
@@ -1907,7 +1963,9 @@ def _validated_bundle_record(bundle_record):
     try:
         created_at = datetime.fromisoformat(manifest["created_at"])
     except ValueError:
-        raise ValueError("bundle_record created_at must be an aware UTC timestamp") from None
+        raise ValueError(
+            "bundle_record created_at must be an aware UTC timestamp"
+        ) from None
     if created_at.utcoffset() != timedelta(0):
         raise ValueError("bundle_record created_at must be an aware UTC timestamp")
     if type(manifest["run_ids"]) is not list:

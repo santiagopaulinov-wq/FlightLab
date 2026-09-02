@@ -1236,6 +1236,23 @@ absolute-error difference describes a smaller supplied summary value, but the
 API does not infer that a collection is better or perform scoring, ranking,
 normalization, significance testing, fitting, calibration, or acceptance.
 
+`compare_campaign_projection_error_summary_collections(baseline_name,
+baseline, comparison_collections)` applies that pairwise comparison to an
+explicit finite ordered set. Each comparison is supplied as a frozen
+`CampaignProjectionErrorSummaryCollection` with a unique nonblank name and an
+ordered summary tuple. Each frozen
+`CampaignProjectionErrorSummaryComparisonSetResult` retains the baseline and
+comparison collection names plus the delegated pairwise results.
+
+The complete input is materialized and validated before any pairwise
+evaluation. The baseline is reused unchanged for every delegated comparison,
+comparison collection order and metric order are preserved exactly, and the
+pairwise API is called once per collection. Empty comparison input returns
+`()`; malformed entries, invalid or conflicting names, malformed summaries,
+incompatible metric layouts, and delegated failures raise without returning a
+partial result. This orchestration remains purely analytical and adds no
+aggregation, ranking, scoring, persistence, simulation, or model correction.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 
