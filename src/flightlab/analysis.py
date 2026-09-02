@@ -295,6 +295,15 @@ class CampaignProjectionErrorMetricEnvelopeLimitVerdict:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignProjectionErrorComparisonEnvelopeAssessmentReport:
+    """Immutable assembly of checked differences and their verdict views."""
+
+    limit_results: tuple[CampaignProjectionErrorSummaryDifferenceLimitResult, ...]
+    overall_verdict: CampaignProjectionErrorComparisonEnvelopeLimitVerdict
+    metric_verdicts: tuple[CampaignProjectionErrorMetricEnvelopeLimitVerdict, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -1400,6 +1409,124 @@ def campaign_projection_error_comparison_envelope_metric_verdicts(
             )
         )
     return tuple(verdicts)
+
+
+def campaign_projection_error_comparison_envelope_assessment_report(
+    limit_results: Iterable[CampaignProjectionErrorSummaryDifferenceLimitResult],
+) -> CampaignProjectionErrorComparisonEnvelopeAssessmentReport:
+    """Assemble validated limit results with both existing verdict views."""
+    try:
+        result_iterator = iter(limit_results)
+    except TypeError as error:
+        raise TypeError("limit_results must be an iterable") from error
+    limit_results = tuple(result_iterator)
+
+    overall_verdict = campaign_projection_error_comparison_envelope_limit_verdict(
+        limit_results
+    )
+    metric_verdicts = campaign_projection_error_comparison_envelope_metric_verdicts(
+        limit_results
+    )
+    _validate_projection_error_assessment_consistency(
+        limit_results, overall_verdict, metric_verdicts
+    )
+    return CampaignProjectionErrorComparisonEnvelopeAssessmentReport(
+        limit_results=tuple(
+            _copy_projection_error_difference_limit_result(result)
+            for result in limit_results
+        ),
+        overall_verdict=overall_verdict,
+        metric_verdicts=metric_verdicts,
+    )
+
+
+def _validate_projection_error_assessment_consistency(
+    limit_results, overall_verdict, metric_verdicts
+):
+    source_identities = tuple(
+        CampaignProjectionErrorMetricFieldIdentity(
+            result.metric_name, result.difference_field
+        )
+        for result in limit_results
+    )
+    global_categories = {}
+    for category_name, identities in (
+        ("passing", overall_verdict.passing_identities),
+        ("failing", overall_verdict.failing_identities),
+        ("undefined", overall_verdict.undefined_identities),
+    ):
+        for identity in identities:
+            if identity in global_categories:
+                raise ValueError("overall verdict categories are not mutually exclusive")
+            global_categories[identity] = category_name
+    if set(global_categories) != set(source_identities):
+        raise ValueError("overall verdict identities do not match limit results")
+    source_positions = {identity: index for index, identity in enumerate(source_identities)}
+    for identities in (
+        overall_verdict.passing_identities,
+        overall_verdict.failing_identities,
+        overall_verdict.undefined_identities,
+    ):
+        if tuple(source_positions[identity] for identity in identities) != tuple(
+            sorted(source_positions[identity] for identity in identities)
+        ):
+            raise ValueError("overall verdict identity order is inconsistent")
+
+    field_count = len(_PROJECTION_ERROR_COMPARISON_DIFFERENCE_FIELDS)
+    expected_metric_names = tuple(
+        limit_results[index].metric_name
+        for index in range(0, len(limit_results), field_count)
+    )
+    if tuple(verdict.metric_name for verdict in metric_verdicts) != expected_metric_names:
+        raise ValueError("per-metric verdict order does not match limit results")
+
+    per_metric_categories = {}
+    for verdict in metric_verdicts:
+        for category_name, identities in (
+            ("passing", verdict.passing_identities),
+            ("failing", verdict.failing_identities),
+            ("undefined", verdict.undefined_identities),
+        ):
+            for identity in identities:
+                if identity.metric_name != verdict.metric_name:
+                    raise ValueError("per-metric verdict has inconsistent identity")
+                if identity in per_metric_categories:
+                    raise ValueError(
+                        "per-metric verdict categories are not mutually exclusive"
+                    )
+                per_metric_categories[identity] = category_name
+            if tuple(source_positions[identity] for identity in identities) != tuple(
+                sorted(source_positions[identity] for identity in identities)
+            ):
+                raise ValueError("per-metric verdict identity order is inconsistent")
+        expected_pass = bool(verdict.passing_identities) and not (
+            verdict.failing_identities or verdict.undefined_identities
+        )
+        if verdict.overall_passed is not expected_pass:
+            raise ValueError("per-metric verdict pass state is inconsistent")
+    if set(per_metric_categories) != set(source_identities):
+        raise ValueError("per-metric verdict identities do not match limit results")
+    if per_metric_categories != global_categories:
+        raise ValueError("overall and per-metric verdict classifications disagree")
+    expected_overall_pass = bool(limit_results) and all(
+        verdict.overall_passed for verdict in metric_verdicts
+    )
+    if overall_verdict.overall_passed is not expected_overall_pass:
+        raise ValueError("overall verdict pass state disagrees with metric verdicts")
+
+
+def _copy_projection_error_difference_limit_result(result):
+    return CampaignProjectionErrorSummaryDifferenceLimitResult(
+        metric_name=result.metric_name,
+        difference_field=result.difference_field,
+        observed_minimum_difference=result.observed_minimum_difference,
+        observed_maximum_difference=result.observed_maximum_difference,
+        allowable_minimum_difference=result.allowable_minimum_difference,
+        allowable_maximum_difference=result.allowable_maximum_difference,
+        lower_margin=result.lower_margin,
+        upper_margin=result.upper_margin,
+        passed=result.passed,
+    )
 
 
 def _validated_projection_error_difference_limit_results(limit_results):

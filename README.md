@@ -1334,6 +1334,26 @@ comparison-envelope interval checks. They are not statistical or physical
 validation, probabilistic or safety certification, scoring, ranking,
 calibration, regression, fitting, optimization, or automatic model correction.
 
+`campaign_projection_error_comparison_envelope_assessment_report(limit_results)`
+assembles one frozen
+`CampaignProjectionErrorComparisonEnvelopeAssessmentReport` containing detached
+ordered copies of the checked limit results, the existing overall verdict, and
+the existing ordered per-metric verdicts. The overall and per-metric verdict
+APIs are each invoked exactly once; classification logic is not duplicated.
+
+Before returning, the assembly verifies exact metric/field coverage and order,
+mutually exclusive categories, agreement between global and per-metric
+classifications, and agreement between global, metric, and field-level pass
+states. Every retained limit result preserves its observed extrema, allowable
+interval, margins, and stored pass state. Empty input produces a report with no
+results, the existing explicit non-passing overall verdict, and no metric
+verdicts.
+
+This report is a deterministic analytical assembly of already-computed
+comparison-envelope checks and verdicts. It is not external physical or
+statistical validation, certification, confidence scoring, model calibration,
+regression, fitting, optimization, or automatic model correction.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 
