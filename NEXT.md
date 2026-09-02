@@ -82,7 +82,8 @@ overall verdict with ordered passing, failing, and undefined metric/field
 identities. The thirty-third layer localizes the same validated field results
 into immutable ordered per-metric verdicts. The thirty-fourth layer assembles
 the checked fields and both verdict views into one immutable, traceable,
-consistency-validated analytical report.
+consistency-validated analytical report. The thirty-fifth layer converts that
+report to a fresh deterministic JSON-compatible plain record without I/O.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -128,14 +129,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: campaign projection-error comparison-envelope
-  assessment report.
+- Completed capability: deterministic comparison-envelope assessment report
+  record.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add projection error assessment report`).
+  (`feat: add projection error assessment record`).
 
 ## Current verification baseline
 
-- Test count: 1332 tests.
+- Test count: 1339 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1087,10 +1088,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Move beyond the assessment report only by converting it to a fresh
-  deterministic JSON-compatible plain record without performing I/O. Do not
-  infer priorities, add probabilistic claims, regression, automatic correction,
-  ranking, optimization, plotting, persistence, or CLI/UI workflows yet.
+- Move beyond one assessment record only by converting an explicit finite
+  caller-ordered collection of uniquely named assessment reports through the
+  existing record API. Do not infer priorities, add probabilistic claims,
+  regression, automatic correction, ranking, optimization, plotting,
+  persistence, or CLI/UI workflows yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -1105,31 +1107,32 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Deterministic comparison-envelope assessment report record
+### Explicit ordered named comparison-envelope assessment records
 
-Add a small pure analysis API that converts one existing validated
-comparison-envelope assessment report into a fresh deterministic
-JSON-compatible plain record.
+Add a small pure conversion API that converts a finite caller-ordered collection
+of explicitly and uniquely named comparison-envelope assessment reports into
+fresh deterministic JSON-compatible plain records.
 
 ## Suggested implementation direction
 
-- Preserve complete limit-result traceability plus overall and per-metric
-  verdict identities and order.
-- Validate the supplied report and all cross-view consistency without
-  recomputing envelopes, margins, or classifications.
-- Return fresh list/dictionary containers on every call so caller mutation
-  cannot affect the report or later records.
-- Define the exact empty-report record explicitly and perform no persistence or
-  other I/O.
+- Reuse the existing single-report record converter exactly once per named
+  report; do not duplicate its validation or conversion logic.
+- Require explicit unique nonblank names, materialize the complete finite input,
+  and preserve caller order exactly.
+- Retain each name with its detached plain assessment record and define empty
+  collection behavior explicitly.
+- Propagate validation failures without partial returned output and perform no
+  persistence or other I/O.
 - Add no aggregation across comparisons, weighting, acceptance score,
   confidence interval, regression fit, automatic correction, ranking,
   optimization, plotting, persistence, or simulation.
 
 ## Focused tests to add
 
-- Verify passing, failing, undefined, mixed, multiple-metric, and empty reports,
-  exact schema and ordering, malformed report rejection, deterministic repeated
-  calls, JSON compatibility, and mutation isolation.
+- Verify one and multiple named reports, exact order, blank and duplicate names,
+  malformed entries, delegation, empty and generator input, failure
+  propagation, deterministic repeated calls, JSON compatibility, and mutation
+  isolation.
 
 ## Commands that must pass
 
@@ -1143,9 +1146,9 @@ git status
 ## Restart instruction
 
 Continue from the latest implementation commit. Read this file and inspect the
-existing projection-error comparison-envelope assessment report APIs, then
-implement the exact next smallest task: **Deterministic comparison-envelope
-assessment report record**.
+existing comparison-envelope assessment record API, then implement the exact
+next smallest task: **Explicit ordered named comparison-envelope assessment
+records**.
 Preserve the documented scope, run the required verification commands, commit
 the completed capability, and do not push. Do not touch the existing untracked
 `.vscode/`.

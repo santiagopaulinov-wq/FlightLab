@@ -1,3 +1,4 @@
+import json
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 
@@ -40,6 +41,7 @@ from flightlab.analysis import (
     SensitivityMatrixParameter,
     campaign_metric_deltas,
     campaign_projection_envelopes,
+    campaign_projection_error_comparison_envelope_assessment_record,
     campaign_projection_error_comparison_envelope_assessment_report,
     campaign_projection_error_comparison_envelope_limit_verdict,
     campaign_projection_error_comparison_envelope_metric_verdicts,
@@ -3108,6 +3110,125 @@ def test_comparison_envelope_assessment_report_empty_immutable_and_deterministic
     assert len(first.limit_results) == 7
     with pytest.raises(FrozenInstanceError):
         first.overall_verdict = empty.overall_verdict
+
+
+def test_comparison_envelope_assessment_record_serializes_passing_report():
+    report = campaign_projection_error_comparison_envelope_assessment_report(
+        _difference_limit_result_block()
+    )
+    record = campaign_projection_error_comparison_envelope_assessment_record(report)
+    assert record["limit_results"][0] == {
+        "metric_name": "iae",
+        "difference_field": _DIFFERENCE_FIELDS[0],
+        "observed_minimum_difference": 0.0,
+        "observed_maximum_difference": 0.0,
+        "allowable_minimum_difference": -1.0,
+        "allowable_maximum_difference": 1.0,
+        "lower_margin": 1.0,
+        "upper_margin": 1.0,
+        "passed": True,
+    }
+    assert record["overall_verdict"]["overall_passed"] is True
+    assert record["metric_verdicts"][0]["overall_passed"] is True
+
+
+def test_comparison_envelope_assessment_record_preserves_failures_and_none():
+    report = campaign_projection_error_comparison_envelope_assessment_report(
+        _difference_limit_result_block(
+            states=("fail", "undefined", *("pass",) * 5)
+        )
+    )
+    record = campaign_projection_error_comparison_envelope_assessment_record(report)
+    assert record["limit_results"][0]["passed"] is False
+    assert record["limit_results"][1]["observed_minimum_difference"] is None
+    assert record["limit_results"][1]["lower_margin"] is None
+    assert record["overall_verdict"]["failing_identities"] == [
+        {"metric_name": "iae", "difference_field": _DIFFERENCE_FIELDS[0]}
+    ]
+    assert record["metric_verdicts"][0]["undefined_difference_fields"] == [
+        _DIFFERENCE_FIELDS[1]
+    ]
+
+
+def test_comparison_envelope_assessment_record_preserves_multiple_metric_order():
+    results = _difference_limit_result_block("ise") + _difference_limit_result_block("iae")
+    report = campaign_projection_error_comparison_envelope_assessment_report(results)
+    record = campaign_projection_error_comparison_envelope_assessment_record(report)
+    assert [item["metric_name"] for item in record["metric_verdicts"]] == [
+        "ise", "iae"
+    ]
+    assert [
+        (item["metric_name"], item["difference_field"])
+        for item in record["limit_results"]
+    ] == [(item.metric_name, item.difference_field) for item in results]
+
+
+def test_comparison_envelope_assessment_record_empty_schema_is_explicit():
+    report = campaign_projection_error_comparison_envelope_assessment_report(())
+    assert campaign_projection_error_comparison_envelope_assessment_record(report) == {
+        "limit_results": [],
+        "overall_verdict": {
+            "overall_passed": False,
+            "passing_identities": [],
+            "failing_identities": [],
+            "undefined_identities": [],
+        },
+        "metric_verdicts": [],
+    }
+
+
+def test_comparison_envelope_assessment_record_is_plain_and_json_compatible():
+    report = campaign_projection_error_comparison_envelope_assessment_report(
+        _difference_limit_result_block()
+    )
+    record = campaign_projection_error_comparison_envelope_assessment_record(report)
+
+    def assert_plain(value):
+        assert type(value) in (dict, list, str, bool, int, float, type(None))
+        if isinstance(value, dict):
+            assert all(type(key) is str for key in value)
+            for child in value.values():
+                assert_plain(child)
+        elif isinstance(value, list):
+            for child in value:
+                assert_plain(child)
+
+    assert_plain(record)
+    json.dumps(record, allow_nan=False)
+
+
+def test_comparison_envelope_assessment_record_rejects_malformed_report():
+    report = campaign_projection_error_comparison_envelope_assessment_report(
+        _difference_limit_result_block()
+    )
+    malformed_verdict = CampaignProjectionErrorComparisonEnvelopeLimitVerdict(
+        True,
+        report.overall_verdict.passing_identities[:-1],
+        (),
+        (report.overall_verdict.passing_identities[-1],),
+    )
+    malformed = CampaignProjectionErrorComparisonEnvelopeAssessmentReport(
+        report.limit_results, malformed_verdict, report.metric_verdicts
+    )
+    with pytest.raises(ValueError, match="classifications disagree|classification disagrees"):
+        campaign_projection_error_comparison_envelope_assessment_record(malformed)
+    with pytest.raises(TypeError, match="AssessmentReport"):
+        campaign_projection_error_comparison_envelope_assessment_record(object())
+
+
+def test_comparison_envelope_assessment_record_is_detached_and_deterministic():
+    report = campaign_projection_error_comparison_envelope_assessment_report(
+        _difference_limit_result_block()
+    )
+    first = campaign_projection_error_comparison_envelope_assessment_record(report)
+    repeated = campaign_projection_error_comparison_envelope_assessment_record(report)
+    assert first == repeated
+    assert first is not repeated
+    first["limit_results"][0]["metric_name"] = "changed"
+    first["overall_verdict"]["passing_identities"].clear()
+    assert repeated["limit_results"][0]["metric_name"] == "iae"
+    assert len(repeated["overall_verdict"]["passing_identities"]) == 7
+    assert campaign_projection_error_comparison_envelope_assessment_record(report) == repeated
 
 
 def test_one_scenario_is_both_minimum_and_maximum():

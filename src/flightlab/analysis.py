@@ -1440,6 +1440,163 @@ def campaign_projection_error_comparison_envelope_assessment_report(
     )
 
 
+def campaign_projection_error_comparison_envelope_assessment_record(report):
+    """Return a detached JSON-compatible record for one assessment report."""
+    _validated_projection_error_assessment_report(report)
+
+    def identity_records(identities):
+        return [
+            {
+                "metric_name": identity.metric_name,
+                "difference_field": identity.difference_field,
+            }
+            for identity in identities
+        ]
+
+    return {
+        "limit_results": [
+            {
+                "metric_name": result.metric_name,
+                "difference_field": result.difference_field,
+                "observed_minimum_difference": result.observed_minimum_difference,
+                "observed_maximum_difference": result.observed_maximum_difference,
+                "allowable_minimum_difference": result.allowable_minimum_difference,
+                "allowable_maximum_difference": result.allowable_maximum_difference,
+                "lower_margin": result.lower_margin,
+                "upper_margin": result.upper_margin,
+                "passed": result.passed,
+            }
+            for result in report.limit_results
+        ],
+        "overall_verdict": {
+            "overall_passed": report.overall_verdict.overall_passed,
+            "passing_identities": identity_records(
+                report.overall_verdict.passing_identities
+            ),
+            "failing_identities": identity_records(
+                report.overall_verdict.failing_identities
+            ),
+            "undefined_identities": identity_records(
+                report.overall_verdict.undefined_identities
+            ),
+        },
+        "metric_verdicts": [
+            {
+                "metric_name": verdict.metric_name,
+                "overall_passed": verdict.overall_passed,
+                "passing_difference_fields": [
+                    identity.difference_field
+                    for identity in verdict.passing_identities
+                ],
+                "failing_difference_fields": [
+                    identity.difference_field
+                    for identity in verdict.failing_identities
+                ],
+                "undefined_difference_fields": [
+                    identity.difference_field
+                    for identity in verdict.undefined_identities
+                ],
+            }
+            for verdict in report.metric_verdicts
+        ],
+    }
+
+
+def _validated_projection_error_assessment_report(report):
+    if not isinstance(
+        report, CampaignProjectionErrorComparisonEnvelopeAssessmentReport
+    ):
+        raise TypeError(
+            "report must be a "
+            "CampaignProjectionErrorComparisonEnvelopeAssessmentReport"
+        )
+    if type(report.limit_results) is not tuple:
+        raise TypeError("report.limit_results must be a tuple")
+    limit_results, states = _validated_projection_error_difference_limit_results(
+        report.limit_results
+    )
+    overall = report.overall_verdict
+    if not isinstance(overall, CampaignProjectionErrorComparisonEnvelopeLimitVerdict):
+        raise TypeError(
+            "report.overall_verdict must be a "
+            "CampaignProjectionErrorComparisonEnvelopeLimitVerdict"
+        )
+    if type(overall.overall_passed) is not bool:
+        raise ValueError("report.overall_verdict.overall_passed must be a boolean")
+    for category_name in (
+        "passing_identities",
+        "failing_identities",
+        "undefined_identities",
+    ):
+        _validated_projection_error_identity_tuple(
+            getattr(overall, category_name),
+            f"report.overall_verdict.{category_name}",
+        )
+
+    if type(report.metric_verdicts) is not tuple:
+        raise TypeError("report.metric_verdicts must be a tuple")
+    for index, verdict in enumerate(report.metric_verdicts):
+        prefix = f"report.metric_verdicts[{index}]"
+        if not isinstance(verdict, CampaignProjectionErrorMetricEnvelopeLimitVerdict):
+            raise TypeError(
+                f"{prefix} must be a "
+                "CampaignProjectionErrorMetricEnvelopeLimitVerdict"
+            )
+        if type(verdict.metric_name) is not str or not verdict.metric_name.strip():
+            raise ValueError(f"{prefix}.metric_name must be non-empty")
+        if type(verdict.overall_passed) is not bool:
+            raise ValueError(f"{prefix}.overall_passed must be a boolean")
+        for category_name in (
+            "passing_identities",
+            "failing_identities",
+            "undefined_identities",
+        ):
+            _validated_projection_error_identity_tuple(
+                getattr(verdict, category_name), f"{prefix}.{category_name}"
+            )
+
+    _validate_projection_error_assessment_consistency(
+        limit_results, overall, report.metric_verdicts
+    )
+    actual_categories = {}
+    for category_name, identities in (
+        ("passing", overall.passing_identities),
+        ("failing", overall.failing_identities),
+        ("undefined", overall.undefined_identities),
+    ):
+        actual_categories.update((identity, category_name) for identity in identities)
+    for result, state in zip(limit_results, states):
+        identity = CampaignProjectionErrorMetricFieldIdentity(
+            result.metric_name, result.difference_field
+        )
+        expected_category = (
+            "undefined" if state == "undefined" else "passing" if result.passed else "failing"
+        )
+        if actual_categories[identity] != expected_category:
+            raise ValueError("report verdict classification disagrees with limit results")
+    return report
+
+
+def _validated_projection_error_identity_tuple(identities, name):
+    if type(identities) is not tuple:
+        raise TypeError(f"{name} must be a tuple")
+    seen = set()
+    for index, identity in enumerate(identities):
+        prefix = f"{name}[{index}]"
+        if not isinstance(identity, CampaignProjectionErrorMetricFieldIdentity):
+            raise TypeError(
+                f"{prefix} must be a CampaignProjectionErrorMetricFieldIdentity"
+            )
+        for field_name in ("metric_name", "difference_field"):
+            value = getattr(identity, field_name)
+            if type(value) is not str or not value.strip():
+                raise ValueError(f"{prefix}.{field_name} must be non-empty")
+        if identity in seen:
+            raise ValueError(f"{name} has duplicate identity {identity!r}")
+        seen.add(identity)
+    return identities
+
+
 def _validate_projection_error_assessment_consistency(
     limit_results, overall_verdict, metric_verdicts
 ):

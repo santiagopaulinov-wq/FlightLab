@@ -1354,6 +1354,25 @@ comparison-envelope checks and verdicts. It is not external physical or
 statistical validation, certification, confidence scoring, model calibration,
 regression, fitting, optimization, or automatic model correction.
 
+`campaign_projection_error_comparison_envelope_assessment_record(report)`
+validates one existing assessment report and returns a fresh deterministic
+JSON-compatible plain dictionary. The record contains ordered limit-result
+dictionaries, the overall verdict and its ordered metric/field identity
+dictionaries, and ordered per-metric verdict dictionaries with their ordered
+field-name categories.
+
+Undefined observed extrema and margins remain `None`; they are never converted
+to zero. Defined numeric values must remain finite and non-boolean, and all
+stored report identities, categories, ordering, margins, and pass states must
+be internally consistent. Every call creates new nested dictionaries and lists,
+so caller mutation cannot affect the source report or later records. The empty
+report is represented by an empty `limit_results` list, the explicit non-passing
+overall verdict with empty identity lists, and an empty `metric_verdicts` list.
+
+This API creates a deterministic JSON-compatible representation only. It does
+not write JSON, save files, persist to SQLite, communicate over a network, or
+alter analytical results.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 
