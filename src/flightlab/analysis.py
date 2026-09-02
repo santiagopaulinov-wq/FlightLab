@@ -1618,6 +1618,46 @@ def campaign_projection_error_comparison_envelope_assessment_collection_report(
     )
 
 
+def campaign_projection_error_comparison_envelope_assessment_collection_record(
+    report,
+):
+    """Return a detached plain record for one assessment collection report."""
+    _validated_projection_error_assessment_collection_report(report)
+    verdict = report.collection_verdict
+    return {
+        "named_reports": (
+            campaign_projection_error_comparison_envelope_named_assessment_records(
+                report.named_reports
+            )
+        ),
+        "collection_verdict": {
+            "overall_passed": verdict.overall_passed,
+            "passing_report_names": list(verdict.passing_report_names),
+            "failing_report_names": list(verdict.failing_report_names),
+            "undefined_report_names": list(verdict.undefined_report_names),
+        },
+    }
+
+
+def _validated_projection_error_assessment_collection_report(report):
+    if not isinstance(
+        report, CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionReport
+    ):
+        raise TypeError(
+            "report must be a "
+            "CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionReport"
+        )
+    if type(report.named_reports) is not tuple:
+        raise TypeError("report.named_reports must be a tuple")
+    entries = _validated_projection_error_named_assessment_reports(report.named_reports)
+    for entry in entries:
+        _validated_projection_error_assessment_report(entry.report)
+    _validate_projection_error_assessment_collection_consistency(
+        entries, report.collection_verdict
+    )
+    return report
+
+
 def _validate_projection_error_assessment_collection_consistency(entries, verdict):
     if not isinstance(
         verdict,

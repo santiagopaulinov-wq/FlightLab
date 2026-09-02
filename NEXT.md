@@ -92,6 +92,8 @@ thirty-eighth layer reduces the same validated named reports to one immutable
 collection verdict with ordered passing, failing, and undefined report names.
 The thirty-ninth layer assembles those detached named reports and that existing
 verdict into one immutable, traceable, consistency-validated collection report.
+The fortieth layer converts that report to a fresh deterministic JSON-compatible
+plain record by reusing the existing assessment-record conventions.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -137,13 +139,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: named comparison-envelope assessment collection report.
+- Completed capability: deterministic named assessment collection report
+  record.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add projection error assessment collection report`).
+  (`feat: add projection error assessment collection record`).
 
 ## Current verification baseline
 
-- Test count: 1371 tests.
+- Test count: 1378 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1095,9 +1098,9 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Move beyond the named collection report only by converting it to a fresh
-  deterministic JSON-compatible plain record through the existing named-report
-  conversion conventions. Do not infer priorities, add probabilistic claims,
+- Move beyond one collection-report record only by converting an explicit
+  finite caller-ordered collection of uniquely named collection reports through
+  the existing record API. Do not infer priorities, add probabilistic claims,
   regression, automatic correction, ranking, optimization, plotting,
   persistence, or CLI/UI workflows yet.
 - Do not resume the previously suggested observer-based integral output
@@ -1114,32 +1117,31 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Deterministic named assessment collection report record
+### Explicit ordered named assessment collection report records
 
-Add a small pure conversion API that converts one existing validated named
-assessment collection report into a fresh deterministic JSON-compatible plain
-record.
+Add a small pure conversion API that converts a finite caller-ordered collection
+of explicitly and uniquely named assessment collection reports into fresh
+deterministic JSON-compatible plain records.
 
 ## Suggested implementation direction
 
-- Reuse the existing single-report record converter for every retained named
-  report; do not duplicate its conversion or validation logic.
-- Preserve named-report order, complete nested analytical traceability, and the
-  collection verdict's ordered name categories.
-- Validate report/verdict consistency before conversion and return fresh nested
-  dictionaries and lists on every call.
-- Define the exact empty collection-report record and perform no I/O or
-  persistence.
+- Reuse the existing single collection-report record converter exactly once per
+  explicitly named entry; do not duplicate conversion or validation logic.
+- Require unique nonblank collection names, materialize the complete finite
+  input, and preserve caller order exactly.
+- Retain each collection name with its detached plain report record, propagate
+  failures without partial output, and define empty input explicitly.
+- Perform no I/O, persistence, aggregation, ranking, or scoring.
 - Add no aggregation across comparisons, weighting, acceptance score,
   confidence interval, regression fit, automatic correction, ranking,
   optimization, plotting, persistence, or simulation.
 
 ## Focused tests to add
 
-- Verify passing, failing, undefined, mixed, multiple-report, and empty records,
-  exact schema/order, malformed collection-report rejection, exact per-report
-  delegation, JSON compatibility, deterministic repeated calls, and mutation
-  isolation.
+- Verify one and multiple named collection reports, exact order, blank and
+  duplicate names, malformed entries, exact delegation, failure propagation,
+  empty and generator input, JSON compatibility, deterministic repeated calls,
+  and mutation isolation.
 
 ## Commands that must pass
 
@@ -1153,8 +1155,8 @@ git status
 ## Restart instruction
 
 Continue from the latest implementation commit. Read this file and inspect the
-existing named assessment collection report API, then implement the exact next
-smallest task: **Deterministic named assessment collection report record**.
+existing assessment collection-report record API, then implement the exact next
+smallest task: **Explicit ordered named assessment collection report records**.
 Preserve the documented scope, run the required verification commands, commit
 the completed capability, and do not push. Do not touch the existing untracked
 `.vscode/`.

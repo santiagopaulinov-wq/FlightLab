@@ -44,6 +44,7 @@ from flightlab.analysis import (
     SensitivityMatrixParameter,
     campaign_metric_deltas,
     campaign_projection_envelopes,
+    campaign_projection_error_comparison_envelope_assessment_collection_record,
     campaign_projection_error_comparison_envelope_assessment_collection_report,
     campaign_projection_error_comparison_envelope_assessment_collection_verdict,
     campaign_projection_error_comparison_envelope_assessment_record,
@@ -3776,6 +3777,152 @@ def test_named_assessment_collection_report_is_immutable_deterministic_and_detac
     assert tuple(entry.name for entry in first.named_reports) == ("first", "second")
     with pytest.raises(FrozenInstanceError):
         first.collection_verdict = repeated.collection_verdict
+
+
+def test_named_assessment_collection_record_converts_passing_and_verdict_schema():
+    report = campaign_projection_error_comparison_envelope_assessment_collection_report(
+        (_named_assessment_report("first"), _named_assessment_report("second"))
+    )
+    record = campaign_projection_error_comparison_envelope_assessment_collection_record(
+        report
+    )
+    assert [item["name"] for item in record["named_reports"]] == ["first", "second"]
+    assert record["collection_verdict"] == {
+        "overall_passed": True,
+        "passing_report_names": ["first", "second"],
+        "failing_report_names": [],
+        "undefined_report_names": [],
+    }
+
+
+def test_named_assessment_collection_record_preserves_failure_undefined_and_none():
+    report = campaign_projection_error_comparison_envelope_assessment_collection_report(
+        (
+            _named_assessment_report("fail", ("fail", *("pass",) * 6)),
+            _named_assessment_report("undefined", ("undefined", *("pass",) * 6)),
+        )
+    )
+    record = campaign_projection_error_comparison_envelope_assessment_collection_record(
+        report
+    )
+    assert record["collection_verdict"]["overall_passed"] is False
+    assert record["collection_verdict"]["failing_report_names"] == ["fail"]
+    assert record["collection_verdict"]["undefined_report_names"] == ["undefined"]
+    undefined_result = record["named_reports"][1]["report"]["limit_results"][0]
+    assert undefined_result["observed_minimum_difference"] is None
+    assert undefined_result["lower_margin"] is None
+
+
+def test_named_assessment_collection_record_preserves_nested_metric_field_order():
+    assessment = campaign_projection_error_comparison_envelope_assessment_report(
+        _difference_limit_result_block("ise") + _difference_limit_result_block("iae")
+    )
+    report = campaign_projection_error_comparison_envelope_assessment_collection_report(
+        (CampaignProjectionErrorNamedAssessmentReport("multi", assessment),)
+    )
+    record = campaign_projection_error_comparison_envelope_assessment_collection_record(
+        report
+    )
+    plain_report = record["named_reports"][0]["report"]
+    assert [item["metric_name"] for item in plain_report["metric_verdicts"]] == [
+        "ise", "iae"
+    ]
+    assert [
+        item["difference_field"] for item in plain_report["limit_results"][:7]
+    ] == list(_DIFFERENCE_FIELDS)
+
+
+def test_named_assessment_collection_record_delegates_single_report_conversion(
+    monkeypatch,
+):
+    original = analysis.campaign_projection_error_comparison_envelope_assessment_record
+    calls = []
+
+    def recording(report):
+        calls.append(report)
+        return original(report)
+
+    monkeypatch.setattr(
+        analysis,
+        "campaign_projection_error_comparison_envelope_assessment_record",
+        recording,
+    )
+    report = campaign_projection_error_comparison_envelope_assessment_collection_report(
+        (_named_assessment_report("first"), _named_assessment_report("second"))
+    )
+    campaign_projection_error_comparison_envelope_assessment_collection_record(report)
+    assert calls == [
+        report.named_reports[0].report,
+        report.named_reports[1].report,
+    ]
+
+
+def test_named_assessment_collection_record_rejects_malformed_collection_report():
+    report = campaign_projection_error_comparison_envelope_assessment_collection_report(
+        (_named_assessment_report("first"),)
+    )
+    malformed = CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionReport(
+        report.named_reports,
+        CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionVerdict(
+            True, (), ("first",), ()
+        ),
+    )
+    with pytest.raises(ValueError, match="classification disagrees"):
+        campaign_projection_error_comparison_envelope_assessment_collection_record(
+            malformed
+        )
+    with pytest.raises(TypeError, match="AssessmentCollectionReport"):
+        campaign_projection_error_comparison_envelope_assessment_collection_record(
+            object()
+        )
+
+
+def test_named_assessment_collection_record_empty_representation_is_explicit():
+    report = campaign_projection_error_comparison_envelope_assessment_collection_report(
+        ()
+    )
+    assert campaign_projection_error_comparison_envelope_assessment_collection_record(
+        report
+    ) == {
+        "named_reports": [],
+        "collection_verdict": {
+            "overall_passed": False,
+            "passing_report_names": [],
+            "failing_report_names": [],
+            "undefined_report_names": [],
+        },
+    }
+
+
+def test_named_assessment_collection_record_is_plain_detached_and_deterministic():
+    report = campaign_projection_error_comparison_envelope_assessment_collection_report(
+        (_named_assessment_report("first"),)
+    )
+    first = campaign_projection_error_comparison_envelope_assessment_collection_record(
+        report
+    )
+    repeated = campaign_projection_error_comparison_envelope_assessment_collection_record(
+        report
+    )
+    assert first == repeated
+    assert first is not repeated
+    json.dumps(first, allow_nan=False)
+
+    def assert_plain(value):
+        assert type(value) in (dict, list, str, bool, int, float, type(None))
+        if isinstance(value, dict):
+            for key, child in value.items():
+                assert type(key) is str
+                assert_plain(child)
+        elif isinstance(value, list):
+            for child in value:
+                assert_plain(child)
+
+    assert_plain(first)
+    first["named_reports"][0]["name"] = "changed"
+    first["collection_verdict"]["passing_report_names"].clear()
+    assert repeated["named_reports"][0]["name"] == "first"
+    assert repeated["collection_verdict"]["passing_report_names"] == ["first"]
 
 
 def test_one_scenario_is_both_minimum_and_maximum():

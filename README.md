@@ -1433,6 +1433,21 @@ explicit non-passing empty verdict. This is orchestration of already-validated
 analytical evidence only, not validation, certification, scoring, ranking,
 calibration, regression, fitting, optimization, or model correction.
 
+`campaign_projection_error_comparison_envelope_assessment_collection_record(
+report)` validates one existing collection report and returns a fresh
+deterministic JSON-compatible dictionary. Its `named_reports` list reuses the
+existing named/single-assessment conversion path, while `collection_verdict`
+contains the stored overall pass state and ordered passing, failing, and
+undefined report-name lists.
+
+The conversion preserves report order, every nested metric and difference-field
+order, and all undefined analytical values as `None`. It rejects malformed or
+internally inconsistent collection reports before conversion. Every call
+returns fresh nested dictionaries and lists; the empty report becomes an empty
+`named_reports` list plus the explicit non-passing verdict with empty category
+lists. The API writes no JSON, performs no I/O or persistence, and recomputes no
+analysis or verdict classification.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 
