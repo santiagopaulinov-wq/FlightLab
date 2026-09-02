@@ -1448,6 +1448,20 @@ returns fresh nested dictionaries and lists; the empty report becomes an empty
 lists. The API writes no JSON, performs no I/O or persistence, and recomputes no
 analysis or verdict classification.
 
+`campaign_projection_error_comparison_envelope_named_assessment_collection_records(
+entries)` applies that existing collection-report converter to a finite ordered
+set of frozen `CampaignProjectionErrorNamedAssessmentCollectionReport` entries.
+Every entry requires a unique nonblank caller-supplied name and one existing
+collection report.
+
+The complete outer collection is materialized and its names and member types
+are validated before conversion. The existing converter is then invoked
+exactly once per entry in caller order, producing fresh plain `{name, report}`
+dictionaries. Empty input returns `[]`; delegated structural failures propagate
+without a partial result. All nested ordering, undefined `None` values, and
+collection-verdict categories remain those of the existing converter. This API
+performs no I/O, persistence, scoring, ranking, or analytical recomputation.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

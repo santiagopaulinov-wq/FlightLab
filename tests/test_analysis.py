@@ -25,6 +25,7 @@ from flightlab.analysis import (
     CampaignProjectionErrorComparisonEnvelopeLimitVerdict,
     CampaignProjectionErrorMetricEnvelopeLimitVerdict,
     CampaignProjectionErrorMetricFieldIdentity,
+    CampaignProjectionErrorNamedAssessmentCollectionReport,
     CampaignProjectionErrorNamedAssessmentReport,
     CampaignProjectionErrorSummaryCollection,
     CampaignProjectionErrorSummaryComparisonSetResult,
@@ -51,6 +52,7 @@ from flightlab.analysis import (
     campaign_projection_error_comparison_envelope_assessment_report,
     campaign_projection_error_comparison_envelope_limit_verdict,
     campaign_projection_error_comparison_envelope_metric_verdicts,
+    campaign_projection_error_comparison_envelope_named_assessment_collection_records,
     campaign_projection_error_comparison_envelope_named_assessment_records,
     campaign_projection_error_comparison_envelope_verdict_overview,
     campaign_projection_error_comparison_set_metric_envelopes,
@@ -3923,6 +3925,157 @@ def test_named_assessment_collection_record_is_plain_detached_and_deterministic(
     first["collection_verdict"]["passing_report_names"].clear()
     assert repeated["named_reports"][0]["name"] == "first"
     assert repeated["collection_verdict"]["passing_report_names"] == ["first"]
+
+
+def _named_assessment_collection_report(name="collection", entries=None):
+    if entries is None:
+        entries = (_named_assessment_report("assessment"),)
+    return CampaignProjectionErrorNamedAssessmentCollectionReport(
+        name,
+        campaign_projection_error_comparison_envelope_assessment_collection_report(
+            entries
+        ),
+    )
+
+
+def test_named_assessment_collection_records_convert_one_named_report():
+    records = (
+        campaign_projection_error_comparison_envelope_named_assessment_collection_records(
+            (_named_assessment_collection_report("campaign"),)
+        )
+    )
+    assert len(records) == 1
+    assert records[0]["name"] == "campaign"
+    assert records[0]["report"]["collection_verdict"]["overall_passed"] is True
+
+
+def test_named_assessment_collection_records_preserve_caller_and_nested_order():
+    mixed = (
+        _named_assessment_report("pass"),
+        _named_assessment_report("fail", ("fail", *("pass",) * 6)),
+        _named_assessment_report("undefined", ("undefined", *("pass",) * 6)),
+    )
+    entries = (
+        _named_assessment_collection_report("second", mixed),
+        _named_assessment_collection_report("first"),
+    )
+    records = (
+        campaign_projection_error_comparison_envelope_named_assessment_collection_records(
+            entries
+        )
+    )
+    assert [record["name"] for record in records] == ["second", "first"]
+    nested = records[0]["report"]
+    assert [report["name"] for report in nested["named_reports"]] == [
+        "pass", "fail", "undefined"
+    ]
+    assert nested["collection_verdict"]["passing_report_names"] == ["pass"]
+    assert nested["collection_verdict"]["failing_report_names"] == ["fail"]
+    assert nested["collection_verdict"]["undefined_report_names"] == ["undefined"]
+
+
+def test_named_assessment_collection_records_delegate_once_per_entry(monkeypatch):
+    original = (
+        analysis.campaign_projection_error_comparison_envelope_assessment_collection_record
+    )
+    calls = []
+
+    def recording(report):
+        calls.append(report)
+        return original(report)
+
+    monkeypatch.setattr(
+        analysis,
+        "campaign_projection_error_comparison_envelope_assessment_collection_record",
+        recording,
+    )
+    entries = (
+        _named_assessment_collection_report("first"),
+        _named_assessment_collection_report("second"),
+    )
+    campaign_projection_error_comparison_envelope_named_assessment_collection_records(
+        entries
+    )
+    assert calls == [entries[0].report, entries[1].report]
+
+
+@pytest.mark.parametrize("name", ["", " ", None])
+def test_named_assessment_collection_records_reject_blank_names(name):
+    report = _named_assessment_collection_report().report
+    with pytest.raises(ValueError, match="name must be non-empty"):
+        campaign_projection_error_comparison_envelope_named_assessment_collection_records(
+            (CampaignProjectionErrorNamedAssessmentCollectionReport(name, report),)
+        )
+
+
+def test_named_assessment_collection_records_reject_duplicates_and_bad_members():
+    entry = _named_assessment_collection_report("same")
+    with pytest.raises(ValueError, match="duplicate assessment collection report name"):
+        campaign_projection_error_comparison_envelope_named_assessment_collection_records(
+            (entry, entry)
+        )
+    with pytest.raises(TypeError, match="NamedAssessmentCollectionReport"):
+        campaign_projection_error_comparison_envelope_named_assessment_collection_records(
+            (object(),)
+        )
+    with pytest.raises(TypeError, match=r"entries\[0\].report"):
+        campaign_projection_error_comparison_envelope_named_assessment_collection_records(
+            (CampaignProjectionErrorNamedAssessmentCollectionReport("bad", object()),)
+        )
+
+
+def test_named_assessment_collection_records_prevalidate_before_conversion(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        analysis,
+        "campaign_projection_error_comparison_envelope_assessment_collection_record",
+        lambda report: calls.append(report),
+    )
+    with pytest.raises(TypeError, match="NamedAssessmentCollectionReport"):
+        campaign_projection_error_comparison_envelope_named_assessment_collection_records(
+            (_named_assessment_collection_report("valid"), object())
+        )
+    assert calls == []
+
+
+def test_named_assessment_collection_records_propagate_delegated_failure():
+    report = _named_assessment_collection_report().report
+    malformed = CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionReport(
+        report.named_reports,
+        CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionVerdict(
+            True, (), ("assessment",), ()
+        ),
+    )
+    with pytest.raises(ValueError, match="classification disagrees"):
+        campaign_projection_error_comparison_envelope_named_assessment_collection_records(
+            (CampaignProjectionErrorNamedAssessmentCollectionReport("bad", malformed),)
+        )
+
+
+def test_named_assessment_collection_records_empty_generator_plain_and_detached():
+    assert (
+        campaign_projection_error_comparison_envelope_named_assessment_collection_records(
+            ()
+        )
+        == []
+    )
+    entries = [_named_assessment_collection_report("a"), _named_assessment_collection_report("b")]
+    first = campaign_projection_error_comparison_envelope_named_assessment_collection_records(
+        entry for entry in entries
+    )
+    repeated = (
+        campaign_projection_error_comparison_envelope_named_assessment_collection_records(
+            entries
+        )
+    )
+    assert first == repeated
+    assert first is not repeated
+    json.dumps(first, allow_nan=False)
+    first[0]["name"] = "changed"
+    first[0]["report"]["named_reports"].clear()
+    entries.clear()
+    assert repeated[0]["name"] == "a"
+    assert repeated[0]["report"]["named_reports"][0]["name"] == "assessment"
 
 
 def test_one_scenario_is_both_minimum_and_maximum():

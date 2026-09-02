@@ -332,6 +332,14 @@ class CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionReport:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignProjectionErrorNamedAssessmentCollectionReport:
+    """One explicitly named assessment collection report."""
+
+    name: str
+    report: CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionReport
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -1637,6 +1645,53 @@ def campaign_projection_error_comparison_envelope_assessment_collection_record(
             "undefined_report_names": list(verdict.undefined_report_names),
         },
     }
+
+
+def campaign_projection_error_comparison_envelope_named_assessment_collection_records(
+    entries,
+):
+    """Convert ordered named assessment collection reports to plain records."""
+    try:
+        entry_iterator = iter(entries)
+    except TypeError as error:
+        raise TypeError("entries must be an iterable") from error
+    entries = tuple(entry_iterator)
+
+    names = set()
+    for index, entry in enumerate(entries):
+        prefix = f"entries[{index}]"
+        if not isinstance(
+            entry, CampaignProjectionErrorNamedAssessmentCollectionReport
+        ):
+            raise TypeError(
+                f"{prefix} must be a "
+                "CampaignProjectionErrorNamedAssessmentCollectionReport"
+            )
+        if type(entry.name) is not str or not entry.name.strip():
+            raise ValueError(f"{prefix}.name must be non-empty")
+        if entry.name in names:
+            raise ValueError(f"duplicate assessment collection report name {entry.name!r}")
+        names.add(entry.name)
+        if not isinstance(
+            entry.report,
+            CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionReport,
+        ):
+            raise TypeError(
+                f"{prefix}.report must be a "
+                "CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionReport"
+            )
+
+    return [
+        {
+            "name": entry.name,
+            "report": (
+                campaign_projection_error_comparison_envelope_assessment_collection_record(
+                    entry.report
+                )
+            ),
+        }
+        for entry in entries
+    ]
 
 
 def _validated_projection_error_assessment_collection_report(report):
