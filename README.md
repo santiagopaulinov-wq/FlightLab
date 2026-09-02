@@ -1197,6 +1197,25 @@ the worst observed projection error in this deterministic validation set; it is
 not a probabilistic error bound, confidence interval, or external physical-
 validation guarantee.
 
+`campaign_projection_error_summaries(validation_results)` produces immutable
+descriptive error records for the same validated deterministic case set. Each
+frozen `CampaignMetricProjectionErrorSummary` retains the metric name, total
+case count, defined and undefined residual counts, minimum and maximum signed
+residuals, mean signed residual, mean absolute residual, and maximum absolute
+residual.
+
+Undefined residuals contribute only to the undefined count. When a metric has
+no defined residual, every numeric summary is `None`. Metric order and layout
+must match across all cases. The maximum absolute residual is taken from
+`campaign_projection_validation_residual_envelopes()`, so its semantics remain
+identical to the established worst-case envelope. Empty input returns `()` and
+nonfinite aggregate arithmetic is rejected.
+
+These values describe observed deterministic projection errors across the
+explicit validation set. They are not statistical validation, confidence
+intervals, probability estimates, external physical validation, calibration,
+regression, model fitting, ranking, or automatic model correction.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

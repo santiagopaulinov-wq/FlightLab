@@ -179,6 +179,21 @@ class CampaignMetricValidationResidualEnvelope:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignMetricProjectionErrorSummary:
+    """Immutable descriptive projection-error summary for one metric."""
+
+    metric_name: str
+    validation_case_count: int
+    defined_residual_count: int
+    undefined_residual_count: int
+    minimum_residual: float | None
+    maximum_residual: float | None
+    mean_residual: float | None
+    mean_absolute_residual: float | None
+    maximum_absolute_residual: float | None
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -894,6 +909,71 @@ def campaign_projection_validation_residual_envelopes(
             )
         )
     return tuple(envelopes)
+
+
+def campaign_projection_error_summaries(
+    validation_results: Iterable[CampaignProjectionValidationResult],
+) -> tuple[CampaignMetricProjectionErrorSummary, ...]:
+    """Summarize stored validation residuals by metric in layout order."""
+    validation_results, _ = _validated_projection_validation_results(
+        validation_results
+    )
+    if not validation_results:
+        return ()
+    envelopes = campaign_projection_validation_residual_envelopes(validation_results)
+    metric_names = tuple(envelope.metric_name for envelope in envelopes)
+
+    summaries = []
+    for metric_index, (metric_name, envelope) in enumerate(
+        zip(metric_names, envelopes)
+    ):
+        values = tuple(
+            result.tolerance_results.metric_results[metric_index].residual
+            for result in validation_results
+            if result.tolerance_results.metric_results[metric_index].residual
+            is not None
+        )
+        defined_count = len(values)
+        undefined_count = len(validation_results) - defined_count
+        if not values:
+            minimum = None
+            maximum = None
+            mean = None
+            mean_absolute = None
+        else:
+            minimum = min(values)
+            maximum = max(values)
+            try:
+                mean = math.fsum(values) / defined_count
+                mean_absolute = math.fsum(abs(value) for value in values) / defined_count
+            except OverflowError as error:
+                raise ValueError(
+                    f"metric {metric_name!r} summary arithmetic must be finite"
+                ) from error
+            for field_name, value in (
+                ("minimum residual", minimum),
+                ("maximum residual", maximum),
+                ("mean residual", mean),
+                ("mean absolute residual", mean_absolute),
+            ):
+                if not math.isfinite(value):
+                    raise ValueError(
+                        f"metric {metric_name!r} {field_name} must be finite"
+                    )
+        summaries.append(
+            CampaignMetricProjectionErrorSummary(
+                metric_name=metric_name,
+                validation_case_count=len(validation_results),
+                defined_residual_count=defined_count,
+                undefined_residual_count=undefined_count,
+                minimum_residual=minimum,
+                maximum_residual=maximum,
+                mean_residual=mean,
+                mean_absolute_residual=mean_absolute,
+                maximum_absolute_residual=envelope.maximum_absolute_residual,
+            )
+        )
+    return tuple(summaries)
 
 
 def _validated_projection_validation_results(validation_results):

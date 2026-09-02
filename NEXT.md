@@ -66,6 +66,9 @@ The twenty-fifth layer reduces that validated set to one immutable deterministic
 verdict with ordered passing, failing, and undefined case classifications.
 The twenty-sixth layer identifies each metric's worst defined absolute residual
 and first-attaining case identity across that same explicit validation set.
+The twenty-seventh layer reports immutable per-metric counts, signed extrema,
+signed means, and absolute-error summaries over the validated deterministic
+residuals.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -111,14 +114,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: deterministic per-metric worst-case absolute residual
-  envelopes over existing ordered campaign projection-validation results.
+- Completed capability: deterministic per-metric descriptive projection-error
+  summaries over existing ordered campaign projection-validation results.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add campaign validation residual envelopes`).
+  (`feat: add campaign projection error summaries`).
 
 ## Current verification baseline
 
-- Test count: 1239 tests.
+- Test count: 1247 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1070,10 +1073,10 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Move beyond worst-case envelopes only through deterministic per-metric error
-  summaries over the existing explicit validation cases. Do not infer
-  priorities, add probabilistic claims, regression, automatic correction,
-  ranking, optimization, plotting, persistence, or CLI/UI workflows yet.
+- Move beyond one error-summary set only through an explicit aligned comparison
+  of two existing summary collections. Do not infer priorities, add
+  probabilistic claims, regression, automatic correction, ranking,
+  optimization, plotting, persistence, or CLI/UI workflows yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -1088,35 +1091,33 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Deterministic campaign projection-error summaries
+### Explicit campaign projection-error summary comparisons
 
-Add a small pure analysis API that summarizes one existing ordered collection
-of campaign projection-validation results into immutable per-metric descriptive
-error records.
+Add a small pure analysis API that compares two caller-identified existing
+ordered campaign projection-error summary collections metric by metric.
 
 ## Suggested implementation direction
 
-- Reuse existing validated signed and absolute residual values only; recompute
-  no projection, observation, delta, residual, or tolerance.
-- Require compatible ordered metric layouts and report, per metric, defined and
-  undefined case counts, mean signed residual, mean absolute residual, and root
-  mean squared residual.
-- Define all-undefined and empty validation-set behavior explicitly and reject
-  nonfinite aggregate arithmetic.
+- Require explicit nonblank identities for the baseline and comparison summary
+  sets and exact common metric order; infer and reorder nothing.
+- Reuse existing summary values only and report signed changes from baseline to
+  comparison for defined mean signed, mean absolute, and maximum absolute
+  residuals, plus explicit case-count metadata.
+- Propagate `None` when either corresponding summary value is undefined and
+  reject incompatible defined/undefined or count states.
 - Preserve metric order and return frozen deterministic detached results.
-- Document these as descriptive approximation-error summaries over the explicit
-  validation set, not inferential statistics or probabilistic guarantees.
+- Document that negative absolute-error changes indicate smaller descriptive
+  errors but do not constitute automatic ranking or acceptance.
 - Add no weighting, acceptance score, confidence interval, regression fit,
   automatic correction, ranking, optimization, plotting, persistence, or
   simulation.
 
 ## Focused tests to add
 
-- Verify signed bias, absolute and squared-error summaries, one and multiple
-  cases, mixed defined/undefined and all-undefined metrics, exact metric order,
-  incompatible layouts, nonfinite aggregate arithmetic, malformed nested
-  results, empty and generator inputs, deterministic output, immutability, and
-  source isolation.
+- Verify positive, negative, and zero summary changes; multiple metrics; exact
+  layout order; explicit identities and counts; undefined propagation;
+  incompatible or malformed summaries; nonfinite arithmetic; empty layouts;
+  deterministic output, immutability, and source isolation.
 
 ## Commands that must pass
 

@@ -9,6 +9,7 @@ from flightlab.analysis import (
     CampaignDeltaEntry,
     CampaignMetricChangeProjection,
     CampaignMetricProjectionEnvelope,
+    CampaignMetricProjectionErrorSummary,
     CampaignMetricProjectionLimit,
     CampaignMetricProjectionLimitResult,
     CampaignMetricResidual,
@@ -29,6 +30,7 @@ from flightlab.analysis import (
     SensitivityMatrixParameter,
     campaign_metric_deltas,
     campaign_projection_envelopes,
+    campaign_projection_error_summaries,
     campaign_projection_residuals,
     campaign_projection_validation_residual_envelopes,
     campaign_projection_validation_verdict,
@@ -1767,6 +1769,153 @@ def test_validation_residual_envelopes_are_immutable_deterministic_and_detached(
     assert first[0].maximum_absolute_residual == 2.0
     with pytest.raises(FrozenInstanceError):
         first[0].maximum_absolute_residual = 0.0
+
+
+def test_projection_error_summary_for_one_case_has_exact_counts_and_values():
+    result = _validation_result("only", 3.0, 1.0)
+
+    assert campaign_projection_error_summaries((result,)) == (
+        CampaignMetricProjectionErrorSummary(
+            "iae", 1, 1, 0, 2.0, 2.0, 2.0, 2.0, 2.0
+        ),
+        CampaignMetricProjectionErrorSummary(
+            "ise", 1, 1, 0, -1.0, -1.0, -1.0, 1.0, 1.0
+        ),
+    )
+
+
+def test_projection_error_summaries_compute_signed_extrema_and_means():
+    results = (
+        _validation_result("positive", 4.0, 4.0),
+        _validation_result("negative", -1.0, 1.0),
+        _validation_result("zero", 1.0, 2.0),
+    )
+
+    summaries = campaign_projection_error_summaries(results)
+
+    assert tuple(summary.metric_name for summary in summaries) == ("iae", "ise")
+    assert summaries[0] == CampaignMetricProjectionErrorSummary(
+        "iae", 3, 3, 0, -2.0, 3.0, 1.0 / 3.0, 5.0 / 3.0, 3.0
+    )
+    assert summaries[1] == CampaignMetricProjectionErrorSummary(
+        "ise", 3, 3, 0, -1.0, 2.0, 1.0 / 3.0, 1.0, 2.0
+    )
+
+
+def test_projection_error_summaries_count_mixed_and_all_undefined_residuals():
+    results = (
+        _validation_result("undefined", None, None),
+        _validation_result("defined", 3.0, None),
+    )
+
+    summaries = campaign_projection_error_summaries(results)
+
+    assert summaries[0] == CampaignMetricProjectionErrorSummary(
+        "iae", 2, 1, 1, 2.0, 2.0, 2.0, 2.0, 2.0
+    )
+    assert summaries[1] == CampaignMetricProjectionErrorSummary(
+        "ise", 2, 0, 2, None, None, None, None, None
+    )
+
+
+def test_projection_error_maximum_matches_residual_envelope_semantics():
+    results = (
+        _validation_result("first", -2.0, 2.0),
+        _validation_result("second", 4.0, 5.0),
+    )
+
+    summaries = campaign_projection_error_summaries(results)
+    envelopes = campaign_projection_validation_residual_envelopes(results)
+
+    assert tuple(item.maximum_absolute_residual for item in summaries) == tuple(
+        item.maximum_absolute_residual for item in envelopes
+    )
+
+
+def test_projection_error_summaries_reject_incompatible_layouts():
+    first = _validation_result("first", 2.0, 3.0)
+    scenario = CampaignProjectionScenarioResult(
+        "reordered-scenario",
+        CampaignMetricChangeProjection(
+            ("gain",), ("ise", "iae"), (1.0,), (2.0, 1.0)
+        ),
+    )
+    observed = CampaignDeltaEntry(
+        "reordered-run", 1.0, (("ise", 3.0), ("iae", 2.0))
+    )
+    residuals = campaign_projection_residuals(scenario, observed)
+    checked = check_campaign_projection_residual_tolerances(
+        residuals,
+        (
+            CampaignMetricResidualTolerance("ise", 1.0),
+            CampaignMetricResidualTolerance("iae", 1.0),
+        ),
+    )
+    reordered = CampaignProjectionValidationResult(
+        "reordered", "reordered-scenario", "reordered-run", residuals, checked
+    )
+
+    with pytest.raises(ValueError, match="metric layout is incompatible"):
+        campaign_projection_error_summaries((first, reordered))
+
+
+def _large_residual_validation_result(name):
+    residuals = CampaignProjectionResiduals(
+        f"{name}-scenario",
+        f"{name}-run",
+        (CampaignMetricResidual("iae", 0.0, 1e308, 1e308),),
+    )
+    checked = CampaignProjectionResidualToleranceResults(
+        residuals.scenario_name,
+        residuals.observed_run_id,
+        (
+            CampaignMetricResidualToleranceResult(
+                "iae", 1e308, 1e308, 1e308, 0.0, True
+            ),
+        ),
+    )
+    return CampaignProjectionValidationResult(
+        name,
+        residuals.scenario_name,
+        residuals.observed_run_id,
+        residuals,
+        checked,
+    )
+
+
+def test_projection_error_summaries_reject_malformed_and_nonfinite_arithmetic():
+    with pytest.raises(TypeError, match="CampaignProjectionValidationResult"):
+        campaign_projection_error_summaries((object(),))
+    with pytest.raises(ValueError, match="summary arithmetic must be finite"):
+        campaign_projection_error_summaries(
+            (_large_residual_validation_result("first"), _large_residual_validation_result("second"))
+        )
+
+
+def test_projection_error_summaries_support_empty_and_generator_inputs():
+    assert campaign_projection_error_summaries(()) == ()
+    source = (
+        result
+        for result in (
+            _validation_result("first", 2.0, 3.0),
+            _validation_result("second", 3.0, 4.0),
+        )
+    )
+
+    assert campaign_projection_error_summaries(source)[0].validation_case_count == 2
+
+
+def test_projection_error_summaries_are_immutable_deterministic_and_detached():
+    source = [_validation_result("case", 3.0, 1.0)]
+    first = campaign_projection_error_summaries(source)
+    repeated = campaign_projection_error_summaries(source)
+
+    assert first == repeated
+    assert first is not repeated
+    source.clear()
+    assert first[0].mean_residual == 2.0
+    with pytest.raises(FrozenInstanceError):
+        first[0].mean_residual = 0.0
 
 
 def test_one_scenario_is_both_minimum_and_maximum():
