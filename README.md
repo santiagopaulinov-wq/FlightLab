@@ -1253,6 +1253,29 @@ incompatible metric layouts, and delegated failures raise without returning a
 partial result. This orchestration remains purely analytical and adds no
 aggregation, ranking, scoring, persistence, simulation, or model correction.
 
+`campaign_projection_error_comparison_set_metric_envelopes(results)` reduces
+those existing ordered comparison-set results without recomputing summaries,
+residuals, projections, observations, or comparisons. It returns frozen
+`CampaignProjectionErrorSummaryDifferenceEnvelope` records in metric-major
+order and, within each metric, the documented comparison-difference field
+order. Every record retains the metric and difference-field names, finite
+minimum and maximum stored differences, and the first comparison collection
+attaining each extremum.
+
+The complete finite input is materialized and validated before reduction.
+Baseline identity and summaries, comparison identities, nested records, and
+metric layouts must be consistent. Defined differences must be finite numeric
+scalars and cannot be booleans. `None` values are ignored when defined values
+exist; if a field is undefined across every collection, both extrema and both
+attaining names are `None`. Exact ties retain the first collection in original
+order. Empty input returns `()`.
+
+These envelopes describe only finite extrema of already-computed
+projection-error summary differences across explicit comparison collections.
+They are not statistical confidence bounds, probabilistic uncertainty,
+ranking, scoring, validation thresholds, calibration, regression, fitting,
+optimization, or physical-certification bounds.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

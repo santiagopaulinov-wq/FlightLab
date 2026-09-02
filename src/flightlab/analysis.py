@@ -229,6 +229,18 @@ class CampaignProjectionErrorSummaryComparisonSetResult:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignProjectionErrorSummaryDifferenceEnvelope:
+    """Finite extrema for one stored summary-difference field and metric."""
+
+    metric_name: str
+    difference_field: str
+    minimum_difference: int | float | None
+    minimum_comparison_collection_name: str | None
+    maximum_difference: int | float | None
+    maximum_comparison_collection_name: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -1138,6 +1150,161 @@ def compare_campaign_projection_error_summary_collections(
         )
         for comparison_name, comparison_summaries in validated_collections
     )
+
+
+_PROJECTION_ERROR_COMPARISON_DIFFERENCE_FIELDS = (
+    "defined_residual_count_difference",
+    "undefined_residual_count_difference",
+    "minimum_residual_difference",
+    "maximum_residual_difference",
+    "mean_residual_difference",
+    "mean_absolute_residual_difference",
+    "maximum_absolute_residual_difference",
+)
+
+
+def campaign_projection_error_comparison_set_metric_envelopes(
+    comparison_set_results: Iterable[
+        CampaignProjectionErrorSummaryComparisonSetResult
+    ],
+) -> tuple[CampaignProjectionErrorSummaryDifferenceEnvelope, ...]:
+    """Envelope stored comparison differences in metric and field order."""
+    comparison_set_results, metric_names = (
+        _validated_projection_error_comparison_set_results(comparison_set_results)
+    )
+    envelopes = []
+    for metric_index, metric_name in enumerate(metric_names):
+        for field_name in _PROJECTION_ERROR_COMPARISON_DIFFERENCE_FIELDS:
+            minimum = None
+            minimum_name = None
+            maximum = None
+            maximum_name = None
+            for result in comparison_set_results:
+                value = getattr(result.comparisons[metric_index], field_name)
+                if value is None:
+                    continue
+                if minimum is None or value < minimum:
+                    minimum = value
+                    minimum_name = result.comparison_collection_name
+                if maximum is None or value > maximum:
+                    maximum = value
+                    maximum_name = result.comparison_collection_name
+            envelopes.append(
+                CampaignProjectionErrorSummaryDifferenceEnvelope(
+                    metric_name=metric_name,
+                    difference_field=field_name,
+                    minimum_difference=minimum,
+                    minimum_comparison_collection_name=minimum_name,
+                    maximum_difference=maximum,
+                    maximum_comparison_collection_name=maximum_name,
+                )
+            )
+    return tuple(envelopes)
+
+
+def _validated_projection_error_comparison_set_results(comparison_set_results):
+    try:
+        result_iterator = iter(comparison_set_results)
+    except TypeError as error:
+        raise TypeError("comparison_set_results must be an iterable") from error
+    comparison_set_results = tuple(result_iterator)
+
+    baseline_name = None
+    comparison_names = set()
+    expected_metric_names = None
+    expected_baseline_summaries = None
+    optional_source_fields = {
+        "minimum_residual_difference": "minimum_residual",
+        "maximum_residual_difference": "maximum_residual",
+        "mean_residual_difference": "mean_residual",
+        "mean_absolute_residual_difference": "mean_absolute_residual",
+        "maximum_absolute_residual_difference": "maximum_absolute_residual",
+    }
+    for result_index, result in enumerate(comparison_set_results):
+        prefix = f"comparison_set_results[{result_index}]"
+        if not isinstance(result, CampaignProjectionErrorSummaryComparisonSetResult):
+            raise TypeError(
+                f"{prefix} must be a "
+                "CampaignProjectionErrorSummaryComparisonSetResult"
+            )
+        for field_name in (
+            "baseline_collection_name",
+            "comparison_collection_name",
+        ):
+            value = getattr(result, field_name)
+            if type(value) is not str or not value.strip():
+                raise ValueError(f"{prefix}.{field_name} must be non-empty")
+        if result.baseline_collection_name == result.comparison_collection_name:
+            raise ValueError(f"{prefix} collection names must be distinct")
+        if baseline_name is None:
+            baseline_name = result.baseline_collection_name
+        elif result.baseline_collection_name != baseline_name:
+            raise ValueError("comparison set results have inconsistent baseline identities")
+        if result.comparison_collection_name in comparison_names:
+            raise ValueError(
+                "duplicate comparison collection name "
+                f"{result.comparison_collection_name!r}"
+            )
+        comparison_names.add(result.comparison_collection_name)
+        if type(result.comparisons) is not tuple:
+            raise TypeError(f"{prefix}.comparisons must be a tuple")
+
+        metric_names = []
+        baseline_summaries = []
+        for metric_index, comparison in enumerate(result.comparisons):
+            item_prefix = f"{prefix}.comparisons[{metric_index}]"
+            if not isinstance(
+                comparison, CampaignMetricProjectionErrorSummaryComparison
+            ):
+                raise TypeError(
+                    f"{item_prefix} must be a "
+                    "CampaignMetricProjectionErrorSummaryComparison"
+                )
+            if (
+                comparison.left_collection_name != result.baseline_collection_name
+                or comparison.right_collection_name
+                != result.comparison_collection_name
+            ):
+                raise ValueError(f"{item_prefix} has inconsistent collection identities")
+            _validated_projection_error_summaries(
+                (comparison.left_summary,), f"{item_prefix}.left_summary"
+            )
+            _validated_projection_error_summaries(
+                (comparison.right_summary,), f"{item_prefix}.right_summary"
+            )
+            if (
+                comparison.metric_name != comparison.left_summary.metric_name
+                or comparison.metric_name != comparison.right_summary.metric_name
+            ):
+                raise ValueError(f"{item_prefix} has inconsistent metric identities")
+            metric_names.append(comparison.metric_name)
+            baseline_summaries.append(comparison.left_summary)
+            for field_name in _PROJECTION_ERROR_COMPARISON_DIFFERENCE_FIELDS:
+                value = getattr(comparison, field_name)
+                if field_name in optional_source_fields:
+                    source_field = optional_source_fields[field_name]
+                    should_be_none = (
+                        getattr(comparison.left_summary, source_field) is None
+                        or getattr(comparison.right_summary, source_field) is None
+                    )
+                    if (value is None) != should_be_none:
+                        raise ValueError(f"{item_prefix}.{field_name} has invalid optional state")
+                    if value is None:
+                        continue
+                _finite_numeric(f"{item_prefix}.{field_name}", value)
+
+        metric_names = tuple(metric_names)
+        baseline_summaries = tuple(baseline_summaries)
+        if len(set(metric_names)) != len(metric_names):
+            raise ValueError(f"{prefix} has duplicate metric names")
+        if expected_metric_names is None:
+            expected_metric_names = metric_names
+            expected_baseline_summaries = baseline_summaries
+        elif metric_names != expected_metric_names:
+            raise ValueError("comparison set results have incompatible metric layouts")
+        elif baseline_summaries != expected_baseline_summaries:
+            raise ValueError("comparison set results have inconsistent baseline summaries")
+    return comparison_set_results, (() if expected_metric_names is None else expected_metric_names)
 
 
 def _validated_projection_error_summaries(summaries, name):

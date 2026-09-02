@@ -20,6 +20,7 @@ from flightlab.analysis import (
     CampaignParameterChange,
     CampaignProjectionErrorSummaryCollection,
     CampaignProjectionErrorSummaryComparisonSetResult,
+    CampaignProjectionErrorSummaryDifferenceEnvelope,
     CampaignProjectionResiduals,
     CampaignProjectionResidualToleranceResults,
     CampaignProjectionScenario,
@@ -33,6 +34,7 @@ from flightlab.analysis import (
     SensitivityMatrixParameter,
     campaign_metric_deltas,
     campaign_projection_envelopes,
+    campaign_projection_error_comparison_set_metric_envelopes,
     campaign_projection_error_summaries,
     campaign_projection_residuals,
     campaign_projection_validation_residual_envelopes,
@@ -2337,6 +2339,173 @@ def test_error_summary_collection_comparison_is_immutable_deterministic_and_deta
     assert first[0].comparisons[0].metric_name == "iae"
     with pytest.raises(FrozenInstanceError):
         first[0].comparison_collection_name = "changed"
+
+
+def _comparison_set_result(name, summaries, *, baseline=None):
+    if baseline is None:
+        baseline = tuple(_error_summary(summary.metric_name) for summary in summaries)
+    return compare_campaign_projection_error_summary_collections(
+        "baseline",
+        baseline,
+        (CampaignProjectionErrorSummaryCollection(name, tuple(summaries)),),
+    )[0]
+
+
+def test_comparison_set_envelopes_one_collection_has_same_minimum_and_maximum():
+    result = _comparison_set_result("only", (_error_summary(mean=2.0),))
+
+    envelopes = campaign_projection_error_comparison_set_metric_envelopes((result,))
+
+    mean = next(item for item in envelopes if item.difference_field == "mean_residual_difference")
+    assert mean == CampaignProjectionErrorSummaryDifferenceEnvelope(
+        "iae", "mean_residual_difference", 1.0, "only", 1.0, "only"
+    )
+    assert len(envelopes) == 7
+
+
+def test_comparison_set_envelopes_find_signed_extrema_and_preserve_metric_order():
+    baseline = (_error_summary("iae"), _error_summary("ise"))
+    low = _comparison_set_result(
+        "low",
+        (_error_summary("iae", mean=-1.0), _error_summary("ise", mean=2.0)),
+        baseline=baseline,
+    )
+    high = _comparison_set_result(
+        "high",
+        (_error_summary("iae", mean=2.0), _error_summary("ise", mean=0.0)),
+        baseline=baseline,
+    )
+
+    envelopes = campaign_projection_error_comparison_set_metric_envelopes((low, high))
+    means = tuple(
+        item for item in envelopes if item.difference_field == "mean_residual_difference"
+    )
+
+    assert tuple(item.metric_name for item in means) == ("iae", "ise")
+    assert (means[0].minimum_difference, means[0].maximum_difference) == (-2.0, 1.0)
+    assert (means[0].minimum_comparison_collection_name, means[0].maximum_comparison_collection_name) == ("low", "high")
+    assert (means[1].minimum_difference, means[1].maximum_difference) == (-1.0, 1.0)
+
+
+def test_comparison_set_envelope_ties_select_first_collection():
+    first = _comparison_set_result("first", (_error_summary(mean=2.0),))
+    second = _comparison_set_result("second", (_error_summary(mean=2.0),))
+
+    mean = next(
+        item
+        for item in campaign_projection_error_comparison_set_metric_envelopes((first, second))
+        if item.difference_field == "mean_residual_difference"
+    )
+    assert mean.minimum_comparison_collection_name == "first"
+    assert mean.maximum_comparison_collection_name == "first"
+
+
+def test_comparison_set_envelopes_ignore_none_and_preserve_all_undefined():
+    undefined_summary = _error_summary(
+        defined=0, undefined=2, minimum=None, maximum=None, mean=None,
+        mean_absolute=None, maximum_absolute=None,
+    )
+    undefined = _comparison_set_result("undefined", (undefined_summary,))
+    defined = _comparison_set_result("defined", (_error_summary(mean=2.0),))
+
+    mixed = campaign_projection_error_comparison_set_metric_envelopes((undefined, defined))
+    mixed_mean = next(item for item in mixed if item.difference_field == "mean_residual_difference")
+    assert (mixed_mean.minimum_difference, mixed_mean.maximum_difference) == (1.0, 1.0)
+    assert mixed_mean.minimum_comparison_collection_name == "defined"
+
+    all_undefined = campaign_projection_error_comparison_set_metric_envelopes((undefined,))
+    undefined_mean = next(item for item in all_undefined if item.difference_field == "mean_residual_difference")
+    assert (
+        undefined_mean.minimum_difference,
+        undefined_mean.minimum_comparison_collection_name,
+        undefined_mean.maximum_difference,
+        undefined_mean.maximum_comparison_collection_name,
+    ) == (None, None, None, None)
+
+
+def test_comparison_set_envelopes_reject_incompatible_layouts_and_identities():
+    iae = _comparison_set_result("iae-set", (_error_summary("iae"),))
+    ise = _comparison_set_result("ise-set", (_error_summary("ise"),))
+    with pytest.raises(ValueError, match="incompatible metric layouts"):
+        campaign_projection_error_comparison_set_metric_envelopes((iae, ise))
+
+    inconsistent = CampaignProjectionErrorSummaryComparisonSetResult(
+        "other-baseline", "other", iae.comparisons
+    )
+    with pytest.raises(ValueError, match="inconsistent collection identities|baseline"):
+        campaign_projection_error_comparison_set_metric_envelopes((inconsistent,))
+
+
+def test_comparison_set_envelopes_reject_duplicate_names_and_malformed_entries():
+    result = _comparison_set_result("same", (_error_summary(),))
+    with pytest.raises(ValueError, match="duplicate comparison collection name"):
+        campaign_projection_error_comparison_set_metric_envelopes((result, result))
+    with pytest.raises(TypeError, match="ComparisonSetResult"):
+        campaign_projection_error_comparison_set_metric_envelopes((object(),))
+
+
+@pytest.mark.parametrize("value, match", [(True, "numeric"), (float("inf"), "finite")])
+def test_comparison_set_envelopes_reject_invalid_defined_differences(value, match):
+    valid = _comparison_set_result("candidate", (_error_summary(),))
+    comparison = valid.comparisons[0]
+    malformed_comparison = CampaignMetricProjectionErrorSummaryComparison(
+        comparison.left_collection_name,
+        comparison.right_collection_name,
+        comparison.metric_name,
+        comparison.left_summary,
+        comparison.right_summary,
+        value,
+        comparison.undefined_residual_count_difference,
+        comparison.minimum_residual_difference,
+        comparison.maximum_residual_difference,
+        comparison.mean_residual_difference,
+        comparison.mean_absolute_residual_difference,
+        comparison.maximum_absolute_residual_difference,
+    )
+    malformed = CampaignProjectionErrorSummaryComparisonSetResult(
+        "baseline", "candidate", (malformed_comparison,)
+    )
+    with pytest.raises(ValueError, match=match):
+        campaign_projection_error_comparison_set_metric_envelopes((malformed,))
+
+
+def test_comparison_set_envelopes_reject_invalid_optional_state():
+    undefined_summary = _error_summary(
+        defined=0, undefined=2, minimum=None, maximum=None, mean=None,
+        mean_absolute=None, maximum_absolute=None,
+    )
+    valid = _comparison_set_result("candidate", (undefined_summary,))
+    comparison = valid.comparisons[0]
+    malformed_comparison = CampaignMetricProjectionErrorSummaryComparison(
+        comparison.left_collection_name, comparison.right_collection_name,
+        comparison.metric_name, comparison.left_summary, comparison.right_summary,
+        comparison.defined_residual_count_difference,
+        comparison.undefined_residual_count_difference, 0.0,
+        comparison.maximum_residual_difference, comparison.mean_residual_difference,
+        comparison.mean_absolute_residual_difference,
+        comparison.maximum_absolute_residual_difference,
+    )
+    malformed = CampaignProjectionErrorSummaryComparisonSetResult(
+        "baseline", "candidate", (malformed_comparison,)
+    )
+    with pytest.raises(ValueError, match="invalid optional state"):
+        campaign_projection_error_comparison_set_metric_envelopes((malformed,))
+
+
+def test_comparison_set_envelopes_support_empty_generator_and_detached_results():
+    assert campaign_projection_error_comparison_set_metric_envelopes(()) == ()
+    source = [_comparison_set_result("candidate", (_error_summary(mean=2.0),))]
+    first = campaign_projection_error_comparison_set_metric_envelopes(
+        item for item in source
+    )
+    repeated = campaign_projection_error_comparison_set_metric_envelopes(source)
+
+    assert first == repeated
+    assert first is not repeated
+    source.clear()
+    assert first[0].metric_name == "iae"
+    with pytest.raises(FrozenInstanceError):
+        first[0].minimum_difference = 0.0
 
 
 def test_one_scenario_is_both_minimum_and_maximum():
