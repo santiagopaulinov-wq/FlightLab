@@ -1761,6 +1761,24 @@ def campaign_projection_error_comparison_envelope_named_assessment_collection_ve
     ]
 
 
+def campaign_projection_error_comparison_envelope_named_assessment_collection_verdict_overview(
+    entries,
+):
+    """Extract stored named assessment-collection verdict pass states."""
+    entries = _validated_projection_error_named_assessment_collection_verdicts(
+        entries
+    )
+    for entry in entries:
+        _validated_projection_error_named_assessment_collection_verdict(entry.verdict)
+    return [
+        {
+            "name": entry.name,
+            "overall_passed": entry.verdict.overall_passed,
+        }
+        for entry in entries
+    ]
+
+
 def _validated_projection_error_named_assessment_collection_verdicts(entries):
     try:
         entry_iterator = iter(entries)

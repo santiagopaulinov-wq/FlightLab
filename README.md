@@ -1512,6 +1512,17 @@ fresh plain `{name, verdict}` dictionaries in caller order while preserving
 every stored inner category order. Empty input returns `[]`; no classification,
 pass state, or analytical value is recomputed.
 
+`campaign_projection_error_comparison_envelope_named_assessment_collection_verdict_overview(
+entries)` extracts an intentionally compact overview from the same validated
+named verdict collection. Each fresh plain dictionary contains exactly `name`
+and the verdict's stored `overall_passed` Boolean.
+
+The complete input is materialized and every name and verdict is validated
+before extraction. Caller order is preserved, empty input returns `[]`, and no
+stored category names, classifications, pass states, or analytical values are
+recomputed. Repeated calls return equal but fully detached lists and
+dictionaries.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 
