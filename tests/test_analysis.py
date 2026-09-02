@@ -21,6 +21,7 @@ from flightlab.analysis import (
     CampaignProjectionScenarioResult,
     CampaignProjectionValidationCase,
     CampaignProjectionValidationResult,
+    CampaignProjectionValidationVerdict,
     CampaignRobustnessVerdict,
     CampaignSensitivityEntry,
     CampaignSensitivityMatrix,
@@ -28,6 +29,7 @@ from flightlab.analysis import (
     campaign_metric_deltas,
     campaign_projection_envelopes,
     campaign_projection_residuals,
+    campaign_projection_validation_verdict,
     campaign_robustness_verdict,
     campaign_secant_sensitivities,
     campaign_sensitivity_matrix,
@@ -1427,6 +1429,183 @@ def test_validation_case_results_are_immutable_deterministic_and_detached():
         first[0].name = "changed"
     with pytest.raises(TypeError):
         first[0] = first[0]
+
+
+def _validation_result(name, iae, ise):
+    case = CampaignProjectionValidationCase(
+        name,
+        _scenario_result(f"{name}-scenario", 1.0, 2.0),
+        _observed_delta(f"{name}-run", iae, ise),
+        _residual_tolerances(1.0, 1.0),
+    )
+    return validate_campaign_projection_cases((case,))[0]
+
+
+def test_validation_verdict_passes_only_when_all_cases_pass():
+    results = (_validation_result("first", 2.0, 3.0), _validation_result("second", 1.0, 2.0))
+
+    assert campaign_projection_validation_verdict(results) == (
+        CampaignProjectionValidationVerdict(True, ("first", "second"), (), ())
+    )
+
+
+def test_validation_verdict_classifies_failures_in_case_order():
+    results = (
+        _validation_result("pass", 2.0, 3.0),
+        _validation_result("fail-a", 3.0, 3.0),
+        _validation_result("fail-b", 2.0, 4.0),
+    )
+
+    verdict = campaign_projection_validation_verdict(results)
+
+    assert verdict.overall_passed is False
+    assert verdict.passing_cases == ("pass",)
+    assert verdict.failing_cases == ("fail-a", "fail-b")
+    assert verdict.undefined_cases == ()
+
+
+def test_validation_verdict_uses_undefined_precedence_over_failure():
+    undefined_only = _validation_result("undefined", 2.0, None)
+    failing_and_undefined = _validation_result("both", 3.0, None)
+
+    verdict = campaign_projection_validation_verdict(
+        (undefined_only, failing_and_undefined)
+    )
+
+    assert verdict == CampaignProjectionValidationVerdict(
+        False, (), (), ("undefined", "both")
+    )
+
+
+def test_validation_verdict_handles_mixed_categories_and_generator_order():
+    results = (
+        _validation_result("fail", 3.0, 3.0),
+        _validation_result("pass", 2.0, 3.0),
+        _validation_result("undefined", 2.0, None),
+        _validation_result("pass-two", 1.0, 2.0),
+    )
+
+    verdict = campaign_projection_validation_verdict(result for result in results)
+
+    assert verdict.passing_cases == ("pass", "pass-two")
+    assert verdict.failing_cases == ("fail",)
+    assert verdict.undefined_cases == ("undefined",)
+
+
+def test_validation_verdict_empty_input_is_explicitly_nonpassing():
+    assert campaign_projection_validation_verdict(()) == (
+        CampaignProjectionValidationVerdict(False, (), (), ())
+    )
+
+
+def test_validation_verdict_rejects_blank_and_duplicate_case_names():
+    valid = _validation_result("valid", 2.0, 3.0)
+    blank = CampaignProjectionValidationResult(
+        " ", valid.scenario_name, valid.observed_run_id, valid.residuals, valid.tolerance_results
+    )
+    duplicate = CampaignProjectionValidationResult(
+        "valid",
+        valid.scenario_name,
+        valid.observed_run_id,
+        valid.residuals,
+        valid.tolerance_results,
+    )
+
+    with pytest.raises(ValueError, match="name must be non-empty"):
+        campaign_projection_validation_verdict((blank,))
+    with pytest.raises(ValueError, match="duplicate validation case name"):
+        campaign_projection_validation_verdict((valid, duplicate))
+
+
+def test_validation_verdict_rejects_inconsistent_identity_metadata():
+    valid = _validation_result("valid", 2.0, 3.0)
+    inconsistent = CampaignProjectionValidationResult(
+        valid.name,
+        "different",
+        valid.observed_run_id,
+        valid.residuals,
+        valid.tolerance_results,
+    )
+
+    with pytest.raises(ValueError, match="inconsistent scenario/run metadata"):
+        campaign_projection_validation_verdict((inconsistent,))
+
+
+@pytest.mark.parametrize(
+    ("replacement", "match"),
+    [
+        (CampaignMetricResidualToleranceResult("iae", 1.0, 1.0, 1.0, 0.0, False), "defined state"),
+        (CampaignMetricResidualToleranceResult("iae", 1.0, 2.0, 1.0, -1.0, False), "defined state"),
+        (CampaignMetricResidualToleranceResult("iae", 1.0, 1.0, -1.0, -2.0, False), "nonnegative"),
+        (CampaignMetricResidualToleranceResult("iae", 1.0, 1.0, 1.0, 0.0, 1), "boolean"),
+    ],
+)
+def test_validation_verdict_rejects_malformed_defined_tolerance_results(replacement, match):
+    valid = _validation_result("valid", 2.0, 3.0)
+    malformed_checks = CampaignProjectionResidualToleranceResults(
+        valid.scenario_name,
+        valid.observed_run_id,
+        (replacement, valid.tolerance_results.metric_results[1]),
+    )
+    malformed = CampaignProjectionValidationResult(
+        valid.name,
+        valid.scenario_name,
+        valid.observed_run_id,
+        valid.residuals,
+        malformed_checks,
+    )
+
+    with pytest.raises((TypeError, ValueError), match=match):
+        campaign_projection_validation_verdict((malformed,))
+
+
+def test_validation_verdict_rejects_inconsistent_undefined_state_and_layout():
+    undefined = _validation_result("undefined", 2.0, None)
+    checks = undefined.tolerance_results.metric_results
+    impossible = CampaignProjectionResidualToleranceResults(
+        undefined.scenario_name,
+        undefined.observed_run_id,
+        (checks[0], CampaignMetricResidualToleranceResult("ise", None, 0.0, 1.0, 1.0, True)),
+    )
+    malformed = CampaignProjectionValidationResult(
+        undefined.name,
+        undefined.scenario_name,
+        undefined.observed_run_id,
+        undefined.residuals,
+        impossible,
+    )
+    with pytest.raises(ValueError, match="inconsistent undefined state"):
+        campaign_projection_validation_verdict((malformed,))
+
+    valid = _validation_result("valid", 2.0, 3.0)
+    reordered = CampaignProjectionResidualToleranceResults(
+        valid.scenario_name,
+        valid.observed_run_id,
+        tuple(reversed(valid.tolerance_results.metric_results)),
+    )
+    malformed = CampaignProjectionValidationResult(
+        valid.name, valid.scenario_name, valid.observed_run_id, valid.residuals, reordered
+    )
+    with pytest.raises(ValueError, match="metric layouts"):
+        campaign_projection_validation_verdict((malformed,))
+
+
+def test_validation_verdict_rejects_malformed_result_type():
+    with pytest.raises(TypeError, match="CampaignProjectionValidationResult"):
+        campaign_projection_validation_verdict((object(),))
+
+
+def test_validation_verdict_is_immutable_deterministic_and_detached():
+    source = [_validation_result("valid", 2.0, 3.0)]
+    first = campaign_projection_validation_verdict(source)
+    repeated = campaign_projection_validation_verdict(source)
+
+    assert first == repeated
+    assert first is not repeated
+    source.clear()
+    assert first.passing_cases == ("valid",)
+    with pytest.raises(FrozenInstanceError):
+        first.overall_passed = False
 
 
 def test_one_scenario_is_both_minimum_and_maximum():

@@ -1154,6 +1154,28 @@ propagates without skipping a case or returning a partial result. This is pure
 ordered analytical orchestration, with no inference, aggregation, scoring,
 statistics, fitting, simulation, or persistence.
 
+`campaign_projection_validation_verdict(validation_results)` reduces an
+existing ordered validation set to one frozen
+`CampaignProjectionValidationVerdict`. It retains `overall_passed` and ordered
+tuples of passing, failing, and undefined validation-case names. A case passes
+only when every metric check is defined and passing. Any defined failed metric
+makes an otherwise defined case fail; any undefined metric makes a case
+undefined and non-passing.
+
+Categories are mutually exclusive. Undefined takes deterministic precedence
+when one case contains both a failed defined metric and an undefined metric;
+the case appears only in `undefined_cases`. Original case order is preserved
+within every category. Overall pass requires at least one case and every case
+passing, so empty input returns a non-passing verdict with empty categories.
+
+Before classification, the API validates case uniqueness, all nested
+scenario/run identities, metric layouts, residual values, absolute residuals,
+tolerances, margins, optional states, and stored pass flags. It uses those
+existing results without recomputing projections, observations, deltas, or
+residuals. This is a deterministic summary against caller-defined residual
+tolerances—not external physical validation, probabilistic certification, or a
+safety proof.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

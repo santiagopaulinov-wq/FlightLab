@@ -158,6 +158,16 @@ class CampaignProjectionValidationResult:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignProjectionValidationVerdict:
+    """Immutable verdict over ordered campaign projection-validation cases."""
+
+    overall_passed: bool
+    passing_cases: tuple[str, ...]
+    failing_cases: tuple[str, ...]
+    undefined_cases: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -790,6 +800,167 @@ def validate_campaign_projection_cases(
             )
         )
     return tuple(results)
+
+
+def campaign_projection_validation_verdict(
+    validation_results: Iterable[CampaignProjectionValidationResult],
+) -> CampaignProjectionValidationVerdict:
+    """Summarize ordered projection-validation results into one verdict."""
+    try:
+        result_iterator = iter(validation_results)
+    except TypeError as error:
+        raise TypeError("validation_results must be an iterable") from error
+    validation_results = tuple(result_iterator)
+
+    names = set()
+    states = []
+    for index, result in enumerate(validation_results):
+        if not isinstance(result, CampaignProjectionValidationResult):
+            raise TypeError(
+                f"validation_results[{index}] must be a "
+                "CampaignProjectionValidationResult"
+            )
+        if type(result.name) is not str or not result.name.strip():
+            raise ValueError(f"validation_results[{index}].name must be non-empty")
+        if result.name in names:
+            raise ValueError(f"duplicate validation case name {result.name!r}")
+        names.add(result.name)
+        states.append(_validated_projection_validation_result(result, index))
+
+    passing = []
+    failing = []
+    undefined = []
+    for result, state in zip(validation_results, states):
+        if state == "undefined":
+            undefined.append(result.name)
+        elif state == "failing":
+            failing.append(result.name)
+        else:
+            passing.append(result.name)
+    return CampaignProjectionValidationVerdict(
+        overall_passed=bool(validation_results) and not failing and not undefined,
+        passing_cases=tuple(passing),
+        failing_cases=tuple(failing),
+        undefined_cases=tuple(undefined),
+    )
+
+
+def _validated_projection_validation_result(result, index):
+    for field_name in ("scenario_name", "observed_run_id"):
+        value = getattr(result, field_name)
+        if type(value) is not str or not value.strip():
+            raise ValueError(
+                f"validation_results[{index}].{field_name} must be non-empty"
+            )
+
+    residual_metric_names, residual_values = _validated_projection_residuals(
+        result.residuals
+    )
+    tolerance_results = result.tolerance_results
+    if not isinstance(
+        tolerance_results, CampaignProjectionResidualToleranceResults
+    ):
+        raise TypeError(
+            f"validation_results[{index}].tolerance_results must be a "
+            "CampaignProjectionResidualToleranceResults"
+        )
+    identities = (
+        result.scenario_name,
+        result.observed_run_id,
+        result.residuals.scenario_name,
+        result.residuals.observed_run_id,
+        tolerance_results.scenario_name,
+        tolerance_results.observed_run_id,
+    )
+    if identities != (
+        result.scenario_name,
+        result.observed_run_id,
+        result.scenario_name,
+        result.observed_run_id,
+        result.scenario_name,
+        result.observed_run_id,
+    ):
+        raise ValueError(
+            f"validation_results[{index}] has inconsistent scenario/run metadata"
+        )
+    if type(tolerance_results.metric_results) is not tuple:
+        raise TypeError(
+            f"validation_results[{index}].tolerance_results.metric_results "
+            "must be a tuple"
+        )
+    if not tolerance_results.metric_results:
+        raise ValueError(f"validation_results[{index}] must contain metric results")
+    if len(tolerance_results.metric_results) != len(residual_metric_names):
+        raise ValueError(
+            f"validation_results[{index}] metric layouts must match exactly"
+        )
+
+    has_failure = False
+    has_undefined = False
+    metric_names = set()
+    for metric_index, (expected_name, residual, metric_result) in enumerate(
+        zip(
+            residual_metric_names,
+            residual_values,
+            tolerance_results.metric_results,
+        )
+    ):
+        prefix = (
+            f"validation_results[{index}].tolerance_results."
+            f"metric_results[{metric_index}]"
+        )
+        if not isinstance(metric_result, CampaignMetricResidualToleranceResult):
+            raise TypeError(
+                f"{prefix} must be a CampaignMetricResidualToleranceResult"
+            )
+        if type(metric_result.metric_name) is not str or not metric_result.metric_name.strip():
+            raise ValueError(f"{prefix}.metric_name must be non-empty")
+        if metric_result.metric_name in metric_names:
+            raise ValueError(f"duplicate metric name {metric_result.metric_name!r}")
+        metric_names.add(metric_result.metric_name)
+        if metric_result.metric_name != expected_name:
+            raise ValueError(
+                f"validation_results[{index}] metric layouts must match exactly"
+            )
+        maximum = _finite_numeric(
+            f"{prefix}.maximum_absolute_residual",
+            metric_result.maximum_absolute_residual,
+        )
+        if maximum < 0.0:
+            raise ValueError(f"{prefix}.maximum_absolute_residual must be nonnegative")
+        if type(metric_result.passed) is not bool:
+            raise TypeError(f"{prefix}.passed must be a boolean")
+
+        if residual is None:
+            if (
+                metric_result.residual is not None
+                or metric_result.absolute_residual is not None
+                or metric_result.margin is not None
+                or metric_result.passed
+            ):
+                raise ValueError(f"{prefix} has inconsistent undefined state")
+            has_undefined = True
+            continue
+
+        stored_residual = _finite_numeric(f"{prefix}.residual", metric_result.residual)
+        absolute_residual = _finite_numeric(
+            f"{prefix}.absolute_residual", metric_result.absolute_residual
+        )
+        margin = _finite_numeric(f"{prefix}.margin", metric_result.margin)
+        if (
+            stored_residual != residual
+            or absolute_residual != abs(residual)
+            or margin != maximum - absolute_residual
+            or metric_result.passed != (margin >= 0.0)
+        ):
+            raise ValueError(f"{prefix} has inconsistent defined state")
+        has_failure = has_failure or not metric_result.passed
+
+    if has_undefined:
+        return "undefined"
+    if has_failure:
+        return "failing"
+    return "passing"
 
 
 def project_campaign_scenarios(
