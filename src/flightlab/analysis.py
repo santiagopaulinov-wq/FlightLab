@@ -1651,6 +1651,37 @@ def campaign_projection_error_comparison_envelope_named_assessment_collection_re
     entries,
 ):
     """Convert ordered named assessment collection reports to plain records."""
+    entries = _validated_projection_error_named_assessment_collection_reports(entries)
+    return [
+        {
+            "name": entry.name,
+            "report": (
+                campaign_projection_error_comparison_envelope_assessment_collection_record(
+                    entry.report
+                )
+            ),
+        }
+        for entry in entries
+    ]
+
+
+def campaign_projection_error_comparison_envelope_assessment_collection_verdict_overview(
+    entries,
+):
+    """Extract stored named collection pass states as compact plain values."""
+    entries = _validated_projection_error_named_assessment_collection_reports(entries)
+    for entry in entries:
+        _validated_projection_error_assessment_collection_report(entry.report)
+    return [
+        {
+            "name": entry.name,
+            "overall_passed": entry.report.collection_verdict.overall_passed,
+        }
+        for entry in entries
+    ]
+
+
+def _validated_projection_error_named_assessment_collection_reports(entries):
     try:
         entry_iterator = iter(entries)
     except TypeError as error:
@@ -1680,18 +1711,7 @@ def campaign_projection_error_comparison_envelope_named_assessment_collection_re
                 f"{prefix}.report must be a "
                 "CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionReport"
             )
-
-    return [
-        {
-            "name": entry.name,
-            "report": (
-                campaign_projection_error_comparison_envelope_assessment_collection_record(
-                    entry.report
-                )
-            ),
-        }
-        for entry in entries
-    ]
+    return entries
 
 
 def _validated_projection_error_assessment_collection_report(report):

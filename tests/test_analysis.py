@@ -48,6 +48,7 @@ from flightlab.analysis import (
     campaign_projection_error_comparison_envelope_assessment_collection_record,
     campaign_projection_error_comparison_envelope_assessment_collection_report,
     campaign_projection_error_comparison_envelope_assessment_collection_verdict,
+    campaign_projection_error_comparison_envelope_assessment_collection_verdict_overview,
     campaign_projection_error_comparison_envelope_assessment_record,
     campaign_projection_error_comparison_envelope_assessment_report,
     campaign_projection_error_comparison_envelope_limit_verdict,
@@ -4076,6 +4077,104 @@ def test_named_assessment_collection_records_empty_generator_plain_and_detached(
     entries.clear()
     assert repeated[0]["name"] == "a"
     assert repeated[0]["report"]["named_reports"][0]["name"] == "assessment"
+
+
+def test_named_assessment_collection_verdict_overview_one_passing_collection():
+    overview = (
+        campaign_projection_error_comparison_envelope_assessment_collection_verdict_overview(
+            (_named_assessment_collection_report("passing"),)
+        )
+    )
+    assert overview == [{"name": "passing", "overall_passed": True}]
+    assert tuple(overview[0]) == ("name", "overall_passed")
+
+
+def test_named_assessment_collection_verdict_overview_preserves_mixed_order():
+    entries = (
+        _named_assessment_collection_report("passing"),
+        _named_assessment_collection_report(
+            "failing",
+            (_named_assessment_report("failed", ("fail", *("pass",) * 6)),),
+        ),
+        _named_assessment_collection_report(
+            "undefined",
+            (_named_assessment_report("unknown", ("undefined", *("pass",) * 6)),),
+        ),
+    )
+    overview = (
+        campaign_projection_error_comparison_envelope_assessment_collection_verdict_overview(
+            entries
+        )
+    )
+    assert overview == [
+        {"name": "passing", "overall_passed": True},
+        {"name": "failing", "overall_passed": False},
+        {"name": "undefined", "overall_passed": False},
+    ]
+
+
+def test_named_assessment_collection_verdict_overview_rejects_names_and_members():
+    report = _named_assessment_collection_report().report
+    with pytest.raises(ValueError, match="name must be non-empty"):
+        campaign_projection_error_comparison_envelope_assessment_collection_verdict_overview(
+            (CampaignProjectionErrorNamedAssessmentCollectionReport(" ", report),)
+        )
+    same = CampaignProjectionErrorNamedAssessmentCollectionReport("same", report)
+    with pytest.raises(ValueError, match="duplicate assessment collection report name"):
+        campaign_projection_error_comparison_envelope_assessment_collection_verdict_overview(
+            (same, same)
+        )
+    with pytest.raises(TypeError, match="NamedAssessmentCollectionReport"):
+        campaign_projection_error_comparison_envelope_assessment_collection_verdict_overview(
+            (object(),)
+        )
+    with pytest.raises(TypeError, match=r"entries\[0\].report"):
+        campaign_projection_error_comparison_envelope_assessment_collection_verdict_overview(
+            (CampaignProjectionErrorNamedAssessmentCollectionReport("bad", object()),)
+        )
+
+
+def test_named_assessment_collection_verdict_overview_rejects_inconsistent_report():
+    report = _named_assessment_collection_report().report
+    malformed = CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionReport(
+        report.named_reports,
+        CampaignProjectionErrorComparisonEnvelopeAssessmentCollectionVerdict(
+            True, (), ("assessment",), ()
+        ),
+    )
+    with pytest.raises(ValueError, match="classification disagrees"):
+        campaign_projection_error_comparison_envelope_assessment_collection_verdict_overview(
+            (CampaignProjectionErrorNamedAssessmentCollectionReport("bad", malformed),)
+        )
+
+
+def test_named_assessment_collection_verdict_overview_empty_generator_and_detached():
+    assert (
+        campaign_projection_error_comparison_envelope_assessment_collection_verdict_overview(
+            ()
+        )
+        == []
+    )
+    entries = [_named_assessment_collection_report("a"), _named_assessment_collection_report("b")]
+    first = (
+        campaign_projection_error_comparison_envelope_assessment_collection_verdict_overview(
+            entry for entry in entries
+        )
+    )
+    repeated = (
+        campaign_projection_error_comparison_envelope_assessment_collection_verdict_overview(
+            entries
+        )
+    )
+    assert first == repeated
+    assert first is not repeated
+    json.dumps(first, allow_nan=False)
+    first[0]["name"] = "changed"
+    entries.clear()
+    assert repeated == [
+        {"name": "a", "overall_passed": True},
+        {"name": "b", "overall_passed": True},
+    ]
 
 
 def test_one_scenario_is_both_minimum_and_maximum():

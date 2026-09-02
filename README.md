@@ -1462,6 +1462,17 @@ without a partial result. All nested ordering, undefined `None` values, and
 collection-verdict categories remain those of the existing converter. This API
 performs no I/O, persistence, scoring, ranking, or analytical recomputation.
 
+`campaign_projection_error_comparison_envelope_assessment_collection_verdict_overview(
+entries)` extracts an intentionally compact overview from the same finite
+ordered named collection reports. Each fresh plain dictionary contains exactly
+`name` and the already-stored collection-verdict `overall_passed` boolean.
+
+The complete outer collection is materialized and checked for unique nonblank
+names and valid member types, then every nested collection report is fully
+validated before extraction. Caller order is preserved and empty input returns
+`[]`. No nested reports, verdict categories, metrics, fields, margins, extrema,
+or residuals are included, and no verdict or analytical value is recomputed.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 
