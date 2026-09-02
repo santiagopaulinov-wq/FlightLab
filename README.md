@@ -1176,6 +1176,27 @@ residuals. This is a deterministic summary against caller-defined residual
 tolerances—not external physical validation, probabilistic certification, or a
 safety proof.
 
+`campaign_projection_validation_residual_envelopes(validation_results)` finds
+the worst defined absolute projection residual for each metric across one
+explicit ordered validation set. Each frozen
+`CampaignMetricValidationResidualEnvelope` retains the metric name, maximum
+stored absolute residual, and the attaining validation-case, scenario, and
+observed-run identities. Metric layout order is preserved exactly across all
+cases.
+
+Only defined stored absolute residuals participate. If every case is undefined
+for one metric, its maximum and all three attaining identities are `None`.
+Exact ties select the first attaining validation case in caller order. Empty
+input returns `()`.
+
+The API shares the complete nested validation used by the validation verdict,
+including identity, layout, finite-value, absolute-residual, optional-state,
+margin, and pass-state consistency checks. It does not recalculate a projection,
+observation, delta, residual, or tolerance. The resulting envelope identifies
+the worst observed projection error in this deterministic validation set; it is
+not a probabilistic error bound, confidence interval, or external physical-
+validation guarantee.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

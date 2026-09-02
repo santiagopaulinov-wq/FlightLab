@@ -14,6 +14,7 @@ from flightlab.analysis import (
     CampaignMetricResidual,
     CampaignMetricResidualTolerance,
     CampaignMetricResidualToleranceResult,
+    CampaignMetricValidationResidualEnvelope,
     CampaignParameterChange,
     CampaignProjectionResiduals,
     CampaignProjectionResidualToleranceResults,
@@ -29,6 +30,7 @@ from flightlab.analysis import (
     campaign_metric_deltas,
     campaign_projection_envelopes,
     campaign_projection_residuals,
+    campaign_projection_validation_residual_envelopes,
     campaign_projection_validation_verdict,
     campaign_robustness_verdict,
     campaign_secant_sensitivities,
@@ -1606,6 +1608,165 @@ def test_validation_verdict_is_immutable_deterministic_and_detached():
     assert first.passing_cases == ("valid",)
     with pytest.raises(FrozenInstanceError):
         first.overall_passed = False
+
+
+def test_validation_residual_envelope_handles_one_case_and_metric_order():
+    result = _validation_result("only", 3.0, 1.0)
+
+    assert campaign_projection_validation_residual_envelopes((result,)) == (
+        CampaignMetricValidationResidualEnvelope(
+            "iae", 2.0, "only", "only-scenario", "only-run"
+        ),
+        CampaignMetricValidationResidualEnvelope(
+            "ise", 1.0, "only", "only-scenario", "only-run"
+        ),
+    )
+
+
+def test_validation_residual_envelopes_select_exact_worst_signed_errors():
+    results = (
+        _validation_result("small", 2.0, 2.5),
+        _validation_result("negative", -2.0, 4.0),
+        _validation_result("positive", 3.0, -2.0),
+    )
+
+    envelopes = campaign_projection_validation_residual_envelopes(results)
+
+    assert envelopes[0] == CampaignMetricValidationResidualEnvelope(
+        "iae", 3.0, "negative", "negative-scenario", "negative-run"
+    )
+    assert envelopes[1] == CampaignMetricValidationResidualEnvelope(
+        "ise", 4.0, "positive", "positive-scenario", "positive-run"
+    )
+
+
+def test_validation_residual_envelope_ties_select_first_case():
+    results = (
+        _validation_result("first", -2.0, 2.0),
+        _validation_result("second", 4.0, 2.0),
+    )
+
+    envelope = campaign_projection_validation_residual_envelopes(results)[0]
+
+    assert envelope.maximum_absolute_residual == 3.0
+    assert envelope.validation_case_name == "first"
+
+
+def test_validation_residual_envelopes_handle_mixed_and_all_undefined_metrics():
+    results = (
+        _validation_result("undefined", None, None),
+        _validation_result("defined", 3.0, None),
+    )
+
+    assert campaign_projection_validation_residual_envelopes(results) == (
+        CampaignMetricValidationResidualEnvelope(
+            "iae", 2.0, "defined", "defined-scenario", "defined-run"
+        ),
+        CampaignMetricValidationResidualEnvelope("ise", None, None, None, None),
+    )
+
+
+def test_validation_residual_envelopes_reject_incompatible_metric_layouts():
+    first = _validation_result("first", 2.0, 3.0)
+    scenario = CampaignProjectionScenarioResult(
+        "reordered-scenario",
+        CampaignMetricChangeProjection(
+            ("gain",), ("ise", "iae"), (1.0,), (2.0, 1.0)
+        ),
+    )
+    observed = CampaignDeltaEntry(
+        "reordered-run", 1.0, (("ise", 3.0), ("iae", 2.0))
+    )
+    residuals = campaign_projection_residuals(scenario, observed)
+    checked = check_campaign_projection_residual_tolerances(
+        residuals,
+        (
+            CampaignMetricResidualTolerance("ise", 1.0),
+            CampaignMetricResidualTolerance("iae", 1.0),
+        ),
+    )
+    reordered = CampaignProjectionValidationResult(
+        "reordered",
+        "reordered-scenario",
+        "reordered-run",
+        residuals,
+        checked,
+    )
+
+    with pytest.raises(ValueError, match="metric layout is incompatible"):
+        campaign_projection_validation_residual_envelopes((first, reordered))
+
+
+def test_validation_residual_envelopes_reject_malformed_and_nonfinite_results():
+    with pytest.raises(TypeError, match="CampaignProjectionValidationResult"):
+        campaign_projection_validation_residual_envelopes((object(),))
+
+    valid = _validation_result("valid", 2.0, 3.0)
+    checks = valid.tolerance_results.metric_results
+    malformed_checks = CampaignProjectionResidualToleranceResults(
+        valid.scenario_name,
+        valid.observed_run_id,
+        (
+            CampaignMetricResidualToleranceResult(
+                "iae", 1.0, float("inf"), 1.0, 0.0, True
+            ),
+            checks[1],
+        ),
+    )
+    malformed = CampaignProjectionValidationResult(
+        valid.name,
+        valid.scenario_name,
+        valid.observed_run_id,
+        valid.residuals,
+        malformed_checks,
+    )
+    with pytest.raises(ValueError, match="finite"):
+        campaign_projection_validation_residual_envelopes((malformed,))
+
+
+def test_validation_residual_envelopes_reject_blank_duplicate_and_bad_metadata():
+    valid = _validation_result("valid", 2.0, 3.0)
+    blank = CampaignProjectionValidationResult(
+        " ", valid.scenario_name, valid.observed_run_id, valid.residuals, valid.tolerance_results
+    )
+    with pytest.raises(ValueError, match="name must be non-empty"):
+        campaign_projection_validation_residual_envelopes((blank,))
+    with pytest.raises(ValueError, match="duplicate validation case name"):
+        campaign_projection_validation_residual_envelopes((valid, valid))
+
+    inconsistent = CampaignProjectionValidationResult(
+        "other", "wrong", valid.observed_run_id, valid.residuals, valid.tolerance_results
+    )
+    with pytest.raises(ValueError, match="inconsistent scenario/run metadata"):
+        campaign_projection_validation_residual_envelopes((inconsistent,))
+
+
+def test_validation_residual_envelopes_support_empty_and_generator_inputs():
+    assert campaign_projection_validation_residual_envelopes(()) == ()
+    source = (
+        result
+        for result in (
+            _validation_result("first", 2.0, 3.0),
+            _validation_result("second", 3.0, 4.0),
+        )
+    )
+
+    assert campaign_projection_validation_residual_envelopes(source)[0].validation_case_name == (
+        "second"
+    )
+
+
+def test_validation_residual_envelopes_are_immutable_deterministic_and_detached():
+    source = [_validation_result("case", 3.0, 1.0)]
+    first = campaign_projection_validation_residual_envelopes(source)
+    repeated = campaign_projection_validation_residual_envelopes(source)
+
+    assert first == repeated
+    assert first is not repeated
+    source.clear()
+    assert first[0].maximum_absolute_residual == 2.0
+    with pytest.raises(FrozenInstanceError):
+        first[0].maximum_absolute_residual = 0.0
 
 
 def test_one_scenario_is_both_minimum_and_maximum():

@@ -168,6 +168,17 @@ class CampaignProjectionValidationVerdict:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignMetricValidationResidualEnvelope:
+    """Immutable worst defined absolute residual for one validation metric."""
+
+    metric_name: str
+    maximum_absolute_residual: float | None
+    validation_case_name: str | None
+    scenario_name: str | None
+    observed_run_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -806,6 +817,86 @@ def campaign_projection_validation_verdict(
     validation_results: Iterable[CampaignProjectionValidationResult],
 ) -> CampaignProjectionValidationVerdict:
     """Summarize ordered projection-validation results into one verdict."""
+    validation_results, states = _validated_projection_validation_results(
+        validation_results
+    )
+
+    passing = []
+    failing = []
+    undefined = []
+    for result, state in zip(validation_results, states):
+        if state == "undefined":
+            undefined.append(result.name)
+        elif state == "failing":
+            failing.append(result.name)
+        else:
+            passing.append(result.name)
+    return CampaignProjectionValidationVerdict(
+        overall_passed=bool(validation_results) and not failing and not undefined,
+        passing_cases=tuple(passing),
+        failing_cases=tuple(failing),
+        undefined_cases=tuple(undefined),
+    )
+
+
+def campaign_projection_validation_residual_envelopes(
+    validation_results: Iterable[CampaignProjectionValidationResult],
+) -> tuple[CampaignMetricValidationResidualEnvelope, ...]:
+    """Find each metric's worst defined absolute validation residual."""
+    validation_results, _ = _validated_projection_validation_results(
+        validation_results
+    )
+    if not validation_results:
+        return ()
+
+    metric_names = tuple(
+        item.metric_name
+        for item in validation_results[0].tolerance_results.metric_results
+    )
+    for index, result in enumerate(validation_results[1:], start=1):
+        result_metric_names = tuple(
+            item.metric_name for item in result.tolerance_results.metric_results
+        )
+        if result_metric_names != metric_names:
+            raise ValueError(
+                f"validation_results[{index}] metric layout is incompatible"
+            )
+
+    envelopes = []
+    for metric_index, metric_name in enumerate(metric_names):
+        maximum = None
+        attaining_result = None
+        for result in validation_results:
+            absolute_residual = result.tolerance_results.metric_results[
+                metric_index
+            ].absolute_residual
+            if absolute_residual is None:
+                continue
+            absolute_residual = float(absolute_residual)
+            if maximum is None or absolute_residual > maximum:
+                maximum = absolute_residual
+                attaining_result = result
+        envelopes.append(
+            CampaignMetricValidationResidualEnvelope(
+                metric_name=metric_name,
+                maximum_absolute_residual=maximum,
+                validation_case_name=(
+                    None if attaining_result is None else attaining_result.name
+                ),
+                scenario_name=(
+                    None if attaining_result is None else attaining_result.scenario_name
+                ),
+                observed_run_id=(
+                    None
+                    if attaining_result is None
+                    else attaining_result.observed_run_id
+                ),
+            )
+        )
+    return tuple(envelopes)
+
+
+def _validated_projection_validation_results(validation_results):
     try:
         result_iterator = iter(validation_results)
     except TypeError as error:
@@ -826,23 +917,7 @@ def campaign_projection_validation_verdict(
             raise ValueError(f"duplicate validation case name {result.name!r}")
         names.add(result.name)
         states.append(_validated_projection_validation_result(result, index))
-
-    passing = []
-    failing = []
-    undefined = []
-    for result, state in zip(validation_results, states):
-        if state == "undefined":
-            undefined.append(result.name)
-        elif state == "failing":
-            failing.append(result.name)
-        else:
-            passing.append(result.name)
-    return CampaignProjectionValidationVerdict(
-        overall_passed=bool(validation_results) and not failing and not undefined,
-        passing_cases=tuple(passing),
-        failing_cases=tuple(failing),
-        undefined_cases=tuple(undefined),
-    )
+    return validation_results, tuple(states)
 
 
 def _validated_projection_validation_result(result, index):
