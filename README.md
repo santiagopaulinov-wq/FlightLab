@@ -1135,6 +1135,25 @@ one explicit absolute tolerance. It is a deterministic approximation-quality
 check, not statistical validation, uncertainty quantification, fitting,
 regression, or automatic model correction.
 
+`validate_campaign_projection_cases(cases)` evaluates a finite explicit ordered
+validation set. Each frozen `CampaignProjectionValidationCase` contains a
+unique nonblank case name, one existing named scenario projection, one explicit
+observed `CampaignDeltaEntry`, and one immutable ordered tolerance tuple.
+
+The outer iterable is fully materialized and all case-level names and member
+types are validated before evaluation. Every case then delegates first to
+`campaign_projection_residuals()` and then to
+`check_campaign_projection_residual_tolerances()`; it introduces no alternate
+residual or tolerance calculation. Each frozen
+`CampaignProjectionValidationResult` retains the case name, scenario name,
+observed run ID, residual result, and tolerance-check result. Case and metric
+ordering, failures, and undefined metrics retain their existing semantics.
+
+Empty input returns `()`. Any invalid case or delegated analysis failure
+propagates without skipping a case or returning a partial result. This is pure
+ordered analytical orchestration, with no inference, aggregation, scoring,
+statistics, fitting, simulation, or persistence.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

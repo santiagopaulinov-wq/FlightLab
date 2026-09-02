@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from flightlab import analysis
 from flightlab.analysis import (
     CampaignComparisonEntry,
     CampaignDeltaEntry,
@@ -18,6 +19,8 @@ from flightlab.analysis import (
     CampaignProjectionResidualToleranceResults,
     CampaignProjectionScenario,
     CampaignProjectionScenarioResult,
+    CampaignProjectionValidationCase,
+    CampaignProjectionValidationResult,
     CampaignRobustnessVerdict,
     CampaignSensitivityEntry,
     CampaignSensitivityMatrix,
@@ -33,6 +36,7 @@ from flightlab.analysis import (
     compare_campaign_runs,
     project_campaign_metric_changes,
     project_campaign_scenarios,
+    validate_campaign_projection_cases,
 )
 from flightlab.experiment import experiment_run
 from flightlab.persistence import (
@@ -1279,6 +1283,150 @@ def test_residual_tolerance_results_are_immutable_deterministic_and_detached():
         first.observed_run_id = "changed"
     with pytest.raises(FrozenInstanceError):
         first.metric_results[0].passed = False
+
+
+def _validation_case(name="case", scenario="scenario", run_id="observed", iae=2.0):
+    return CampaignProjectionValidationCase(
+        name=name,
+        scenario_result=_scenario_result(scenario, 1.0, 2.0),
+        observed_delta=_observed_delta(run_id, iae, None),
+        tolerances=_residual_tolerances(1.0, 1.0),
+    )
+
+
+def test_validation_cases_preserve_order_identities_and_mixed_metric_states():
+    cases = (
+        _validation_case("first", "nominal", "run-a", iae=2.0),
+        _validation_case("second", "stress", "run-b", iae=3.0),
+    )
+
+    results = validate_campaign_projection_cases(cases)
+
+    assert tuple(result.name for result in results) == ("first", "second")
+    assert tuple(result.scenario_name for result in results) == ("nominal", "stress")
+    assert tuple(result.observed_run_id for result in results) == ("run-a", "run-b")
+    assert tuple(item.passed for item in results[0].tolerance_results.metric_results) == (
+        True,
+        False,
+    )
+    assert results[0].tolerance_results.metric_results[1].residual is None
+    assert results[1].tolerance_results.metric_results[0].passed is False
+
+
+def test_validation_cases_delegate_once_to_existing_analysis_apis(monkeypatch):
+    case = _validation_case()
+    residuals = CampaignProjectionResiduals("scenario", "observed", ())
+    checked = CampaignProjectionResidualToleranceResults("scenario", "observed", ())
+    calls = []
+
+    def residual_api(scenario_result, observed_delta):
+        calls.append(("residual", scenario_result, observed_delta))
+        return residuals
+
+    def tolerance_api(source, tolerances):
+        calls.append(("tolerance", source, tolerances))
+        return checked
+
+    monkeypatch.setattr(analysis, "campaign_projection_residuals", residual_api)
+    monkeypatch.setattr(
+        analysis, "check_campaign_projection_residual_tolerances", tolerance_api
+    )
+
+    assert validate_campaign_projection_cases((case,)) == (
+        CampaignProjectionValidationResult(
+            "case", "scenario", "observed", residuals, checked
+        ),
+    )
+    assert calls == [
+        ("residual", case.scenario_result, case.observed_delta),
+        ("tolerance", residuals, case.tolerances),
+    ]
+
+
+def test_validation_cases_materialize_generator_and_support_empty_input():
+    source = (_validation_case(name) for name in ("first", "second"))
+
+    assert tuple(result.name for result in validate_campaign_projection_cases(source)) == (
+        "first",
+        "second",
+    )
+    assert validate_campaign_projection_cases(()) == ()
+
+
+def test_validation_cases_validate_all_metadata_before_evaluation(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        analysis,
+        "campaign_projection_residuals",
+        lambda *args: calls.append(args),
+    )
+
+    with pytest.raises(ValueError, match="name must be non-empty"):
+        validate_campaign_projection_cases((_validation_case("valid"), _validation_case(" ")))
+    assert calls == []
+
+
+def test_validation_cases_reject_duplicate_names():
+    with pytest.raises(ValueError, match="duplicate validation case name"):
+        validate_campaign_projection_cases(
+            (_validation_case("same"), _validation_case("same", "other"))
+        )
+
+
+@pytest.mark.parametrize(
+    ("case", "match"),
+    [
+        (object(), "CampaignProjectionValidationCase"),
+        (
+            CampaignProjectionValidationCase("case", object(), _observed_delta(), ()),
+            "CampaignProjectionScenarioResult",
+        ),
+        (
+            CampaignProjectionValidationCase(
+                "case", _scenario_result("scenario", 1.0, 2.0), object(), ()
+            ),
+            "CampaignDeltaEntry",
+        ),
+        (
+            CampaignProjectionValidationCase(
+                "case",
+                _scenario_result("scenario", 1.0, 2.0),
+                _observed_delta(),
+                [],
+            ),
+            "tolerances must be a tuple",
+        ),
+    ],
+)
+def test_validation_cases_reject_malformed_members(case, match):
+    with pytest.raises((TypeError, ValueError), match=match):
+        validate_campaign_projection_cases((case,))
+
+
+def test_validation_cases_propagate_incompatible_tolerance_failure():
+    case = CampaignProjectionValidationCase(
+        "case",
+        _scenario_result("scenario", 1.0, 2.0),
+        _observed_delta(),
+        (CampaignMetricResidualTolerance("ise", 1.0),),
+    )
+    with pytest.raises(ValueError, match="coverage"):
+        validate_campaign_projection_cases((case,))
+
+
+def test_validation_case_results_are_immutable_deterministic_and_detached():
+    source = [_validation_case()]
+    first = validate_campaign_projection_cases(source)
+    repeated = validate_campaign_projection_cases(source)
+
+    assert first == repeated
+    assert first is not repeated
+    source.clear()
+    assert first[0].name == "case"
+    with pytest.raises(FrozenInstanceError):
+        first[0].name = "changed"
+    with pytest.raises(TypeError):
+        first[0] = first[0]
 
 
 def test_one_scenario_is_both_minimum_and_maximum():

@@ -59,6 +59,9 @@ per-metric signed residuals without recomputing either source.
 The twenty-third layer checks those existing residuals against explicit
 caller-ordered per-metric maximum absolute tolerances while preserving scenario
 and observed-run traceability.
+The twenty-fourth layer evaluates a finite explicit ordered validation set by
+delegating every named scenario/observation case through the existing residual
+and tolerance-check APIs.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -104,14 +107,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: explicit per-metric absolute tolerance checks for one
-  observed-versus-projected campaign residual result.
+- Completed capability: explicit ordered campaign projection-validation cases
+  composed from existing residual and tolerance-check APIs.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add campaign residual tolerance checks`).
+  (`feat: add campaign projection validation cases`).
 
 ## Current verification baseline
 
-- Test count: 1205 tests.
+- Test count: 1216 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1063,11 +1066,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Must not be added or changed next
 
-- Move beyond one residual check only by applying the existing residual and
-  tolerance APIs to an explicit ordered validation set. Do not infer
-  scenario/run matches, add regression, aggregate error statistics, automatic
-  correction, ranking, optimization, plotting, persistence, or CLI/UI
-  workflows yet.
+- Move beyond ordered validation cases only by reducing their existing metric
+  pass/fail/undefined states to one deterministic validation-set verdict. Do
+  not infer priorities, add scores, regression, aggregate error statistics,
+  automatic correction, ranking, optimization, plotting, persistence, or
+  CLI/UI workflows yet.
 - Do not resume the previously suggested observer-based integral output
   feedback yet.
 - Do not add other aircraft-specific mode names yet.
@@ -1082,34 +1085,32 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Explicit ordered campaign projection-validation cases
+### Deterministic campaign projection-validation verdicts
 
-Add a small pure analysis API that evaluates a finite caller-ordered collection
-of explicitly named scenario-projection, observed-delta, and residual-tolerance
-cases using the existing residual and tolerance-check APIs.
+Add a small pure analysis API that summarizes one existing ordered collection
+of campaign projection-validation results into an immutable overall verdict.
 
 ## Suggested implementation direction
 
-- Require each case to have one explicit unique nonblank name and explicit
-  scenario result, observed delta, and aligned tolerance collection; infer no
-  correspondence.
-- Materialize and validate the finite case collection, then reuse
-  `campaign_projection_residuals()` and
-  `check_campaign_projection_residual_tolerances()` for each case.
-- Preserve case order, scenario/run identities, metric order, undefined states,
-  and immutable detached results.
-- Define empty input explicitly and propagate every validation failure without
-  skipping or returning partial output.
-- Add no cross-case extrema, aggregate score or verdict, regression fit,
-  automatic correction, statistics, ranking, optimization, plotting,
-  persistence, or simulation.
+- Reuse only the existing tolerance-check states; recompute no residual,
+  tolerance, projection, or observation values.
+- Preserve validation-case order and metric order while retaining enough
+  case/scenario/run/metric identity to classify every failed or undefined
+  check deterministically.
+- Pass only when the validation set is nonempty and every metric in every case
+  is defined and passing; define empty input explicitly as non-passing.
+- Validate the complete nested result structure and reject duplicate or blank
+  case identities and inconsistent pass/undefined states.
+- Add no score, weighting, cross-case extrema, error statistics, regression
+  fit, automatic correction, ranking, optimization, plotting, persistence, or
+  simulation.
 
 ## Focused tests to add
 
-- Verify one and multiple cases, exact case and metric ordering, identity
-  retention, pass/fail and undefined propagation, blank/duplicate case names,
-  malformed case components, empty and generator inputs, failure propagation,
-  deterministic output, immutability, and source isolation.
+- Verify all-passing, failing, undefined, and mixed validation sets; exact
+  case/metric identity ordering; malformed or inconsistent nested results;
+  duplicate/blank identities; empty and generator inputs; deterministic output,
+  immutability, and source isolation.
 
 ## Commands that must pass
 

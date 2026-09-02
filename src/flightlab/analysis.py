@@ -137,6 +137,27 @@ class CampaignProjectionResidualToleranceResults:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignProjectionValidationCase:
+    """One explicit named projection-validation case."""
+
+    name: str
+    scenario_result: CampaignProjectionScenarioResult
+    observed_delta: CampaignDeltaEntry
+    tolerances: tuple[CampaignMetricResidualTolerance, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CampaignProjectionValidationResult:
+    """Immutable residual and tolerance results for one validation case."""
+
+    name: str
+    scenario_name: str
+    observed_run_id: str
+    residuals: CampaignProjectionResiduals
+    tolerance_results: CampaignProjectionResidualToleranceResults
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -716,6 +737,59 @@ def _validated_projection_residuals(residuals):
             )
         values.append(residual)
     return tuple(metric_names), tuple(values)
+
+
+def validate_campaign_projection_cases(
+    cases: Iterable[CampaignProjectionValidationCase],
+) -> tuple[CampaignProjectionValidationResult, ...]:
+    """Evaluate explicit named projection-validation cases in caller order."""
+    try:
+        case_iterator = iter(cases)
+    except TypeError as error:
+        raise TypeError("cases must be an iterable") from error
+    cases = tuple(case_iterator)
+
+    names = set()
+    for index, case in enumerate(cases):
+        if not isinstance(case, CampaignProjectionValidationCase):
+            raise TypeError(
+                f"cases[{index}] must be a CampaignProjectionValidationCase"
+            )
+        if type(case.name) is not str or not case.name.strip():
+            raise ValueError(f"cases[{index}].name must be non-empty")
+        if case.name in names:
+            raise ValueError(f"duplicate validation case name {case.name!r}")
+        names.add(case.name)
+        if not isinstance(case.scenario_result, CampaignProjectionScenarioResult):
+            raise TypeError(
+                f"cases[{index}].scenario_result must be a "
+                "CampaignProjectionScenarioResult"
+            )
+        if not isinstance(case.observed_delta, CampaignDeltaEntry):
+            raise TypeError(
+                f"cases[{index}].observed_delta must be a CampaignDeltaEntry"
+            )
+        if type(case.tolerances) is not tuple:
+            raise TypeError(f"cases[{index}].tolerances must be a tuple")
+
+    results = []
+    for case in cases:
+        residuals = campaign_projection_residuals(
+            case.scenario_result, case.observed_delta
+        )
+        tolerance_results = check_campaign_projection_residual_tolerances(
+            residuals, case.tolerances
+        )
+        results.append(
+            CampaignProjectionValidationResult(
+                name=case.name,
+                scenario_name=residuals.scenario_name,
+                observed_run_id=residuals.observed_run_id,
+                residuals=residuals,
+                tolerance_results=tolerance_results,
+            )
+        )
+    return tuple(results)
 
 
 def project_campaign_scenarios(
