@@ -1500,6 +1500,18 @@ consistency. It does not recompute any classification. The empty non-passing
 verdict becomes the same explicit schema with three empty lists, and every call
 returns detached plain data without I/O or persistence.
 
+`campaign_projection_error_comparison_envelope_named_assessment_collection_verdict_records(
+entries)` applies that converter to a finite caller-ordered collection of
+frozen `CampaignProjectionErrorNamedAssessmentCollectionVerdict` entries. Each
+entry contains one unique nonblank name and one existing assessment-collection
+report verdict.
+
+The complete collection and all verdicts are validated before conversion. The
+single-verdict record converter is then invoked exactly once per entry, yielding
+fresh plain `{name, verdict}` dictionaries in caller order while preserving
+every stored inner category order. Empty input returns `[]`; no classification,
+pass state, or analytical value is recomputed.
+
 `campaign_projection_envelopes(scenario_results)` reduces one explicit finite
 ordered scenario set to immutable per-metric predicted-change bounds:
 

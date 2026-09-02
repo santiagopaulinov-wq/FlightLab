@@ -101,7 +101,8 @@ deterministic overview. The forty-third layer reduces those validated named
 collection reports to one immutable verdict with ordered passing, failing, and
 undefined collection names. The forty-fourth layer converts that verdict to a
 fresh deterministic JSON-compatible plain record without recomputing its
-classifications.
+classifications. The forty-fifth layer applies that converter to a finite
+caller-ordered collection of explicitly named assessment-collection verdicts.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -147,14 +148,14 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: deterministic named assessment-collection verdict
-  record.
+- Completed capability: explicit ordered named assessment-collection verdict
+  records.
 - Completed capability commit: this checkpoint's implementation commit
-  (`feat: add named assessment collection verdict record`).
+  (`feat: add named assessment collection verdict records`).
 
 ## Current verification baseline
 
-- Test count: 1409 tests.
+- Test count: 1414 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1125,32 +1126,32 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Exact next smallest task
 
-### Explicit ordered named assessment-collection verdict records
+### Ordered named assessment-collection verdict overview
 
-Add a small pure conversion API that converts a finite caller-ordered
-collection of explicitly named assessment-collection report verdicts through
-the existing single-verdict record converter.
+Add a small pure conversion API that extracts each explicitly named assessment-
+collection report verdict's stored overall pass state into a compact
+deterministic JSON-compatible overview.
 
 ## Suggested implementation direction
 
-- Require each entry to contain one explicit unique nonblank name and one
-  existing `CampaignProjectionErrorNamedAssessmentCollectionReportVerdict`.
-- Materialize and prevalidate the complete finite collection before converting
-  any entry.
-- Delegate exactly once per entry to the existing single-verdict record API;
-  preserve caller entry order and every stored category order.
-- Return fresh detached JSON-compatible `{name, verdict}` dictionaries and
-  define empty input as `[]`.
+- Accept the existing finite ordered collection of uniquely named assessment-
+  collection verdicts and fully validate it before extraction.
+- Return fresh plain dictionaries containing exactly `name` and the verdict's
+  stored `overall_passed` Boolean.
+- Preserve caller order, define empty input as `[]`, and recompute no verdict
+  classification or analytical value.
+- Keep the overview intentionally compact: do not include the stored category
+  names or infer scores, ranks, confidence, or acceptance policy.
 - Add no aggregation across comparisons, weighting, acceptance score,
   confidence interval, regression fit, automatic correction, ranking,
   optimization, plotting, persistence, or simulation.
 
 ## Focused tests to add
 
-- Verify one and multiple named verdicts, exact caller and nested category
-  order, blank/duplicate names, malformed entries, complete prevalidation,
-  exact one-time delegation, empty and generator input, JSON-compatible plain
-  output, mutation detachment, and deterministic repeated calls.
+- Verify one and multiple named verdicts, passing and non-passing states, exact
+  caller order, blank/duplicate names, malformed entries and verdicts, empty
+  and generator input, JSON-compatible plain output, mutation detachment, and
+  deterministic repeated calls.
 
 ## Commands that must pass
 
@@ -1164,9 +1165,8 @@ git status
 ## Restart instruction
 
 Continue from the latest implementation commit. Read this file and inspect the
-existing named assessment-collection verdict record API, then implement the
-exact next smallest task: **Explicit ordered named assessment-collection
-verdict records**.
+existing named assessment-collection verdict APIs, then implement the exact
+next smallest task: **Ordered named assessment-collection verdict overview**.
 Preserve the documented scope, run the required verification commands, commit
 the completed capability, and do not push. Do not touch the existing untracked
 `.vscode/`.

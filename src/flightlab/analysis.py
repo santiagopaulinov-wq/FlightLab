@@ -350,6 +350,14 @@ class CampaignProjectionErrorNamedAssessmentCollectionReportVerdict:
 
 
 @dataclass(frozen=True, slots=True)
+class CampaignProjectionErrorNamedAssessmentCollectionVerdict:
+    """One explicitly named assessment-collection report verdict."""
+
+    name: str
+    verdict: CampaignProjectionErrorNamedAssessmentCollectionReportVerdict
+
+
+@dataclass(frozen=True, slots=True)
 class CampaignMetricProjectionEnvelope:
     """Immutable per-metric extrema across explicit projection scenarios."""
 
@@ -1729,6 +1737,63 @@ def campaign_projection_error_comparison_envelope_named_assessment_collection_ve
         "failing_collection_names": list(verdict.failing_collection_names),
         "undefined_collection_names": list(verdict.undefined_collection_names),
     }
+
+
+def campaign_projection_error_comparison_envelope_named_assessment_collection_verdict_records(
+    entries,
+):
+    """Convert ordered named assessment-collection verdicts to plain records."""
+    entries = _validated_projection_error_named_assessment_collection_verdicts(
+        entries
+    )
+    for entry in entries:
+        _validated_projection_error_named_assessment_collection_verdict(entry.verdict)
+    return [
+        {
+            "name": entry.name,
+            "verdict": (
+                campaign_projection_error_comparison_envelope_named_assessment_collection_verdict_record(
+                    entry.verdict
+                )
+            ),
+        }
+        for entry in entries
+    ]
+
+
+def _validated_projection_error_named_assessment_collection_verdicts(entries):
+    try:
+        entry_iterator = iter(entries)
+    except TypeError as error:
+        raise TypeError("entries must be an iterable") from error
+    entries = tuple(entry_iterator)
+
+    names = set()
+    for index, entry in enumerate(entries):
+        prefix = f"entries[{index}]"
+        if not isinstance(
+            entry, CampaignProjectionErrorNamedAssessmentCollectionVerdict
+        ):
+            raise TypeError(
+                f"{prefix} must be a "
+                "CampaignProjectionErrorNamedAssessmentCollectionVerdict"
+            )
+        if type(entry.name) is not str or not entry.name.strip():
+            raise ValueError(f"{prefix}.name must be non-empty")
+        if entry.name in names:
+            raise ValueError(
+                f"duplicate assessment collection verdict name {entry.name!r}"
+            )
+        names.add(entry.name)
+        if not isinstance(
+            entry.verdict,
+            CampaignProjectionErrorNamedAssessmentCollectionReportVerdict,
+        ):
+            raise TypeError(
+                f"{prefix}.verdict must be a "
+                "CampaignProjectionErrorNamedAssessmentCollectionReportVerdict"
+            )
+    return entries
 
 
 def _validated_projection_error_named_assessment_collection_verdict(verdict):
