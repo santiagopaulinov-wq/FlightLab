@@ -180,12 +180,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: one fixed rank-deficient MIMO controllability
-  verification runner using the official MathWorks worked example, the existing
-  `StateSpace` controllability APIs, a literal `[B, A B]` oracle, and
-  deterministic `ExperimentRun` evidence.
-- Completed capability commit: this checkpoint's implementation commit
-  (`feat: add controllability verification benchmark`).
+- Completed capability: definition of the sixth fixed V&V capability: exact
+  SISO state-feedback pole-placement and closed-loop interconnection evidence
+  using the official MathWorks second-order worked example.
+- Completed capability commit: this documentation checkpoint's commit
+  (`docs: define pole-placement verification benchmark`).
 
 ## Current verification baseline
 
@@ -1818,17 +1817,249 @@ physical-validation claim.
 
 ## Exact next smallest task
 
-Define, but do not implement, the next single V&V capability. Select one
-authoritative, publicly accessible source and freeze its exact citation,
-reconstructable inputs, evidence classification, FlightLab API target,
-independent comparison oracle, quantities, deterministic tolerances, failure
-semantics, `ExperimentRun` provenance, focused tests, and explicit non-goals in
-this file. It must add one materially distinct kind of evidence beyond the
-completed analytical and SciPy trajectories, NASA GTM modal results, NASA roll
-frequency response, and MathWorks controllability benchmark. Do not add a
-framework, abstraction, dependency, persistence behavior, experimental or
-flight-data physical validation, or implementation code. Commit only that
-documentation checkpoint and do not push.
+### Implement the fixed MathWorks SISO pole-placement benchmark
+
+Add one narrowly scoped runner beside the five existing runners in
+`flightlab.verification`. Encode the official second-order SISO example below,
+call `StateSpace.place_siso_poles()` with its published desired poles, close the
+loop through `StateSpace.full_state_feedback()`, and compare the returned gain,
+closed-loop realization, and achieved poles with the exact algebraic oracle and
+published closed-loop poles defined below. Return deterministic evidence through
+the existing `ExperimentRun` machinery and add only the focused tests specified
+here. Do not add a framework, dependency, generic adapter, new record type, or
+physical-validation assertion.
+
+## Selected sixth V&V capability
+
+### Official MathWorks second-order SISO pole-placement example
+
+Use MathWorks, *Control System Toolbox Documentation*, `place — Pole placement
+design`, section "Pole Placement Design for Second-Order System," official
+online documentation, accessed `2026-09-03`:
+
+```text
+https://www.mathworks.com/help/control/ref/place.html
+```
+
+For stable release provenance also record the official R2024b Control System
+Toolbox reference PDF containing the same worked example:
+
+```text
+https://www.mathworks.com/help/releases/r2024b/pdf_doc/control/control_ref.pdf
+```
+
+The worked example publishes a continuous-time two-state SISO realization,
+chooses desired poles `p = [-1, -2]`, applies the convention `u = -K x`, forms
+`A_cl = A - B K`, and reports closed-loop poles `[-2, -1]`. It concludes that
+the pole-placed system is stable and no longer oscillatory. Only its fixed
+model, feedback convention, desired poles, and reported achieved poles are
+verification targets; its plotted step responses and qualitative performance
+statements are not.
+
+This source is authoritative for the example and the `A - B K` convention.
+The runner must not invoke MATLAB or compare runtime output with MathWorks
+software. The gain and closed-loop matrix oracle below are derived independently
+by exact coefficient matching from the source's printed integers.
+
+## Frozen plant and pole-placement inputs
+
+Copy the source example exactly:
+
+```text
+    [[-1, -2]]        [[2]]        C = [[0, 1]]
+A = [[ 1,  0]]    B = [[0]]        D = [[0]]
+
+desired poles p = [-1, -2]
+feedback convention: u = -K x
+closed-loop matrix: A_cl = A - B K
+```
+
+Preserve the desired-pole input order in provenance. For comparison only, sort
+both achieved and reference real poles deterministically into ascending order
+`[-2, -1]`. The `C` and `D` matrices are part of the published example and
+must be copied exactly, even though pole placement depends only on `(A, B)`.
+Do not rescale, transform, balance, or reinterpret the states or input, and do
+not assign physical units that the worked example does not provide.
+
+## Independent exact oracle
+
+Let the returned real SISO gain be `K = [k1, k2]`. Under the source's feedback
+convention,
+
+```text
+A - B K = [[-1 - 2 k1, -2 - 2 k2],
+           [ 1,         0        ]]
+```
+
+Its characteristic polynomial follows directly from the two-by-two determinant:
+
+```text
+det(s I - (A - B K))
+    = s^2 + (1 + 2 k1) s + (2 + 2 k2)
+```
+
+The desired roots `-1` and `-2` give the target polynomial
+`(s + 1)(s + 2) = s^2 + 3 s + 2`. Exact scalar coefficient matching therefore
+gives:
+
+```text
+K_reference = [[1, 0]]
+A_cl_reference = [[-3, -2],
+                  [ 1,  0]]
+lambda_reference_sorted = [-2, -1]
+```
+
+Encode these literal references directly. Do not compute the expected gain
+with Ackermann's formula, controllability matrices, matrix powers, a second
+pole-placement routine, symbolic algebra, SciPy, MATLAB, or another control
+package. The achieved-pole oracle may use the literal published values; it must
+not derive expected poles from FlightLab's returned gain or closed-loop matrix.
+
+## FlightLab APIs and comparison quantities
+
+On one fixed `StateSpace`, call `place_siso_poles([-1.0, -2.0])` exactly once.
+After validating the returned gain, call `full_state_feedback(gain)` exactly
+once and call `eigenvalues()` exactly once on that returned closed-loop system.
+Do not call `eigenvalues()` on the open-loop plant and do not separately form a
+second FlightLab closed-loop realization.
+
+Validate all results before comparison, then compute without rounding:
+
+1. gain residual: maximum absolute componentwise difference between returned
+   `(1, 2)` gain and literal `K_reference`;
+2. closed-loop state-matrix residual: maximum absolute componentwise difference
+   between returned `(2, 2)` `A` and literal `A_cl_reference`;
+3. preserved-realization residual: maximum absolute componentwise difference
+   across the returned closed-loop `B`, `C`, and `D` versus the source plant's
+   literal `B`, `C`, and `D`;
+4. achieved-pole residual: maximum absolute difference between the two finite
+   real achieved poles, sorted ascending, and literal `[-2, -1]`;
+5. exact desired-pole achievement flag and asymptotic-stability flag, both
+   derived from the validated achieved poles.
+
+Require internal consistency between returned gain and returned closed-loop
+matrix by independently evaluating the four scalar entries of `A - B K` and
+requiring exact array equality with the returned closed-loop `A`. This is an
+evidence-integrity check, not a tolerance comparison.
+
+## Deterministic tolerances and acceptance semantics
+
+- Maximum absolute gain residual: `1.0e-12`.
+- Maximum absolute closed-loop state-matrix residual: `1.0e-12`.
+- Maximum absolute preserved-realization residual: `0.0`.
+- Maximum absolute achieved-pole residual: `1.0e-12 s^-1`.
+
+The first, second, and pole limits cover ordinary floating-point synthesis and
+eigensolution roundoff. The preservation limit is exact because
+`full_state_feedback()` must retain `B`, `C`, and `D` by value. These are
+numerical-equivalence tolerances, not source uncertainty. Equality with every
+limit passes.
+
+The benchmark passes if and only if the fixed input matrices and desired poles
+have their exact shapes and finite real values; the gain and returned matrices
+have the specified shapes and finite real values; the returned `A` is exactly
+internally consistent with `A - B K`; the achieved eigenvalue array has shape
+`(2,)` and contains finite real values; all four residuals meet their limits;
+the achieved poles match the desired pole multiset; and both achieved poles
+have strictly negative real parts.
+
+Malformed, complex, nonfinite, wrong-shape, wrong-cardinality, non-real achieved
+poles, inconsistent `A - B K` evidence, altered closed-loop dimensions, or an
+internally inconsistent pass flag raises `ValueError` before an `ExperimentRun`
+is constructed. Exceptions raised directly by any targeted FlightLab API
+propagate unchanged. Well-shaped finite and internally consistent evidence
+outside a tolerance, with wrong achieved poles, or without strict stability
+returns an `ExperimentRun` with `passed = False`; comparison failure alone must
+not raise.
+
+## Evidence carrier and deterministic provenance
+
+Continue using `response_metrics()` and `experiment_run()` only as evidence-
+composition boundaries. This controller-design benchmark has no trajectory
+comparison, so use a fixed two-sample zero output/reference carrier and zero
+two-state initial condition. Label its response metrics as an auxiliary carrier
+that does not participate in acceptance.
+
+Use run ID `verification-mathworks-siso-pole-placement-v1`, method `exact`, and
+aware UTC creation time `2026-09-04T00:00:00+00:00`. Record in existing flat
+metadata:
+
+- exact source title, product documentation name, section, current URL, R2024b
+  reference-PDF URL, access date, published model, desired and achieved poles,
+  feedback convention, and source conclusion;
+- fixed `A`, `B`, `C`, `D`, shapes, state/input/output counts, absence of
+  assigned physical units, desired-pole input order, literal target polynomial,
+  coefficient-matching derivation, `K_reference`, `A_cl_reference`, and sorted
+  pole reference;
+- returned gain and closed-loop matrices, sorted achieved poles, four residuals
+  and limits, internal-consistency, desired-achievement, preservation, and
+  stability flags, auxiliary-carrier status, evidence classification, and
+  overall pass Boolean.
+
+Two equivalent calls must return exactly equal detached JSON-compatible
+`reproducibility_record()` dictionaries. Do not check in source downloads,
+plots, generated response data, or serialized evidence.
+
+## Evidence classification and material distinction
+
+Classify this as **computational/software verification of deterministic
+controller synthesis and feedback interconnection against an official worked
+example and exact algebraic oracle**. It is not a runtime cross-check with
+MATLAB, not physical model validation, and not mixed evidence.
+
+This capability is materially distinct from the five completed runners. It
+verifies synthesized state-feedback gain, the sign convention `A - B K`, exact
+preservation of non-state matrices, and achieved closed-loop poles. Earlier
+runners verify open-loop eigensystems, sampled propagation, published modal
+results, frequency response, and structural controllability, but none designs
+or interconnects a controller.
+
+## Focused tests to add during implementation
+
+- Assert the exact source citation, archived-release provenance, `A`, `B`, `C`,
+  `D`, desired-pole order, feedback convention, oracle derivation, target
+  polynomial, run identity, timestamp, and evidence classification.
+- Independently hard-code `K_reference`, `A_cl_reference`, and sorted poles;
+  assert nominal gain, returned realization, preservation, achieved poles, four
+  residuals, limits, integrity/achievement/stability flags, and passing result.
+- Spy on `place_siso_poles()`, `full_state_feedback()`, and the returned system's
+  `eigenvalues()` to require one boundary call each with the fixed values;
+  assert no observer, integral-control, prefilter, simulation, frequency-
+  response, balancing, modal, or aircraft API is called.
+- Assert the zero carrier, zero initial state, JSON compatibility, detachment,
+  and repeated-run determinism.
+- Parameterize well-formed internally consistent evidence beyond the gain,
+  state-matrix, preservation, and pole tolerances and assert a failed run is
+  returned; likewise test finite wrong or nonstable poles as failed evidence.
+- Reject malformed gain/matrix/eigenvalue shapes, complex or nonfinite values,
+  non-real poles, changed closed-loop dimensions, and inconsistency between
+  returned gain and `A_cl` with `ValueError` before run construction.
+- Verify direct exceptions from all three targeted APIs propagate unchanged and
+  verify the runner imports no optional dependency.
+
+## Explicit non-goals
+
+- No physical/model validation, aircraft or experimental data, flight-test or
+  wind-tunnel comparison, tuning claim, handling-qualities assessment,
+  certification, robustness guarantee, or safety claim.
+- No step-response comparison or use of the source's plotted curves, rise time,
+  settling time, steady-state gain, faster alternative poles, precision example,
+  complex-pole example, observer example, or any other `place` documentation
+  case.
+- No observer, reference prefilter, integral augmentation/control, dynamic
+  output feedback, LQR/LQG, optimal/robust/adaptive control, gain scheduling,
+  saturation, actuator model, or controller tuning/selection behavior.
+- No MIMO pole placement, repeated poles, complex desired poles, uncontrollable
+  plant, randomized/property cases, parameter sweep, or broad controller-
+  synthesis verification.
+- No MATLAB/Octave execution, MATLAB Engine, SciPy, python-control, symbolic
+  package, alternate pole-placement implementation, or new dependency.
+- No generic V&V framework, benchmark registry, controller adapter, source
+  schema, new result/report/verdict/serializer, persistence behavior, CLI,
+  plotting, or generated evidence artifact.
+- No change to `StateSpace`, `ExperimentRun`, response metrics, the five
+  completed runners, or unrelated tests unless this exact benchmark exposes a
+  demonstrated core discrepancy.
 
 ## Read-only repository size and complexity snapshot
 
@@ -2214,7 +2445,8 @@ git status
 
 ## Restart instruction
 
-Read `NEXT.md`, inspect the five completed verification runners, then define the
-next single V&V capability exactly as directed under "Exact next smallest
-task." Do not implement it, expand the V&V framework, refactor unrelated
-modules, touch the existing untracked `.vscode/`, or push.
+Read `NEXT.md`, then implement the narrowly scoped fixed MathWorks SISO pole-
+placement verification runner exactly as specified, without expanding the V&V
+framework or refactoring unrelated modules. Run the required checks, update
+this checkpoint, commit the implementation, do not touch the existing untracked
+`.vscode/`, and do not push.
