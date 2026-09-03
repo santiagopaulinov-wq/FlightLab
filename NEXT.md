@@ -171,11 +171,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: one fixed published NASA GTM rigid-body longitudinal
-  modal verification runner using `A = numpy.linalg.solve(M_r, S)`, the
-  existing `StateSpace` modal APIs, and deterministic `ExperimentRun` evidence.
-- Completed capability commit: this checkpoint's implementation commit
-  (`feat: add NASA GTM longitudinal verification benchmark`).
+- Completed capability: definition of the next fixed published-aircraft V&V
+  capability: a NASA Ames unstable-roll frequency-response benchmark using the
+  transfer function published in AIAA 2015-0655.
+- Completed capability commit: this documentation checkpoint's commit
+  (`docs: define NASA roll frequency-response benchmark`).
 
 ## Current verification baseline
 
@@ -1362,17 +1362,236 @@ published modal targets whose limited decimal precision is handled explicitly.
 
 ## Exact next smallest task
 
-Define, but do not implement, the next single V&V capability. Select one
-authoritative, publicly accessible source and freeze the exact evidence
-classification, reconstructable numerical inputs, FlightLab APIs under test,
-comparison quantities, source-precision tolerances, failure semantics,
-provenance fields, focused tests, and explicit non-goals in this file. The
-definition must add evidence materially different from the completed closed-
-form, SciPy, and published NASA GTM modal benchmarks while remaining one narrow
-runner that reuses `ExperimentRun`; it must not introduce a generic V&V
-framework, new result type, dependency, persistence behavior, or physical-
-validation claim. Commit that documentation checkpoint without implementing
-the runner or pushing.
+### Implement the fixed NASA unstable-roll frequency-response benchmark
+
+Add one narrowly scoped runner beside the three existing runners in
+`flightlab.verification`. Encode the published factored SISO roll transfer
+function and its one fixed controllable-canonical `StateSpace` realization
+below. At the five fixed positive angular frequencies, compare
+`StateSpace.frequency_response()` directly with values computed by substituting
+`s = 1j * omega` into the published scalar rational expression. Return the
+evidence through the existing `ExperimentRun` and deterministic
+reproducibility-record machinery. Add only the focused tests specified below.
+Do not add a framework, dependency, aircraft-model adapter, new record type, or
+physical-validation assertion.
+
+## Selected fourth V&V capability
+
+### NASA Ames unstable transport-aircraft roll frequency response near stall
+
+Use the controlled-aircraft dynamics published by Peter M. T. Zaal, Alexandru
+Popovici, and Melinda A. Zavala, *Effects of False Tilt Cues on the Training of
+Manual Roll Control Skills*, AIAA SciTech 2015, Kissimmee, Florida, 5--9
+January 2015, AIAA Paper 2015-0655; NASA NTRS document ID `20160008914`.
+
+The reconstructable benchmark is in Section III, "Experimental Design,"
+subsection A.1, "Controlled Aircraft Dynamics," Equation (1), on paper page 3.
+That equation publishes the complete SISO transfer function used for the roll
+control task. The authoritative public record and artifact are:
+
+```text
+https://ntrs.nasa.gov/citations/20160008914
+https://ntrs.nasa.gov/api/citations/20160008914/downloads/20160008914.pdf
+```
+
+The paper describes a mid-size twin-engine commercial transport model with a
+gross weight of `185,800 lb`, linearized close to stall at `41,000 ft` and
+`150 kt`. The source states that the roll dynamics at this condition are
+unstable. Those aircraft and flight-condition facts are provenance only; the
+published transfer function, rather than measurements from the paper's human-
+in-the-loop experiment, is the verification reference.
+
+This capability is materially distinct from the completed benchmarks. It
+tests FlightLab's complex continuous-time frequency-response solve for an
+unstable fourth-order SISO system against an explicit scalar rational-function
+oracle. It does not repeat an eigensystem comparison, a time trajectory, a
+descriptor transformation, or a comparison with another numerical library.
+
+## Published input model and fixed realization
+
+Copy Equation (1) exactly, with `s` as the Laplace variable:
+
+```text
+                 0.78208 (s^2 + 0.2175 s + 0.5861)
+H_c(s) = -------------------------------------------------------
+         (s + 0.7599)(s - 0.02004)(s^2 + 0.1133 s + 0.6375)
+```
+
+The factor `(s - 0.02004)` supplies the source-described unstable pole. Do not
+stabilize, cancel, reorder, rescale, or otherwise reinterpret the published
+factors. Expanding them in ascending powers gives the denominator and numerator
+coefficients:
+
+```text
+a = [-0.0097081024500, 0.4699353727332, 0.706097742, 0.85316, 1]
+b = [ 0.458377088,     0.170102400,     0.78208,     0,       0]
+```
+
+Use the fixed phase-variable controllable-canonical realization whose transfer
+function is `(b0 + b1 s + b2 s^2) / (a0 + a1 s + a2 s^2 + a3 s^3 + s^4)`:
+
+```text
+    [[ 0,                 1,                0,          0],
+A =  [ 0,                 0,                1,          0],
+     [ 0,                 0,                0,          1],
+     [ 0.0097081024500,   -0.4699353727332, -0.706097742, -0.85316]]
+
+B = [[0], [0], [0], [1]]
+C = [[0.458377088, 0.170102400, 0.78208, 0]]
+D = [[0]]
+```
+
+These matrices are an exact algebraic realization of the printed-decimal
+transfer function, not separately published state coordinates or aircraft
+derivatives. Construct `A`, `B`, `C`, and `D` directly from the frozen values
+above; do not use SciPy, polynomial-expansion helpers, transfer-function
+conversion utilities, or a new realization API in the runner.
+
+Evaluate exactly this ordered angular-frequency vector, in radians per second:
+
+```text
+omega = [0.1, 0.5, 1.0, 2.0, 5.0]
+```
+
+The set spans the source's stated low-frequency region below `0.75 rad/s`, the
+transition around `1 rad/s`, and its higher-frequency region. It is selected
+for this benchmark rather than read from Figure 3; the figure is illustrative
+and no digitized plot values are verification targets.
+
+## Independent reference and comparison quantities
+
+For each fixed `omega`, form `s = complex(0.0, omega)` and evaluate the printed
+factored expression directly with ordinary complex scalar arithmetic. Do not
+use `StateSpace`, `numpy.linalg`, a matrix inverse, polynomial roots,
+`numpy.polyval`, SciPy, numerical integration, or values copied from
+FlightLab's result to construct the reference.
+
+Call `StateSpace.frequency_response(omega)` once with the complete vector. It
+must return a complex array of shape `(5, 1, 1)`. Flatten only the single SISO
+channel after shape validation. Compute, without rounding:
+
+1. complex-response residual: maximum complex magnitude
+   `abs(H_flightlab - H_reference)` across all five frequencies;
+2. magnitude residual: maximum `abs(abs(H_flightlab) - abs(H_reference))`;
+3. phase residual: maximum absolute principal-phase difference in radians,
+   computed as `abs(angle(H_flightlab / H_reference))` at each frequency.
+
+Every reference value must be nonzero before the phase ratio is formed. The
+complex response is the primary verification quantity. Magnitude and phase are
+separate audit quantities and must be computed from independently retained
+FlightLab and reference values, not reconstructed from the complex residual.
+
+## Tolerances and exact acceptance semantics
+
+- Maximum absolute complex-response residual: `1.0e-12`.
+- Maximum absolute magnitude residual: `1.0e-12`.
+- Maximum absolute principal-phase residual: `1.0e-12 rad`.
+
+These are numerical-equivalence tolerances, not uncertainty bounds or
+source-precision allowances: both paths evaluate the same published-decimal
+rational model through algebraically equivalent representations. The nominal
+current implementation gives a maximum complex residual below `5.0e-16` on
+the fixed grid. Equality with any limit passes.
+
+The benchmark passes if and only if the fixed matrices have the documented
+shapes and finite real entries, the frequency vector has shape `(5,)` with the
+exact ordered values above, both response vectors contain five finite complex
+values, every reference magnitude is strictly positive, all three residuals
+are finite and meet their respective limits, and the recorded overall Boolean
+is the conjunction of those comparisons.
+
+Malformed shapes, nonfinite matrix/frequency/response values, real or complex
+cardinality errors, zero reference values, or internally inconsistent residual
+or pass evidence raise `ValueError` before an `ExperimentRun` is constructed.
+Exceptions raised directly by `StateSpace.frequency_response()` propagate
+unchanged. Well-shaped finite evidence outside any tolerance remains meaningful
+failed evidence and returns an `ExperimentRun` with `passed = False`; exceeding
+a limit alone must not raise.
+
+## Evidence carrier and deterministic provenance
+
+Continue using `response_metrics()` and `experiment_run()` only as evidence-
+composition boundaries. Because `ExperimentRun` requires a sampled SISO
+response but this benchmark is a complex frequency-domain comparison, use the
+same fixed two-sample zero output/reference carrier and zero four-state initial
+condition as the completed GTM modal runner. Its response metrics are not
+acceptance quantities and must be identified as an auxiliary evidence carrier.
+
+Use run ID `verification-nasa-unstable-roll-frequency-response-v1`, method
+`exact`, and aware UTC creation time `2026-09-03T00:00:00+00:00`. Record in the
+existing supported flat metadata:
+
+- source title, authors, AIAA paper number, NTRS ID, section, equation, paper
+  page, both authoritative URLs, and publication date;
+- aircraft description, gross weight, altitude, airspeed, near-stall and
+  unstable-model statements, explicitly labeled as source provenance rather
+  than validation evidence;
+- the published numerator and denominator factors and expanded coefficient
+  tuples, fixed `A`, `B`, `C`, `D`, their shapes, canonical-realization status,
+  input/output identities (`sidestick input` and `roll attitude`), and units;
+- the ordered frequency grid, reference and FlightLab response real/imaginary
+  parts, three residuals, three limits, auxiliary-carrier status, evidence
+  classification, and overall pass Boolean.
+
+Two calls must produce exactly equal detached JSON-compatible
+`reproducibility_record()` dictionaries. No source PDF, generated response,
+plot, JSON record, or other evidence artifact is checked into the repository.
+
+## Evidence classification
+
+Classify this as **computational/software verification against a published
+analytical aircraft model**. The authoritative paper defines the transfer
+function, while the actual oracle is direct scalar evaluation of that equation.
+It is not physical model validation and not mixed evidence. The runner does not
+compare FlightLab with the paper's pilot measurements, simulator motion data,
+Figure 3 pixels, flight-test data, or a real aircraft response. Agreement shows
+only that FlightLab's state-space frequency-response implementation reproduces
+the published rational model at the fixed frequencies.
+
+## Focused tests to add during implementation
+
+- Assert the exact published factors, expanded coefficients, canonical
+  matrices, frequency order, SISO channel identities, and source provenance.
+- Independently evaluate Equation (1) at all five frequencies and assert the
+  runner records the exact reference real/imaginary tuples and the nominal
+  complex, magnitude, and phase residuals within their fixed limits.
+- Spy on `StateSpace.frequency_response()` to require one vector call with the
+  fixed grid and the fixed realization; do not inspect private implementation.
+- Assert the existing `ExperimentRun`, fixed identity/time, zero auxiliary
+  carrier, all tolerances, overall passing result, JSON compatibility,
+  detachment, and repeated-run determinism.
+- Parameterize one well-formed perturbation beyond each of the three limits and
+  assert a failed run is returned without an exception.
+- Reject wrong response shape/cardinality, nonfinite or zero reference data,
+  nonfinite or complex malformed fixed inputs, and inconsistent residual/pass
+  evidence with `ValueError`; verify a direct frequency-response exception
+  propagates unchanged.
+- Assert no SciPy import is added and no trajectory simulation, eigensystem,
+  physical-mode-identification, aircraft-model wrapper, or singular-direction
+  API is invoked.
+
+## Explicit non-goals
+
+- No physical/model validation, flight-test or wind-tunnel comparison, use of
+  the paper's human-subject results, calibration, system identification,
+  uncertainty quantification, certification, handling-qualities conclusion, or
+  safety claim.
+- No digitization or comparison of Figure 3, automatic Bode grid, interpolation,
+  phase unwrapping, time response, forcing-function simulation, pilot model,
+  motion-cue model, stall recovery logic, or nonlinear/post-stall dynamics.
+- No additional aircraft, flight condition, input/output channel, frequency,
+  transfer function, realization form, random/property case, tolerance sweep,
+  or broad frequency-response verification.
+- No eigenvalue, pole/zero, stability-margin, singular-value/direction,
+  controllability/observability, balanced-reduction, controller, observer,
+  physical-mode-identification, or aircraft wrapper assertion.
+- No generic V&V framework, benchmark registry, transfer-function class,
+  canonical-realization helper, polynomial utility, data loader, source schema,
+  new result/report/verdict/serializer, persistence behavior, CLI, plotting, or
+  generated evidence artifact.
+- No new dependency and no change to `StateSpace`, response metrics,
+  `ExperimentRun`, the three completed runners, or unrelated tests unless the
+  fixed benchmark demonstrates an actual core discrepancy.
 
 ## Read-only repository size and complexity snapshot
 
@@ -1758,7 +1977,8 @@ git status
 
 ## Restart instruction
 
-Read `NEXT.md`, inspect the three completed verification runners, then define
-the next single V&V capability exactly as directed under "Exact next smallest
-task." Do not implement it, expand the V&V framework, refactor unrelated
-modules, touch the existing untracked `.vscode/`, or push.
+Read `NEXT.md`, then implement the narrowly scoped NASA unstable-roll
+frequency-response verification runner exactly as specified, without expanding
+the V&V framework or refactoring unrelated modules. Run the required checks,
+update this checkpoint, commit the implementation, do not touch the existing
+untracked `.vscode/`, and do not push.
