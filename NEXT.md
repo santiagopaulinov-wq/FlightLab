@@ -184,12 +184,12 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: one fixed full-order Luenberger-observer synthesis and
-  interconnection runner using the official MathWorks observer-design worked
-  example, exact gain/error-dynamics/augmented-realization oracles, and
-  deterministic `ExperimentRun` evidence.
-- Completed capability commit: this checkpoint's implementation commit
-  (`feat: add observer verification benchmark`).
+- Completed capability: definition of the tenth fixed V&V capability: an
+  observer-based dynamic output-feedback and separation-principle benchmark
+  using the official MathWorks pole-placement contract and exact algebraic
+  oracles.
+- Completed capability commit: this documentation checkpoint's commit
+  (`docs: define separation-principle verification benchmark`).
 
 ## Current verification baseline
 
@@ -2068,16 +2068,311 @@ or interconnects a controller.
 
 ## Exact next smallest task
 
-Define, but do not implement, the tenth single V&V capability. Select one
-authoritative, publicly accessible source and freeze its exact citation,
-reconstructable inputs, evidence classification, FlightLab API target,
-independent comparison oracle, quantities, deterministic tolerances, failure
-semantics, `ExperimentRun` provenance, focused tests, and explicit non-goals in
-this file. It must add one materially distinct kind of evidence beyond the nine
-completed runners, including the new observer benchmark. Do not add a framework,
-abstraction, dependency, persistence behavior, experimental or flight-data
-physical validation, or implementation code. Commit only that documentation
-checkpoint and do not push.
+### Implement the fixed MathWorks separation-principle benchmark
+
+Add `run_mathworks_separation_principle_verification_benchmark()` beside the
+nine completed runners in `flightlab.verification`. Use the fixed plant and
+literal controller/observer gains below to verify
+`StateSpace.observer_based_output_feedback()`, its augmented realization, the
+exact `[x; x_hat]` to `[x; e]` coordinate identity, and the separation-principle
+pole union. Return deterministic evidence through the existing `ExperimentRun`
+machinery and add only the focused tests frozen here. Do not add a framework,
+dependency, generic interconnection adapter, persistence behavior, simulation,
+or physical-validation assertion.
+
+## Selected tenth V&V capability
+
+### MathWorks observer-based output feedback and separation principle
+
+Use *MathWorks Control System Toolbox Documentation*, `Pole Placement`,
+sections "State-Feedback Gain Selection" and "State Estimator Design,"
+official public online documentation, accessed `2026-09-03`:
+
+```text
+https://www.mathworks.com/help/control/getstart/pole-placement.html
+```
+
+The source states the continuous-time plant equations, the feedback convention
+`u = -Kx`, the controller dynamics `A-BK`, the observer equation
+
+```text
+xi_dot = A xi + B u + L(y - C xi - D u),
+```
+
+and the dynamic output-feedback substitution `u = -K xi`. It publishes the
+resulting compensator equation and, in `[x; e]` coordinates with `e = x-xi`,
+the block-triangular closed-loop dynamics
+
+```text
+[[A-BK, BK],
+ [   0, A-LC]].
+```
+
+The source concludes that the complete closed-loop poles are independently
+assigned as the union of the `A-BK` and `A-LC` eigenvalues. Record the product
+documentation, page/section titles, URL, access date, all conventions/equations,
+coordinate definition, block-triangular matrix, and pole-union conclusion as
+exact provenance.
+
+This benchmark uses that authoritative interconnection contract with the exact
+analytically solvable realization below. It must not call MATLAB, MathWorks
+services, SciPy, python-control, or another interconnection/pole solver at
+runtime.
+
+## Frozen plant, gains, and ordering
+
+Freeze this continuous-time SISO realization, with no physical labels or units:
+
+```text
+A = [[-1, -3/4]]    B = [[1]]    C = [[1, 1]]    D = [[0]]
+    [[ 1,    0 ]]        [[0]]
+
+K = [[2, 5/4]]
+L = [[17/3], [-5/3]]
+
+controller poles sorted = [-2, -1]
+observer-error poles sorted = [-3, -2]
+
+plant/estimate augmented state order = [x; x_hat]
+external command = v
+returned output = y
+error-coordinate order = [x; e], where e = x - x_hat
+```
+
+The plant is the exact rational model used by the completed observer benchmark,
+but this runner accepts literal `K` and `L` and verifies their joint dynamic
+output-feedback interconnection. It performs no gain synthesis and does not
+call either completed controller/observer runner.
+
+## Independent exact algebraic oracle
+
+Encode these literal matrices using the rational expressions shown:
+
+```text
+B K = [[2, 5/4], [0, 0]]
+
+A_controller = A - B K
+             = [[-3, -2], [1, 0]]
+
+L C = [[17/3, 17/3], [-5/3, -5/3]]
+
+A_error = A - L C
+        = [[-20/3, -77/12], [8/3, 5/3]]
+
+A_bottom_right = A - B K - L C
+               = [[-26/3, -23/3], [8/3, 5/3]].
+```
+
+FlightLab's documented `observer_based_output_feedback()` convention is
+`u = v-K x_hat` and augmented state order `[x; x_hat]`. Freeze its literal
+oracle:
+
+```text
+A_aug = [[A,   -B K],
+         [L C, A-B K-L C]]
+
+      = [[-1,   -3/4,      -2,    -5/4],
+         [ 1,      0,       0,       0],
+         [17/3, 17/3,   -26/3,   -23/3],
+         [-5/3,-5/3,      8/3,     5/3]]
+
+B_aug = [[B], [B]] = [[1], [0], [1], [0]]
+C_aug = [C, -D K] = [[1, 1, 0, 0]]
+D_aug = D = [[0]].
+```
+
+Use the literal involutory coordinate matrix
+
+```text
+S = [[I,  0],
+     [I, -I]],    S^-1 = S,
+```
+
+which maps `[x; x_hat]` to `[x; e]`. Direct fixed multiplication must give
+
+```text
+S A_aug S = [[A-BK, BK],
+             [   0, A-LC]],
+
+S B_aug = [[B], [0]],
+C_aug S = [C, 0].
+```
+
+Do not compute an inverse for `S`; encode and verify the literal involution
+`S @ S = I`.
+
+Independently derive each two-by-two block's characteristic coefficients using
+scalar trace and determinant formulas:
+
+```text
+A-BK: [1, 3, 2] -> poles [-2, -1]
+A-LC: [1, 5, 6] -> poles [-3, -2].
+```
+
+Compute each pair of roots with the scalar quadratic formula after validating
+its nonnegative discriminant. Concatenate and sort the two literal-oracle pole
+pairs to `[-3,-2,-2,-1]`. Compute the exact combined characteristic polynomial
+by direct fixed coefficient convolution:
+
+```text
+(s^2+3s+2)(s^2+5s+6) = s^4+8s^3+23s^2+28s+12.
+```
+
+Do not call an eigensolver, `numpy.poly`, `numpy.roots`, `numpy.convolve`, a
+symbolic tool, another `StateSpace`, or another interconnection implementation
+to create any oracle.
+
+## FlightLab API and comparison quantities
+
+Construct one fixed `StateSpace`, retain exact copies of source matrices and
+gains, and call `observer_based_output_feedback(K, L)` exactly once. Validate
+the returned interconnection record, stored gain copies, augmented `StateSpace`,
+all shapes/cardinalities, real/complex expectations, and finiteness before
+comparison. Compute without rounding:
+
+1. gain-preservation residual: maximum absolute difference between supplied and
+   returned stored `K/L`, with exact identity/equality Booleans;
+2. augmented-realization residual: maximum absolute componentwise difference
+   across returned augmented `A/B/C/D` and all literal oracles;
+3. separation-coordinate residual: maximum absolute componentwise difference
+   across `S A_aug S`, `S B_aug`, and `C_aug S` versus their literal block-
+   triangular/input/output oracles;
+4. involution residual: maximum absolute componentwise difference of `S S`
+   from `I4`;
+5. zero lower-left separation block residual: maximum absolute entry of the
+   returned transformed dynamics' lower-left two-by-two block;
+6. controller/observer characteristic-coefficient residual: maximum absolute
+   difference across direct scalar coefficients versus `[1,3,2]` and `[1,5,6]`;
+7. separated-pole residual: maximum absolute difference of the concatenated,
+   sorted scalar-quadratic roots from `[-3,-2,-2,-1]`;
+8. combined-polynomial residual: maximum absolute difference of direct fixed
+   coefficient multiplication from `[1,8,23,28,12]`;
+9. source-preservation residual across the original plant matrices and supplied
+   gain arrays, plus exact Booleans for unchanged values, both nonnegative
+   discriminants, asymptotic stability of both pole pairs, and exact pole-union
+   multiplicity (including the repeated `-2`).
+
+Do not call gain-placement, Luenberger-observer, full-state-feedback,
+`eigenvalues()`, modal, simulation/response, frequency-response, Gramian,
+balanced-reduction, controllability/observability, or aircraft APIs directly
+from the runner. This benchmark has one target API boundary only.
+
+## Deterministic tolerances and acceptance semantics
+
+- Gain-preservation tolerance: `0.0`.
+- Maximum absolute augmented-realization residual: `1.0e-12`.
+- Maximum absolute separation-coordinate residual: `1.0e-12`.
+- Maximum absolute involution residual: `0.0`.
+- Maximum absolute zero-block residual: `1.0e-12`.
+- Maximum absolute characteristic-coefficient residual: `1.0e-12`.
+- Maximum absolute separated-pole residual: `1.0e-12`.
+- Maximum absolute combined-polynomial residual: `1.0e-12`.
+- Source-matrix/gain preservation tolerance: `0.0`.
+
+These limits establish deterministic numerical equivalence for fixed rational
+values and direct scalar algebra; they are not source uncertainty. Equality
+with every limit passes.
+
+The benchmark passes if and only if every input/result meets structural
+validation; all residuals, coefficients, discriminants, and roots are finite
+and real; every residual meets its limit; both gain copies and all source arrays
+remain exactly unchanged; `S` is exactly involutory; the lower-left separation
+block is zero within tolerance; both discriminants are nonnegative; both pole
+pairs are strictly stable; and the sorted combined pole multiset, including
+multiplicity, matches `[-3,-2,-2,-1]` within tolerance.
+
+Malformed, complex where real is required, nonfinite, wrong-shape,
+wrong-cardinality, wrong record/system type, negative discriminant,
+non-real/nonfinite derived root, mutated input, inconsistent stored gain,
+inconsistent augmented block, or internally inconsistent residual/pass evidence
+raises `ValueError` before an `ExperimentRun` is constructed. An exception
+raised directly by `observer_based_output_feedback()` propagates unchanged.
+Structurally valid finite evidence outside a numerical tolerance, or producing
+finite wrong/nonstable separated poles while remaining algebraically consistent,
+returns an `ExperimentRun` with `passed = False`; comparison failure alone must
+not raise.
+
+## Evidence carrier and deterministic provenance
+
+Continue using `response_metrics()` and `experiment_run()` only as evidence-
+composition boundaries. This is an algebraic interconnection benchmark, so use
+a fixed two-sample zero output/reference carrier and zero two-state plant
+initial condition. Label all response metrics as auxiliary and excluded from
+acceptance.
+
+Use run ID `verification-mathworks-separation-principle-v1`, method `exact`, and
+aware UTC creation time `2026-09-06T00:00:00+00:00`. Record in existing flat
+metadata:
+
+- exact source/product/page/section/URL/access-date provenance and every
+  published convention, equation, coordinate definition, and conclusion;
+- fixed `A/B/C/D/K/L`, shapes, counts, orders, no-unit status, literal products,
+  constituent dynamics, augmented matrices, coordinate map, separated blocks,
+  coefficients, discriminants, pole pairs/multiset, and combined polynomial;
+- every returned record field/matrix and shape, stored gains, transformed
+  matrices, direct coefficients/roots/polynomial, all residuals/tolerances and
+  acceptance Booleans, auxiliary-carrier status, evidence classification, and
+  overall pass.
+
+Two equivalent calls must return exactly equal detached JSON-compatible
+`reproducibility_record()` dictionaries. Do not check in downloaded source
+content, generated matrices, plots, simulations, or serialized evidence.
+
+## Evidence classification and material distinction
+
+Classify this as **computational/software verification of observer-based
+dynamic output-feedback interconnection and the continuous-time separation
+principle against an authoritative control-design contract and exact algebraic
+oracles**. It is not runtime MathWorks cross-validation, sampled-response
+validation, physical model validation, or mixed evidence.
+
+This is materially distinct from all nine completed runners. The separate
+controller and observer benchmarks verify `A-BK` and `A-LC` in isolation; this
+runner verifies their coupled dynamic compensator topology, the nontrivial
+coordinate transformation that exposes block-triangular dynamics, and exact
+closed-loop pole-union multiplicity. No prior runner verifies a dynamic output-
+feedback interconnection or separation-principle evidence.
+
+## Focused tests to add during implementation
+
+- Assert exact MathWorks product/page/sections/URL/access-date provenance,
+  equations/conventions/conclusion, evidence classification, fixed model/gains/
+  ordering, run ID, method, and timestamp.
+- Independently hard-code all rational product, block, augmented, coordinate,
+  coefficient, discriminant, pole, and polynomial oracles; assert nominal
+  returned evidence, every residual/tolerance/Boolean, and overall pass.
+- Spy on `observer_based_output_feedback()` to require exactly one call with the
+  exact fixed `K/L` objects and source realization; assert no out-of-scope API is
+  directly invoked.
+- Assert the zero carrier, zero initial state, JSON compatibility, detachment,
+  and exact repeated-run determinism.
+- Parameterize structurally valid finite interconnections that independently
+  exceed augmented, separation-coordinate, zero-block, coefficient, pole, and
+  combined-polynomial tolerances, plus finite wrong/nonstable separated poles;
+  assert failed evidence is returned without raising.
+- Reject wrong record/system types, shapes/cardinalities, complex/nonfinite
+  matrices/gains, altered stored gains, negative/nonfinite discriminants,
+  nonfinite derived evidence, input mutation, and algebraically inconsistent
+  augmented blocks with `ValueError` before record creation.
+- Verify direct target-API exceptions propagate unchanged and importing/running
+  the benchmark loads no optional dependency.
+
+## Explicit non-goals
+
+- No experimental, flight-test, wind-tunnel, or aircraft data; no physical
+  validation, noise/disturbance model, uncertainty, certification, robustness,
+  sensitivity, performance, convergence-rate, or safety claim.
+- No gain synthesis, gain tuning, automatic pole selection, Kalman/LQG/LQR/LQI
+  design, Riccati equation, integral action, prefilter, saturation, or actuator/
+  sensor dynamics.
+- No time response, source example simulation, tracking/estimation trajectory,
+  settling/rise/overshoot metric, frequency response, or stability margin.
+- No alternate state ordering, MIMO/multi-output case, reduced-order/nonlinear/
+  time-varying observer, discrete/descriptor/complex system, or model family.
+- No new abstraction, dependency, registry, source schema, result/report type,
+  serializer, persistence feature, CLI, plotting, generated artifact, or
+  refactor of `StateSpace`, `ExperimentRun`, existing runners, or unrelated
+  tests unless implementation exposes a demonstrated core discrepancy.
 
 ## Selected ninth V&V capability
 
@@ -3196,7 +3491,9 @@ git status
 
 ## Restart instruction
 
-Read `NEXT.md`, inspect the nine completed verification runners, then define
-the tenth single V&V capability exactly as directed under "Exact next smallest
-task." Do not implement it, expand the V&V framework, refactor unrelated
-modules, touch the existing untracked `.vscode/`, or push.
+Read `NEXT.md`, then implement
+`run_mathworks_separation_principle_verification_benchmark()` beside the nine
+completed verification runners exactly as directed under "Exact next smallest
+task." Add only the focused tests frozen there. Do not expand the V&V framework,
+add dependencies or persistence, refactor unrelated modules, touch the existing
+untracked `.vscode/`, or push.
