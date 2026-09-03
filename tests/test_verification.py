@@ -13,6 +13,7 @@ from flightlab.verification import (
     run_linear_state_space_verification_benchmark,
     run_mathworks_balanced_truncation_verification_benchmark,
     run_mathworks_controllability_verification_benchmark,
+    run_mathworks_luenberger_observer_verification_benchmark,
     run_mathworks_siso_pole_placement_verification_benchmark,
     run_nasa_gtm_longitudinal_modal_verification_benchmark,
     run_nasa_unstable_roll_frequency_response_verification_benchmark,
@@ -2144,3 +2145,375 @@ def test_balanced_truncation_benchmark_rejects_invalid_returned_order(
     monkeypatch.setattr(StateSpace, "balanced_truncation", lambda self, order: result)
     with pytest.raises(ValueError, match="retained order"):
         run_mathworks_balanced_truncation_verification_benchmark()
+
+
+_OBSERVER_A = np.array([[-1.0, -0.75], [1.0, 0.0]])
+_OBSERVER_B = np.array([[1.0], [0.0]])
+_OBSERVER_C = np.array([[1.0, 1.0]])
+_OBSERVER_D = np.array([[0.0]])
+_OBSERVER_GAIN = np.array([[17.0 / 3.0], [-5.0 / 3.0]])
+_OBSERVER_ERROR_A = np.array(
+    [[-20.0 / 3.0, -77.0 / 12.0], [8.0 / 3.0, 5.0 / 3.0]]
+)
+_OBSERVER_AUGMENTED_A = np.array(
+    [
+        [-1.0, -0.75, 0.0, 0.0],
+        [1.0, 0.0, 0.0, 0.0],
+        [17.0 / 3.0, 17.0 / 3.0, -20.0 / 3.0, -77.0 / 12.0],
+        [-5.0 / 3.0, -5.0 / 3.0, 8.0 / 3.0, 5.0 / 3.0],
+    ]
+)
+
+
+def test_observer_benchmark_calls_fixed_public_api_boundaries(monkeypatch):
+    original_observer = StateSpace.luenberger_observer
+    calls = []
+    returned_gain = _OBSERVER_GAIN.copy()
+
+    def place(system, desired_poles):
+        np.testing.assert_array_equal(system.A, _OBSERVER_A)
+        np.testing.assert_array_equal(system.B, _OBSERVER_B)
+        np.testing.assert_array_equal(system.C, _OBSERVER_C)
+        np.testing.assert_array_equal(system.D, _OBSERVER_D)
+        np.testing.assert_array_equal(desired_poles, [-2.0, -3.0])
+        calls.append("place")
+        return returned_gain
+
+    def observer(system, gain):
+        assert gain is returned_gain
+        calls.append("observer")
+        return original_observer(system, gain)
+
+    monkeypatch.setattr(StateSpace, "place_siso_observer_poles", place)
+    monkeypatch.setattr(StateSpace, "luenberger_observer", observer)
+
+    run = run_mathworks_luenberger_observer_verification_benchmark()
+
+    assert calls == ["place", "observer"]
+    assert run.user_metadata["passed"] is True
+
+
+def test_observer_benchmark_matches_exact_algebraic_oracles():
+    run = run_mathworks_luenberger_observer_verification_benchmark()
+
+    np.testing.assert_allclose(
+        run.controller["observer_gain"], _OBSERVER_GAIN.ravel(), rtol=0.0, atol=1e-12
+    )
+    np.testing.assert_allclose(
+        run.user_metadata["error_state_A"],
+        _OBSERVER_ERROR_A.ravel(),
+        rtol=0.0,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        run.user_metadata["augmented_A"],
+        _OBSERVER_AUGMENTED_A.ravel(),
+        rtol=0.0,
+        atol=1e-12,
+    )
+    assert run.user_metadata["augmented_B"] == (1.0, 0.0, 1.0, 0.0)
+    assert run.user_metadata["augmented_C"] == (
+        1.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    )
+    assert run.user_metadata["augmented_D"] == (0.0, 0.0, 0.0)
+    np.testing.assert_allclose(
+        run.user_metadata["characteristic_coefficients"],
+        [1.0, 5.0, 6.0],
+        rtol=0.0,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        run.user_metadata["achieved_error_poles_sorted"],
+        [-3.0, -2.0],
+        rtol=0.0,
+        atol=1e-12,
+    )
+    for key in (
+        "maximum_absolute_observer_gain_residual",
+        "maximum_absolute_observer_gain_preservation_residual",
+        "maximum_absolute_error_state_matrix_residual",
+        "maximum_absolute_characteristic_coefficient_residual",
+        "maximum_absolute_achieved_error_pole_residual",
+        "maximum_absolute_augmented_realization_residual",
+        "maximum_absolute_source_matrix_preservation_residual",
+    ):
+        assert run.user_metadata[key] <= run.user_metadata[
+            {
+                "maximum_absolute_observer_gain_residual": (
+                    "observer_gain_residual_tolerance"
+                ),
+                "maximum_absolute_observer_gain_preservation_residual": (
+                    "observer_gain_preservation_tolerance"
+                ),
+                "maximum_absolute_error_state_matrix_residual": (
+                    "error_state_matrix_residual_tolerance"
+                ),
+                "maximum_absolute_characteristic_coefficient_residual": (
+                    "characteristic_coefficient_residual_tolerance"
+                ),
+                "maximum_absolute_achieved_error_pole_residual": (
+                    "observer_pole_residual_tolerance"
+                ),
+                "maximum_absolute_augmented_realization_residual": (
+                    "augmented_realization_residual_tolerance"
+                ),
+                "maximum_absolute_source_matrix_preservation_residual": (
+                    "source_matrix_preservation_tolerance"
+                ),
+            }[key]
+        ]
+    assert run.user_metadata["characteristic_discriminant_nonnegative"] is True
+    assert run.user_metadata["error_dynamics_asymptotically_stable"] is True
+    assert run.user_metadata["source_matrices_preserved"] is True
+    assert run.user_metadata["passed"] is True
+
+
+def test_observer_benchmark_records_exact_source_and_identity():
+    run = run_mathworks_luenberger_observer_verification_benchmark()
+
+    assert isinstance(run, ExperimentRun)
+    assert run.system["A"] == tuple(_OBSERVER_A.flat)
+    assert run.system["B"] == tuple(_OBSERVER_B.flat)
+    assert run.system["C"] == tuple(_OBSERVER_C.flat)
+    assert run.system["D"] == tuple(_OBSERVER_D.flat)
+    assert run.controller["desired_observer_poles_input_order"] == (-2.0, -3.0)
+    assert run.reference["product_documentation"] == (
+        "MathWorks Control System Toolbox Documentation"
+    )
+    assert run.reference["page_title"] == "place - Pole placement design"
+    assert run.reference["example_title"] == "Pole Placement Observer Design"
+    assert run.reference["gain_command"] == "L = place(A',C',[-2,-3])'"
+    assert run.reference["only_output_measured"] is True
+    assert run.reference["access_date"] == "2026-09-03"
+    assert run.reference["source_url"] == (
+        "https://www.mathworks.com/help/control/ref/place.html"
+    )
+    assert run.run_id == "verification-mathworks-luenberger-observer-v1"
+    assert run.created_at.isoformat() == "2026-09-05T12:00:00+00:00"
+
+
+def test_observer_benchmark_carrier_and_record_are_deterministic():
+    first = run_mathworks_luenberger_observer_verification_benchmark()
+    second = run_mathworks_luenberger_observer_verification_benchmark()
+
+    assert first.method == "exact"
+    np.testing.assert_array_equal(first.initial_state, np.zeros(2))
+    np.testing.assert_array_equal(first.metrics.time, [0.0, 1.0])
+    np.testing.assert_array_equal(first.metrics.output, np.zeros(2))
+    np.testing.assert_array_equal(first.metrics.reference, np.zeros(2))
+    assert first.user_metadata["auxiliary_response_carrier"] is True
+    assert first.user_metadata["observer_gain_preservation_tolerance"] == 0.0
+    assert first.user_metadata["source_matrix_preservation_tolerance"] == 0.0
+    for key in (
+        "observer_gain_residual_tolerance",
+        "error_state_matrix_residual_tolerance",
+        "characteristic_coefficient_residual_tolerance",
+        "observer_pole_residual_tolerance",
+        "augmented_realization_residual_tolerance",
+    ):
+        assert first.user_metadata[key] == 1.0e-12
+    first_record = first.reproducibility_record()
+    second_record = second.reproducibility_record()
+    assert first_record == second_record
+    json.dumps(first_record, allow_nan=False)
+    first_record["user_metadata"]["passed"] = False
+    assert first.reproducibility_record() == second_record
+
+
+@pytest.mark.parametrize("gain_delta", [2.0e-12, -2.0e-12])
+def test_observer_benchmark_returns_failed_finite_gain_evidence(
+    monkeypatch, gain_delta
+):
+    changed_gain = _OBSERVER_GAIN.copy()
+    changed_gain[0, 0] += gain_delta
+    monkeypatch.setattr(
+        StateSpace,
+        "place_siso_observer_poles",
+        lambda self, poles: changed_gain,
+    )
+
+    run = run_mathworks_luenberger_observer_verification_benchmark()
+
+    assert run.user_metadata["maximum_absolute_observer_gain_residual"] > 1.0e-12
+    assert run.user_metadata["passed"] is False
+
+
+def test_observer_benchmark_returns_failed_gain_preservation_evidence(monkeypatch):
+    original_observer = StateSpace.luenberger_observer
+
+    def changed_observer(system, gain):
+        stored_gain = gain.copy()
+        stored_gain[0, 0] += 2.0e-12
+        return original_observer(system, stored_gain)
+
+    monkeypatch.setattr(StateSpace, "luenberger_observer", changed_observer)
+
+    run = run_mathworks_luenberger_observer_verification_benchmark()
+
+    assert run.user_metadata[
+        "maximum_absolute_observer_gain_preservation_residual"
+    ] > 0.0
+    assert run.user_metadata["passed"] is False
+
+
+def test_observer_benchmark_returns_failed_nonstable_pole_evidence(monkeypatch):
+    source = StateSpace(_OBSERVER_A, _OBSERVER_B, _OBSERVER_C, _OBSERVER_D)
+    unstable_gain = source.place_siso_observer_poles([2.0, 3.0])
+    monkeypatch.setattr(
+        StateSpace,
+        "place_siso_observer_poles",
+        lambda self, poles: unstable_gain,
+    )
+
+    run = run_mathworks_luenberger_observer_verification_benchmark()
+
+    assert run.user_metadata["error_dynamics_asymptotically_stable"] is False
+    assert run.user_metadata["passed"] is False
+
+
+@pytest.mark.parametrize(
+    ("gain", "message"),
+    [
+        (np.zeros(2), "must have shape"),
+        (np.zeros((2, 1), dtype=complex), "finite real values"),
+        (np.full((2, 1), np.nan), "finite real values"),
+    ],
+)
+def test_observer_benchmark_rejects_malformed_gain(monkeypatch, gain, message):
+    monkeypatch.setattr(
+        StateSpace, "place_siso_observer_poles", lambda self, poles: gain
+    )
+    with pytest.raises(ValueError, match=message):
+        run_mathworks_luenberger_observer_verification_benchmark()
+
+
+def test_observer_benchmark_rejects_wrong_interconnection_type(monkeypatch):
+    monkeypatch.setattr(StateSpace, "luenberger_observer", lambda self, gain: None)
+    with pytest.raises(ValueError, match="LuenbergerObserverInterconnection"):
+        run_mathworks_luenberger_observer_verification_benchmark()
+
+
+def test_observer_benchmark_rejects_negative_quadratic_discriminant(monkeypatch):
+    monkeypatch.setattr(
+        StateSpace,
+        "place_siso_observer_poles",
+        lambda self, poles: np.zeros((2, 1)),
+    )
+    with pytest.raises(ValueError, match="discriminant must be nonnegative"):
+        run_mathworks_luenberger_observer_verification_benchmark()
+
+
+def test_observer_benchmark_rejects_inconsistent_interconnection(monkeypatch):
+    original_observer = StateSpace.luenberger_observer
+
+    def inconsistent(system, gain):
+        result = original_observer(system, gain)
+        changed = StateSpace(
+            result.system.A + np.eye(4) * 2.0e-12,
+            result.system.B,
+            result.system.C,
+            result.system.D,
+        )
+        return result._replace(system=changed)
+
+    monkeypatch.setattr(StateSpace, "luenberger_observer", inconsistent)
+    with pytest.raises(ValueError, match="internally inconsistent"):
+        run_mathworks_luenberger_observer_verification_benchmark()
+
+
+def test_observer_benchmark_rejects_source_matrix_mutation(monkeypatch):
+    original_place = StateSpace.place_siso_observer_poles
+
+    def mutating_place(system, poles):
+        gain = original_place(system, poles)
+        system.A[0, 0] += 1.0
+        return gain
+
+    monkeypatch.setattr(StateSpace, "place_siso_observer_poles", mutating_place)
+    with pytest.raises(ValueError, match="source matrices were mutated"):
+        run_mathworks_luenberger_observer_verification_benchmark()
+
+
+@pytest.mark.parametrize(
+    "method_name", ["place_siso_observer_poles", "luenberger_observer"]
+)
+def test_observer_benchmark_propagates_target_api_exceptions(
+    monkeypatch, method_name
+):
+    expected = RuntimeError(f"{method_name} failed")
+
+    def fail(*args, **kwargs):
+        raise expected
+
+    monkeypatch.setattr(StateSpace, method_name, fail)
+    with pytest.raises(RuntimeError) as caught:
+        run_mathworks_luenberger_observer_verification_benchmark()
+    assert caught.value is expected
+
+
+def test_observer_benchmark_does_not_import_optional_dependencies():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; from flightlab.verification import "
+                "run_mathworks_luenberger_observer_verification_benchmark as run; "
+                "run(); assert 'scipy' not in sys.modules; "
+                "assert 'control' not in sys.modules; assert 'matlab' not in sys.modules"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_observer_benchmark_does_not_directly_invoke_out_of_scope_apis(
+    monkeypatch,
+):
+    source = StateSpace(_OBSERVER_A, _OBSERVER_B, _OBSERVER_C, _OBSERVER_D)
+    interconnection = source.luenberger_observer(_OBSERVER_GAIN)
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("out-of-scope API was invoked directly")
+
+    for method_name in (
+        "place_siso_poles",
+        "is_fully_observable",
+        "observability_rank",
+        "eigenvalues",
+        "modal_properties",
+        "simulate",
+        "frequency_response",
+        "controllability_gramian",
+        "balanced_truncation",
+    ):
+        monkeypatch.setattr(StateSpace, method_name, unexpected)
+    monkeypatch.setattr(
+        StateSpace,
+        "place_siso_observer_poles",
+        lambda self, poles: _OBSERVER_GAIN.copy(),
+    )
+    monkeypatch.setattr(
+        StateSpace,
+        "luenberger_observer",
+        lambda self, gain: interconnection,
+    )
+
+    run = run_mathworks_luenberger_observer_verification_benchmark()
+
+    assert run.user_metadata["passed"] is True

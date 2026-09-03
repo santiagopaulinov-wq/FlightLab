@@ -7,7 +7,11 @@ import numpy as np
 
 from flightlab.experiment import ExperimentRun, experiment_run
 from flightlab.response import response_metrics
-from flightlab.state_space import BalancedTruncation, StateSpace
+from flightlab.state_space import (
+    BalancedTruncation,
+    LuenbergerObserverInterconnection,
+    StateSpace,
+)
 
 _ACCEPTANCE_TOLERANCE = 1.0e-12
 _RUN_ID = "verification-linear-state-space-closed-form-v1"
@@ -1570,4 +1574,336 @@ def run_mathworks_balanced_truncation_verification_benchmark() -> ExperimentRun:
         },
         run_id="verification-mathworks-balanced-truncation-v1",
         created_at=datetime(2026, 9, 5, tzinfo=UTC),
+    )
+
+
+def run_mathworks_luenberger_observer_verification_benchmark() -> ExperimentRun:
+    """Verify observer synthesis and interconnection against MathWorks' example."""
+    matrix_a = np.array([[-1.0, -0.75], [1.0, 0.0]])
+    matrix_b = np.array([[1.0], [0.0]])
+    matrix_c = np.array([[1.0, 1.0]])
+    matrix_d = np.array([[0.0]])
+    desired_poles = np.array([-2.0, -3.0])
+    reference_gain = np.array([[17.0 / 3.0], [-5.0 / 3.0]])
+    reference_error_a = np.array(
+        [[-20.0 / 3.0, -77.0 / 12.0], [8.0 / 3.0, 5.0 / 3.0]]
+    )
+    reference_coefficients = np.array([1.0, 5.0, 6.0])
+    reference_poles = np.array([-3.0, -2.0])
+    reference_augmented_a = np.array(
+        [
+            [-1.0, -3.0 / 4.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+            [17.0 / 3.0, 17.0 / 3.0, -20.0 / 3.0, -77.0 / 12.0],
+            [-5.0 / 3.0, -5.0 / 3.0, 8.0 / 3.0, 5.0 / 3.0],
+        ]
+    )
+    reference_augmented_b = np.array([[1.0], [0.0], [1.0], [0.0]])
+    reference_augmented_c = np.array(
+        [[1.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
+    )
+    reference_augmented_d = np.zeros((3, 1))
+    numerical_tolerance = 1.0e-12
+    exact_tolerance = 0.0
+
+    for name, matrix, shape in (
+        ("A", matrix_a, (2, 2)),
+        ("B", matrix_b, (2, 1)),
+        ("C", matrix_c, (1, 2)),
+        ("D", matrix_d, (1, 1)),
+    ):
+        if matrix.shape != shape:
+            raise ValueError(
+                f"MathWorks observer benchmark matrix {name} must have shape {shape}"
+            )
+        if np.iscomplexobj(matrix) or not np.all(np.isfinite(matrix)):
+            raise ValueError(
+                f"MathWorks observer benchmark matrix {name} must contain only "
+                "finite real values"
+            )
+    if desired_poles.shape != (2,) or not np.array_equal(
+        desired_poles, np.array([-2.0, -3.0])
+    ):
+        raise ValueError(
+            "MathWorks observer benchmark desired poles must contain the fixed order"
+        )
+
+    source_copies = tuple(
+        matrix.copy() for matrix in (matrix_a, matrix_b, matrix_c, matrix_d)
+    )
+    system = StateSpace(matrix_a, matrix_b, matrix_c, matrix_d)
+    gain = np.asarray(system.place_siso_observer_poles(desired_poles))
+    if gain.shape != (2, 1):
+        raise ValueError("MathWorks observer benchmark gain must have shape (2, 1)")
+    if np.iscomplexobj(gain) or not np.all(np.isfinite(gain)):
+        raise ValueError(
+            "MathWorks observer benchmark gain must contain only finite real values"
+        )
+
+    interconnection = system.luenberger_observer(gain)
+    if not isinstance(interconnection, LuenbergerObserverInterconnection):
+        raise ValueError(  # noqa: TRY004 - frozen evidence contract uses ValueError
+            "MathWorks observer benchmark result must be a "
+            "LuenbergerObserverInterconnection"
+        )
+    stored_gain = np.asarray(interconnection.observer_gain)
+    if stored_gain.shape != (2, 1):
+        raise ValueError(
+            "MathWorks observer benchmark stored gain must have shape (2, 1)"
+        )
+    if np.iscomplexobj(stored_gain) or not np.all(np.isfinite(stored_gain)):
+        raise ValueError(
+            "MathWorks observer benchmark stored gain must contain only finite "
+            "real values"
+        )
+    augmented = interconnection.system
+    if not isinstance(augmented, StateSpace):
+        raise ValueError(  # noqa: TRY004 - frozen evidence contract uses ValueError
+            "MathWorks observer benchmark augmented system must be a StateSpace"
+        )
+    for name, matrix, shape in (
+        ("A", np.asarray(augmented.A), (4, 4)),
+        ("B", np.asarray(augmented.B), (4, 1)),
+        ("C", np.asarray(augmented.C), (3, 4)),
+        ("D", np.asarray(augmented.D), (3, 1)),
+    ):
+        if matrix.shape != shape:
+            raise ValueError(
+                f"MathWorks observer benchmark augmented {name} must have shape {shape}"
+            )
+        if np.iscomplexobj(matrix) or not np.all(np.isfinite(matrix)):
+            raise ValueError(
+                f"MathWorks observer benchmark augmented {name} must contain only "
+                "finite real values"
+            )
+
+    source_preservation_residual = float(
+        max(
+            np.max(np.abs(matrix - original))
+            for matrix, original in zip(
+                (system.A, system.B, system.C, system.D),
+                source_copies,
+                strict=True,
+            )
+        )
+    )
+    if source_preservation_residual != exact_tolerance:
+        raise ValueError("MathWorks observer benchmark source matrices were mutated")
+
+    stored_correction = stored_gain @ matrix_c
+    stored_error_a = matrix_a - stored_correction
+    expected_augmented_a = np.block(
+        [
+            [matrix_a, np.zeros((2, 2))],
+            [stored_correction, stored_error_a],
+        ]
+    )
+    expected_augmented_b = np.vstack((matrix_b, matrix_b))
+    expected_augmented_c = np.block(
+        [[matrix_c, np.zeros((1, 2))], [np.zeros((2, 2)), np.eye(2)]]
+    )
+    expected_augmented_d = np.vstack((matrix_d, np.zeros((2, 1))))
+    if not all(
+        np.array_equal(actual, expected)
+        for actual, expected in (
+            (augmented.A, expected_augmented_a),
+            (augmented.B, expected_augmented_b),
+            (augmented.C, expected_augmented_c),
+            (augmented.D, expected_augmented_d),
+        )
+    ):
+        raise ValueError(
+            "MathWorks observer benchmark interconnection is internally inconsistent"
+        )
+
+    error_a = matrix_a - gain @ matrix_c
+    trace = float(error_a[0, 0] + error_a[1, 1])
+    determinant = float(
+        error_a[0, 0] * error_a[1, 1]
+        - error_a[0, 1] * error_a[1, 0]
+    )
+    coefficients = np.array([1.0, -trace, determinant])
+    discriminant = float(coefficients[1] ** 2 - 4.0 * coefficients[2])
+    if not all(
+        np.isfinite(value)
+        for value in (*coefficients, trace, determinant, discriminant)
+    ):
+        raise ValueError(
+            "MathWorks observer benchmark derived coefficients must be finite"
+        )
+    if discriminant < 0.0:
+        raise ValueError(
+            "MathWorks observer benchmark quadratic discriminant must be nonnegative"
+        )
+    square_root_discriminant = float(np.sqrt(discriminant))
+    achieved_poles = np.sort(
+        np.array(
+            [
+                (-coefficients[1] - square_root_discriminant) / 2.0,
+                (-coefficients[1] + square_root_discriminant) / 2.0,
+            ]
+        )
+    )
+    if not np.all(np.isfinite(achieved_poles)):
+        raise ValueError("MathWorks observer benchmark achieved poles must be finite")
+
+    gain_residual = float(np.max(np.abs(gain - reference_gain)))
+    gain_preservation_residual = float(np.max(np.abs(gain - stored_gain)))
+    error_a_residual = float(np.max(np.abs(error_a - reference_error_a)))
+    coefficient_residual = float(
+        np.max(np.abs(coefficients - reference_coefficients))
+    )
+    pole_residual = float(np.max(np.abs(achieved_poles - reference_poles)))
+    augmented_residual = float(
+        max(
+            np.max(np.abs(augmented.A - reference_augmented_a)),
+            np.max(np.abs(augmented.B - reference_augmented_b)),
+            np.max(np.abs(augmented.C - reference_augmented_c)),
+            np.max(np.abs(augmented.D - reference_augmented_d)),
+        )
+    )
+    residuals = (
+        gain_residual,
+        gain_preservation_residual,
+        error_a_residual,
+        coefficient_residual,
+        pole_residual,
+        augmented_residual,
+        source_preservation_residual,
+    )
+    if not all(np.isfinite(residual) for residual in residuals):
+        raise ValueError("MathWorks observer benchmark residuals must be finite")
+
+    discriminant_nonnegative = discriminant >= 0.0
+    error_dynamics_stable = bool(np.all(achieved_poles < 0.0))
+    source_matrices_preserved = source_preservation_residual <= exact_tolerance
+    passed = bool(
+        gain_residual <= numerical_tolerance
+        and gain_preservation_residual <= exact_tolerance
+        and error_a_residual <= numerical_tolerance
+        and coefficient_residual <= numerical_tolerance
+        and pole_residual <= numerical_tolerance
+        and augmented_residual <= numerical_tolerance
+        and source_matrices_preserved
+        and discriminant_nonnegative
+        and error_dynamics_stable
+    )
+
+    carrier_time = np.array([0.0, 1.0])
+    metrics = response_metrics(carrier_time, np.zeros(2), np.zeros(2))
+    if metrics.maximum_absolute_tracking_error != 0.0:
+        raise ValueError("MathWorks observer carrier evidence is inconsistent")
+
+    return experiment_run(
+        time=carrier_time,
+        initial_state=np.zeros(2),
+        metrics=metrics,
+        method="exact",
+        system={
+            "A": tuple(matrix_a.flat),
+            "A_shape": (2, 2),
+            "B": tuple(matrix_b.flat),
+            "B_shape": (2, 1),
+            "C": tuple(matrix_c.flat),
+            "C_shape": (1, 2),
+            "D": tuple(matrix_d.flat),
+            "D_shape": (1, 1),
+            "input_count": 1,
+            "output_count": 1,
+            "physical_units": "none assigned",
+            "state_count": 2,
+        },
+        controller={
+            "desired_observer_poles_input_order": tuple(desired_poles),
+            "observer_gain": tuple(gain.flat),
+            "type": "full_order_luenberger_observer",
+        },
+        reference={
+            "access_date": "2026-09-03",
+            "duality_statement": (
+                "transpose A and substitute C' for B in pole placement"
+            ),
+            "evidence_classification": (
+                "computational/software verification of deterministic full-order "
+                "state-observer synthesis, estimation-error pole assignment, and "
+                "Luenberger plant/observer interconnection against an authoritative "
+                "worked example and exact algebraic oracles"
+            ),
+            "example_title": "Pole Placement Observer Design",
+            "gain_command": "L = place(A',C',[-2,-3])'",
+            "only_output_measured": True,
+            "observer_matrix_commands": (
+                "At = A-L*C",
+                "Bt = [B,L]",
+                "Ct = [C;eye(2)]",
+            ),
+            "page_title": "place - Pole placement design",
+            "product_documentation": "MathWorks Control System Toolbox Documentation",
+            "published_A": tuple(matrix_a.flat),
+            "published_B": tuple(matrix_b.flat),
+            "published_C": tuple(matrix_c.flat),
+            "published_D": tuple(matrix_d.flat),
+            "published_desired_observer_poles": tuple(desired_poles),
+            "source_url": "https://www.mathworks.com/help/control/ref/place.html",
+        },
+        user_metadata={
+            "achieved_error_poles_sorted": tuple(achieved_poles),
+            "augmented_A": tuple(augmented.A.flat),
+            "augmented_A_reference": tuple(reference_augmented_a.flat),
+            "augmented_A_shape": (4, 4),
+            "augmented_B": tuple(augmented.B.flat),
+            "augmented_B_reference": tuple(reference_augmented_b.flat),
+            "augmented_B_shape": (4, 1),
+            "augmented_C": tuple(augmented.C.flat),
+            "augmented_C_reference": tuple(reference_augmented_c.flat),
+            "augmented_C_shape": (3, 4),
+            "augmented_D": tuple(augmented.D.flat),
+            "augmented_D_reference": tuple(reference_augmented_d.flat),
+            "augmented_D_shape": (3, 1),
+            "augmented_realization_residual_tolerance": numerical_tolerance,
+            "auxiliary_response_carrier": True,
+            "characteristic_coefficient_residual_tolerance": numerical_tolerance,
+            "characteristic_coefficients": tuple(coefficients),
+            "characteristic_coefficients_reference": tuple(
+                reference_coefficients
+            ),
+            "characteristic_determinant": determinant,
+            "characteristic_discriminant": discriminant,
+            "characteristic_discriminant_nonnegative": discriminant_nonnegative,
+            "characteristic_trace": trace,
+            "error_dynamics_asymptotically_stable": error_dynamics_stable,
+            "error_state_A": tuple(error_a.flat),
+            "error_state_A_reference": tuple(reference_error_a.flat),
+            "error_state_matrix_residual_tolerance": numerical_tolerance,
+            "estimation_error_definition": "e = x - x_hat",
+            "estimation_error_dynamics": "e_dot = (A - L C) e",
+            "maximum_absolute_achieved_error_pole_residual": pole_residual,
+            "maximum_absolute_augmented_realization_residual": augmented_residual,
+            "maximum_absolute_characteristic_coefficient_residual": (
+                coefficient_residual
+            ),
+            "maximum_absolute_error_state_matrix_residual": error_a_residual,
+            "maximum_absolute_observer_gain_preservation_residual": (
+                gain_preservation_residual
+            ),
+            "maximum_absolute_observer_gain_residual": gain_residual,
+            "maximum_absolute_source_matrix_preservation_residual": (
+                source_preservation_residual
+            ),
+            "observer_convention": (
+                "x_hat_dot = A x_hat + B u + L (y - C x_hat - D u)"
+            ),
+            "observer_gain_preservation_tolerance": exact_tolerance,
+            "observer_gain_reference": tuple(reference_gain.flat),
+            "observer_gain_residual_tolerance": numerical_tolerance,
+            "observer_gain_stored_by_interconnection": tuple(stored_gain.flat),
+            "observer_pole_residual_tolerance": numerical_tolerance,
+            "output_order": ("y", "x_hat"),
+            "passed": passed,
+            "source_matrices_preserved": source_matrices_preserved,
+            "source_matrix_preservation_tolerance": exact_tolerance,
+            "state_order": ("x", "x_hat"),
+        },
+        run_id="verification-mathworks-luenberger-observer-v1",
+        created_at=datetime(2026, 9, 5, 12, tzinfo=UTC),
     )

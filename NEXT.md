@@ -184,16 +184,16 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: definition of the ninth fixed V&V capability: a
-  full-order Luenberger-observer synthesis and interconnection benchmark using
-  the official MathWorks observer-design worked example and exact algebraic
-  oracles.
-- Completed capability commit: this documentation checkpoint's commit
-  (`docs: define observer verification benchmark`).
+- Completed capability: one fixed full-order Luenberger-observer synthesis and
+  interconnection runner using the official MathWorks observer-design worked
+  example, exact gain/error-dynamics/augmented-realization oracles, and
+  deterministic `ExperimentRun` evidence.
+- Completed capability commit: this checkpoint's implementation commit
+  (`feat: add observer verification benchmark`).
 
 ## Current verification baseline
 
-- Test count: 1596 tests.
+- Test count: 1615 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -2068,16 +2068,16 @@ or interconnects a controller.
 
 ## Exact next smallest task
 
-### Implement the fixed MathWorks Luenberger-observer benchmark
-
-Add `run_mathworks_luenberger_observer_verification_benchmark()` beside the
-eight completed runners in `flightlab.verification`. Reproduce the official
-MathWorks SISO observer-design example below, verify the exact independently
-derived observer gain and error dynamics, and verify FlightLab's documented
-augmented plant/observer interconnection. Return deterministic evidence through
-the existing `ExperimentRun` machinery and add only the focused tests frozen
-here. Do not add a framework, dependency, generic observer adapter, persistence
-behavior, simulation study, or physical-validation assertion.
+Define, but do not implement, the tenth single V&V capability. Select one
+authoritative, publicly accessible source and freeze its exact citation,
+reconstructable inputs, evidence classification, FlightLab API target,
+independent comparison oracle, quantities, deterministic tolerances, failure
+semantics, `ExperimentRun` provenance, focused tests, and explicit non-goals in
+this file. It must add one materially distinct kind of evidence beyond the nine
+completed runners, including the new observer benchmark. Do not add a framework,
+abstraction, dependency, persistence behavior, experimental or flight-data
+physical validation, or implementation code. Commit only that documentation
+checkpoint and do not push.
 
 ## Selected ninth V&V capability
 
@@ -3196,9 +3196,7 @@ git status
 
 ## Restart instruction
 
-Read `NEXT.md`, then implement
-`run_mathworks_luenberger_observer_verification_benchmark()` beside the eight
-completed verification runners exactly as directed under "Exact next smallest
-task." Add only the focused tests frozen there. Do not expand the V&V framework,
-add dependencies or persistence, refactor unrelated modules, touch the existing
-untracked `.vscode/`, or push.
+Read `NEXT.md`, inspect the nine completed verification runners, then define
+the tenth single V&V capability exactly as directed under "Exact next smallest
+task." Do not implement it, expand the V&V framework, refactor unrelated
+modules, touch the existing untracked `.vscode/`, or push.
