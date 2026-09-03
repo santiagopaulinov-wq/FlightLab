@@ -184,15 +184,16 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: definition of the seventh fixed V&V capability: a
-  continuous-time controllability-Gramian and Lyapunov-equation benchmark using
-  the exact worked example in the official SciPy 1.18.0 manual.
-- Completed capability commit: this documentation checkpoint's commit
-  (`docs: define controllability gramian verification benchmark`).
+- Completed capability: one fixed continuous-time controllability-Gramian and
+  Lyapunov-equation verification runner using the official SciPy 1.18.0 worked
+  example, a literal sign-adjusted oracle, direct principal-minor certificates,
+  and deterministic `ExperimentRun` evidence.
+- Completed capability commit: this checkpoint's implementation commit
+  (`feat: add controllability gramian verification benchmark`).
 
 ## Current verification baseline
 
-- Test count: 1549 tests.
+- Test count: 1565 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -2067,20 +2068,16 @@ or interconnects a controller.
 
 ## Exact next smallest task
 
-### Implement the fixed SciPy-manual controllability-Gramian benchmark
-
-Add
-`run_scipy_manual_controllability_gramian_verification_benchmark()` as one
-narrowly scoped runner beside the six existing runners in
-`flightlab.verification`. Encode the official continuous Lyapunov worked example
-below, map its sign convention explicitly to FlightLab's controllability-
-Gramian equation with `B = I`, and compare
-`StateSpace.controllability_gramian()` with the literal sign-adjusted published
-solution. Check the independent Lyapunov residual, symmetry, and exact positive-
-definiteness certificate defined below. Return deterministic evidence through
-the existing `ExperimentRun` machinery and add only the focused tests specified
-here. Do not add a framework, dependency, generic Lyapunov adapter, new record
-type, or physical-validation assertion.
+Define, but do not implement, the eighth single V&V capability. Select one
+authoritative, publicly accessible source and freeze its exact citation,
+reconstructable inputs, evidence classification, FlightLab API target,
+independent comparison oracle, quantities, deterministic tolerances, failure
+semantics, `ExperimentRun` provenance, focused tests, and explicit non-goals in
+this file. It must add one materially distinct kind of evidence beyond the seven
+completed runners, including the new controllability-Gramian benchmark. Do not
+add a framework, abstraction, dependency, persistence behavior, experimental or
+flight-data physical validation, or implementation code. Commit only that
+documentation checkpoint and do not push.
 
 ## Selected seventh V&V capability
 
@@ -2688,9 +2685,7 @@ git status
 
 ## Restart instruction
 
-Read `NEXT.md`, then implement
-`run_scipy_manual_controllability_gramian_verification_benchmark()` beside the
-six completed verification runners exactly as directed under "Exact next
-smallest task." Add only the focused tests frozen there. Do not expand the V&V
-framework, add dependencies or persistence, refactor unrelated modules, touch
-the existing untracked `.vscode/`, or push.
+Read `NEXT.md`, inspect the seven completed verification runners, then define
+the eighth single V&V capability exactly as directed under "Exact next smallest
+task." Do not implement it, expand the V&V framework, refactor unrelated
+modules, touch the existing untracked `.vscode/`, or push.

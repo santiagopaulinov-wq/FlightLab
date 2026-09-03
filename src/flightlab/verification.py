@@ -1041,3 +1041,181 @@ def run_mathworks_siso_pole_placement_verification_benchmark() -> ExperimentRun:
         run_id="verification-mathworks-siso-pole-placement-v1",
         created_at=datetime(2026, 9, 4, tzinfo=UTC),
     )
+
+
+def run_scipy_manual_controllability_gramian_verification_benchmark() -> ExperimentRun:
+    """Verify a controllability Gramian against SciPy's published example."""
+    matrix_a = np.array(
+        [[-3.0, -2.0, 0.0], [-1.0, -1.0, 0.0], [0.0, -5.0, -1.0]]
+    )
+    matrix_b = np.eye(3)
+    matrix_c = np.eye(3)
+    matrix_d = np.zeros((3, 3))
+    source_q = np.eye(3)
+    published_x = np.array(
+        [
+            [-0.75, 0.875, -3.75],
+            [0.875, -1.375, 5.3125],
+            [-3.75, 5.3125, -27.0625],
+        ]
+    )
+    reference_gramian = np.array(
+        [
+            [0.75, -0.875, 3.75],
+            [-0.875, 1.375, -5.3125],
+            [3.75, -5.3125, 27.0625],
+        ]
+    )
+    reference_principal_minors = np.array([0.75, 0.265625, 1.548828125])
+    tolerance = 1.0e-12
+
+    for name, matrix in (
+        ("A", matrix_a),
+        ("B", matrix_b),
+        ("C", matrix_c),
+        ("D", matrix_d),
+    ):
+        if matrix.shape != (3, 3):
+            raise ValueError(
+                f"SciPy Gramian benchmark matrix {name} must have shape (3, 3)"
+            )
+        if np.iscomplexobj(matrix) or not np.all(np.isfinite(matrix)):
+            raise ValueError(
+                f"SciPy Gramian benchmark matrix {name} must contain only "
+                "finite real values"
+            )
+
+    system = StateSpace(matrix_a, matrix_b, matrix_c, matrix_d)
+    gramian = np.asarray(system.controllability_gramian())
+    if gramian.shape != (3, 3):
+        raise ValueError("SciPy Gramian benchmark result must have shape (3, 3)")
+    if np.iscomplexobj(gramian) or not np.all(np.isfinite(gramian)):
+        raise ValueError(
+            "SciPy Gramian benchmark result must contain only finite real values"
+        )
+
+    with np.errstate(over="ignore", invalid="ignore"):
+        lyapunov_left_hand_side = (
+            matrix_a @ gramian + gramian @ matrix_a.T + matrix_b @ matrix_b.T
+        )
+        symmetry_difference = gramian - gramian.T
+        a, b, c = gramian[0]
+        d, e, f = gramian[1]
+        g, h, i = gramian[2]
+        principal_minors = np.array(
+            [
+                a,
+                a * e - b * d,
+                a * (e * i - f * h)
+                - b * (d * i - f * g)
+                + c * (d * h - e * g),
+            ]
+        )
+    if not np.all(np.isfinite(principal_minors)):
+        raise ValueError("SciPy Gramian benchmark principal minors must be finite")
+
+    gramian_residual = float(np.max(np.abs(gramian - reference_gramian)))
+    lyapunov_residual = float(np.max(np.abs(lyapunov_left_hand_side)))
+    symmetry_residual = float(np.max(np.abs(symmetry_difference)))
+    principal_minor_residual = float(
+        np.max(np.abs(principal_minors - reference_principal_minors))
+    )
+    residuals = (
+        gramian_residual,
+        lyapunov_residual,
+        symmetry_residual,
+        principal_minor_residual,
+    )
+    if not all(np.isfinite(residual) for residual in residuals):
+        raise ValueError("SciPy Gramian benchmark residuals must be finite")
+
+    positive_definite = bool(np.all(principal_minors > 0.0))
+    passed = bool(
+        gramian_residual <= tolerance
+        and lyapunov_residual <= tolerance
+        and symmetry_residual <= tolerance
+        and principal_minor_residual <= tolerance
+        and positive_definite
+    )
+
+    carrier_time = np.array([0.0, 1.0])
+    metrics = response_metrics(carrier_time, np.zeros(2), np.zeros(2))
+    if metrics.maximum_absolute_tracking_error != 0.0:
+        raise ValueError("SciPy Gramian benchmark carrier evidence is inconsistent")
+
+    return experiment_run(
+        time=carrier_time,
+        initial_state=np.zeros(3),
+        metrics=metrics,
+        method="exact",
+        system={
+            "A": tuple(matrix_a.flat),
+            "A_shape": (3, 3),
+            "B": tuple(matrix_b.flat),
+            "B_shape": (3, 3),
+            "C": tuple(matrix_c.flat),
+            "C_shape": (3, 3),
+            "D": tuple(matrix_d.flat),
+            "D_shape": (3, 3),
+            "auxiliary_output_matrices": True,
+            "input_count": 3,
+            "output_count": 3,
+            "physical_units": "none assigned",
+            "state_count": 3,
+        },
+        controller={"type": "none"},
+        reference={
+            "access_date": "2026-09-03",
+            "algorithm": "Bartels-Stewart algorithm",
+            "evidence_classification": (
+                "computational/software verification of a continuous-time "
+                "controllability Gramian and Lyapunov equation against an "
+                "official worked example, exact sign mapping, and literal "
+                "algebraic oracle"
+            ),
+            "example_title": "Given a and q solve for x",
+            "flightlab_equation": "A Wc + Wc A^T + B B^T = 0",
+            "manual": "SciPy v1.18.0 Manual",
+            "published_A": tuple(matrix_a.flat),
+            "published_A_shape": (3, 3),
+            "published_Q": tuple(source_q.flat),
+            "published_Q_shape": (3, 3),
+            "published_X": tuple(published_x.flat),
+            "published_X_shape": (3, 3),
+            "published_equation_check_result": tuple(source_q.flat),
+            "published_equation_convention": "A X + X A^H = Q",
+            "reference_gramian": tuple(reference_gramian.flat),
+            "reference_gramian_shape": (3, 3),
+            "sign_mapping": "Wc_reference = -X_published; B B^T = Q = I",
+            "source_function": "scipy.linalg.solve_continuous_lyapunov",
+            "source_url": (
+                "https://docs.scipy.org/doc/scipy-1.18.0/reference/generated/"
+                "scipy.linalg.solve_continuous_lyapunov.html"
+            ),
+        },
+        user_metadata={
+            "auxiliary_response_carrier": True,
+            "gramian_residual_tolerance": tolerance,
+            "leading_principal_minor_residual_tolerance": tolerance,
+            "lyapunov_equation_residual_tolerance": tolerance,
+            "lyapunov_left_hand_side": tuple(lyapunov_left_hand_side.flat),
+            "maximum_absolute_gramian_residual": gramian_residual,
+            "maximum_absolute_leading_principal_minor_residual": (
+                principal_minor_residual
+            ),
+            "maximum_absolute_lyapunov_equation_residual": lyapunov_residual,
+            "maximum_absolute_symmetry_residual": symmetry_residual,
+            "passed": passed,
+            "positive_definite": positive_definite,
+            "reference_leading_principal_minors": tuple(
+                reference_principal_minors
+            ),
+            "returned_controllability_gramian": tuple(gramian.flat),
+            "returned_controllability_gramian_shape": (3, 3),
+            "returned_leading_principal_minors": tuple(principal_minors),
+            "symmetry_difference": tuple(symmetry_difference.flat),
+            "symmetry_residual_tolerance": tolerance,
+        },
+        run_id="verification-scipy-manual-controllability-gramian-v1",
+        created_at=datetime(2026, 9, 4, 12, tzinfo=UTC),
+    )

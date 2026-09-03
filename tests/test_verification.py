@@ -16,6 +16,7 @@ from flightlab.verification import (
     run_nasa_gtm_longitudinal_modal_verification_benchmark,
     run_nasa_unstable_roll_frequency_response_verification_benchmark,
     run_scipy_linear_state_space_verification_benchmark,
+    run_scipy_manual_controllability_gramian_verification_benchmark,
 )
 
 _TIME = np.array([0.0, 0.125, 0.5, 1.25, 2.0])
@@ -1540,5 +1541,242 @@ def test_pole_placement_benchmark_does_not_invoke_out_of_scope_apis(monkeypatch)
         monkeypatch.setattr(StateSpace, method_name, unexpected)
 
     run = run_mathworks_siso_pole_placement_verification_benchmark()
+
+    assert run.user_metadata["passed"] is True
+
+
+_GRAMIAN_A = np.array(
+    [[-3.0, -2.0, 0.0], [-1.0, -1.0, 0.0], [0.0, -5.0, -1.0]]
+)
+_GRAMIAN_REFERENCE = np.array(
+    [
+        [0.75, -0.875, 3.75],
+        [-0.875, 1.375, -5.3125],
+        [3.75, -5.3125, 27.0625],
+    ]
+)
+_GRAMIAN_PRINCIPAL_MINORS = (0.75, 0.265625, 1.548828125)
+
+
+def test_scipy_manual_gramian_benchmark_calls_fixed_public_api_once(monkeypatch):
+    original = StateSpace.controllability_gramian
+    calls = []
+
+    def controllability_gramian(system):
+        np.testing.assert_array_equal(system.A, _GRAMIAN_A)
+        np.testing.assert_array_equal(system.B, np.eye(3))
+        np.testing.assert_array_equal(system.C, np.eye(3))
+        np.testing.assert_array_equal(system.D, np.zeros((3, 3)))
+        calls.append(system)
+        return original(system)
+
+    monkeypatch.setattr(
+        StateSpace, "controllability_gramian", controllability_gramian
+    )
+
+    run = run_scipy_manual_controllability_gramian_verification_benchmark()
+
+    assert len(calls) == 1
+    assert run.user_metadata["passed"] is True
+
+
+def test_scipy_manual_gramian_benchmark_matches_literal_oracles():
+    run = run_scipy_manual_controllability_gramian_verification_benchmark()
+
+    np.testing.assert_allclose(
+        run.user_metadata["returned_controllability_gramian"],
+        _GRAMIAN_REFERENCE.ravel(),
+        rtol=0.0,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        run.user_metadata["lyapunov_left_hand_side"],
+        np.zeros(9),
+        rtol=0.0,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        run.user_metadata["symmetry_difference"],
+        np.zeros(9),
+        rtol=0.0,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        run.user_metadata["returned_leading_principal_minors"],
+        _GRAMIAN_PRINCIPAL_MINORS,
+        rtol=0.0,
+        atol=1.0e-12,
+    )
+    assert run.user_metadata["reference_leading_principal_minors"] == (
+        _GRAMIAN_PRINCIPAL_MINORS
+    )
+    for key in (
+        "maximum_absolute_gramian_residual",
+        "maximum_absolute_lyapunov_equation_residual",
+        "maximum_absolute_symmetry_residual",
+        "maximum_absolute_leading_principal_minor_residual",
+    ):
+        assert run.user_metadata[key] <= 1.0e-12
+    assert run.user_metadata["positive_definite"] is True
+    assert run.user_metadata["passed"] is True
+
+
+def test_scipy_manual_gramian_benchmark_records_provenance_and_identity():
+    run = run_scipy_manual_controllability_gramian_verification_benchmark()
+
+    assert isinstance(run, ExperimentRun)
+    assert run.system["A"] == tuple(_GRAMIAN_A.flat)
+    assert run.system["B"] == tuple(np.eye(3).flat)
+    assert run.system["C"] == tuple(np.eye(3).flat)
+    assert run.system["D"] == tuple(np.zeros((3, 3)).flat)
+    assert run.system["auxiliary_output_matrices"] is True
+    assert run.reference["manual"] == "SciPy v1.18.0 Manual"
+    assert run.reference["source_function"] == (
+        "scipy.linalg.solve_continuous_lyapunov"
+    )
+    assert run.reference["example_title"] == "Given a and q solve for x"
+    assert run.reference["access_date"] == "2026-09-03"
+    assert run.reference["algorithm"] == "Bartels-Stewart algorithm"
+    assert run.reference["published_equation_convention"] == "A X + X A^H = Q"
+    assert run.reference["published_equation_check_result"] == tuple(np.eye(3).flat)
+    assert "scipy-1.18.0" in run.reference["source_url"]
+    assert run.reference["reference_gramian"] == tuple(_GRAMIAN_REFERENCE.flat)
+    assert run.run_id == "verification-scipy-manual-controllability-gramian-v1"
+    assert run.created_at.isoformat() == "2026-09-04T12:00:00+00:00"
+
+
+def test_scipy_manual_gramian_benchmark_carrier_and_record_are_deterministic():
+    first = run_scipy_manual_controllability_gramian_verification_benchmark()
+    second = run_scipy_manual_controllability_gramian_verification_benchmark()
+
+    assert first.method == "exact"
+    np.testing.assert_array_equal(first.initial_state, np.zeros(3))
+    np.testing.assert_array_equal(first.metrics.time, [0.0, 1.0])
+    np.testing.assert_array_equal(first.metrics.output, np.zeros(2))
+    np.testing.assert_array_equal(first.metrics.reference, np.zeros(2))
+    assert first.user_metadata["auxiliary_response_carrier"] is True
+    for key in (
+        "gramian_residual_tolerance",
+        "lyapunov_equation_residual_tolerance",
+        "symmetry_residual_tolerance",
+        "leading_principal_minor_residual_tolerance",
+    ):
+        assert first.user_metadata[key] == 1.0e-12
+    first_record = first.reproducibility_record()
+    second_record = second.reproducibility_record()
+    assert first_record == second_record
+    json.dumps(first_record, allow_nan=False)
+    first_record["user_metadata"]["passed"] = False
+    assert first.reproducibility_record() == second_record
+
+
+@pytest.mark.parametrize(
+    ("gramian", "failed_quantity"),
+    [
+        (
+            _GRAMIAN_REFERENCE + np.diag([2.0e-12, 0.0, 0.0]),
+            "maximum_absolute_gramian_residual",
+        ),
+        (
+            _GRAMIAN_REFERENCE + np.diag([0.0, 0.0, 2.0e-12]),
+            "maximum_absolute_lyapunov_equation_residual",
+        ),
+        (
+            _GRAMIAN_REFERENCE
+            + np.array(
+                [[0.0, 2.0e-12, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+            ),
+            "maximum_absolute_symmetry_residual",
+        ),
+        (
+            _GRAMIAN_REFERENCE + np.diag([0.0, 2.0e-12, 0.0]),
+            "maximum_absolute_leading_principal_minor_residual",
+        ),
+        (np.zeros((3, 3)), None),
+    ],
+)
+def test_scipy_manual_gramian_benchmark_returns_failed_finite_evidence(
+    monkeypatch, gramian, failed_quantity
+):
+    monkeypatch.setattr(
+        StateSpace, "controllability_gramian", lambda self: gramian.copy()
+    )
+
+    run = run_scipy_manual_controllability_gramian_verification_benchmark()
+
+    if failed_quantity is not None:
+        assert run.user_metadata[failed_quantity] > 1.0e-12
+    assert run.user_metadata["passed"] is False
+
+
+@pytest.mark.parametrize(
+    ("gramian", "message"),
+    [
+        (np.zeros((2, 2)), "must have shape"),
+        (np.zeros((3, 3), dtype=complex), "finite real values"),
+        (np.full((3, 3), np.nan), "finite real values"),
+        (np.full((3, 3), 1.0e308), "principal minors must be finite"),
+    ],
+)
+def test_scipy_manual_gramian_benchmark_rejects_malformed_results(
+    monkeypatch, gramian, message
+):
+    monkeypatch.setattr(StateSpace, "controllability_gramian", lambda self: gramian)
+    with pytest.raises(ValueError, match=message):
+        run_scipy_manual_controllability_gramian_verification_benchmark()
+
+
+def test_scipy_manual_gramian_benchmark_propagates_api_exception(monkeypatch):
+    expected = RuntimeError("controllability_gramian failed")
+
+    def fail(self):
+        raise expected
+
+    monkeypatch.setattr(StateSpace, "controllability_gramian", fail)
+    with pytest.raises(RuntimeError) as caught:
+        run_scipy_manual_controllability_gramian_verification_benchmark()
+    assert caught.value is expected
+
+
+def test_scipy_manual_gramian_benchmark_does_not_import_optional_dependencies():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "from flightlab.verification import "
+                "run_scipy_manual_controllability_gramian_verification_benchmark "
+                "as run; run(); assert 'scipy' not in sys.modules"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_scipy_manual_gramian_benchmark_does_not_invoke_out_of_scope_apis(
+    monkeypatch,
+):
+    def unexpected(*args, **kwargs):
+        raise AssertionError("out-of-scope StateSpace API was invoked")
+
+    for method_name in (
+        "controllability_matrix",
+        "controllability_rank",
+        "is_fully_controllable",
+        "observability_gramian",
+        "hankel_singular_values",
+        "balanced_realization",
+        "simulate",
+        "frequency_response",
+        "place_siso_poles",
+    ):
+        monkeypatch.setattr(StateSpace, method_name, unexpected)
+
+    run = run_scipy_manual_controllability_gramian_verification_benchmark()
 
     assert run.user_metadata["passed"] is True
