@@ -184,12 +184,12 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: one fixed balanced-truncation model-reduction runner
-  using the official MathWorks absolute-error algorithm contract, exact Hankel
-  singular values, an exact first-order reduced realization, and deterministic
-  sampled error-bound evidence through `ExperimentRun`.
-- Completed capability commit: this checkpoint's implementation commit
-  (`feat: add balanced truncation verification benchmark`).
+- Completed capability: definition of the ninth fixed V&V capability: a
+  full-order Luenberger-observer synthesis and interconnection benchmark using
+  the official MathWorks observer-design worked example and exact algebraic
+  oracles.
+- Completed capability commit: this documentation checkpoint's commit
+  (`docs: define observer verification benchmark`).
 
 ## Current verification baseline
 
@@ -2068,16 +2068,275 @@ or interconnects a controller.
 
 ## Exact next smallest task
 
-Define, but do not implement, the ninth single V&V capability. Select one
-authoritative, publicly accessible source and freeze its exact citation,
-reconstructable inputs, evidence classification, FlightLab API target,
-independent comparison oracle, quantities, deterministic tolerances, failure
-semantics, `ExperimentRun` provenance, focused tests, and explicit non-goals in
-this file. It must add one materially distinct kind of evidence beyond the eight
-completed runners, including the new balanced-truncation benchmark. Do not add
-a framework, abstraction, dependency, persistence behavior, experimental or
-flight-data physical validation, or implementation code. Commit only that
-documentation checkpoint and do not push.
+### Implement the fixed MathWorks Luenberger-observer benchmark
+
+Add `run_mathworks_luenberger_observer_verification_benchmark()` beside the
+eight completed runners in `flightlab.verification`. Reproduce the official
+MathWorks SISO observer-design example below, verify the exact independently
+derived observer gain and error dynamics, and verify FlightLab's documented
+augmented plant/observer interconnection. Return deterministic evidence through
+the existing `ExperimentRun` machinery and add only the focused tests frozen
+here. Do not add a framework, dependency, generic observer adapter, persistence
+behavior, simulation study, or physical-validation assertion.
+
+## Selected ninth V&V capability
+
+### MathWorks pole-placement observer design and Luenberger interconnection
+
+Use *MathWorks Control System Toolbox Documentation*, `place - Pole placement
+design`, example "Pole Placement Observer Design," official public online
+documentation, accessed `2026-09-03`:
+
+```text
+https://www.mathworks.com/help/control/ref/place.html
+```
+
+The source publishes the SISO `A/B/C/D` realization below, states that only the
+output is measured, selects observer poles `[-2, -3]`, computes estimator gain
+by dual pole placement as `L = place(A', C', [-2,-3])'`, and forms observer
+matrices with `At = A-L*C`, `Bt = [B,L]`, and `Ct = [C;eye(2)]`. Record the
+product documentation, page/function title, example title, URL, access date,
+published matrices, only-output-measured premise, desired pole order, exact
+gain command, duality statement, and published observer matrix commands as
+provenance.
+
+The benchmark must not call MATLAB, MathWorks services, SciPy, python-control,
+or another pole-placement/observer implementation at runtime. It verifies
+FlightLab against literal oracles derived below from the public example.
+
+## Frozen source model and request
+
+Copy the source values and ordering exactly:
+
+```text
+A = [[-1, -0.75]]    B = [[1]]    C = [[1, 1]]    D = [[0]]
+    [[ 1,  0   ]]        [[0]]
+
+desired_observer_poles_input_order = [-2, -3]
+observer convention:
+x_hat_dot = A x_hat + B u + L (y - C x_hat - D u)
+estimation error: e = x - x_hat
+error dynamics: e_dot = (A - L C) e
+```
+
+Preserve state, input, output, and pole ordering exactly. Assign no physical
+state names or units. Do not reproduce the source's pulse simulation, time
+grid, initial condition, plots, or qualitative trajectory comparison; they are
+outside this computational verification benchmark.
+
+## Independent exact algebraic oracle
+
+Let `L = [[l1], [l2]]`. Direct expansion gives
+
+```text
+A - L C = [[-1-l1, -0.75-l1],
+           [ 1-l2,       -l2]].
+```
+
+Matching its characteristic polynomial to the desired polynomial
+`(s+2)(s+3) = s^2 + 5s + 6` gives
+
+```text
+l1 + l2 = 4
+0.75 + l1 + 0.25*l2 = 6
+l1 = 17/3
+l2 = -5/3
+
+L_reference = [[17/3], [-5/3]]
+
+A_error_reference = A - L_reference C
+                  = [[-20/3, -77/12],
+                     [  8/3,    5/3]]
+
+trace(A_error_reference) = -5
+det(A_error_reference) = 6
+characteristic coefficients = [1, 5, 6]
+achieved error poles sorted = [-3, -2].
+```
+
+Encode the gain and error-state matrix literally using the exact fractional
+expressions above. Do not derive either oracle from FlightLab output, another
+`StateSpace`, numerical pole placement, a linear solve, least squares, symbolic
+software, or an eigensolver. Compute returned characteristic coefficients
+directly from the two-by-two scalar trace and determinant formulas, and compute
+the two returned error poles from the scalar quadratic formula with the
+nonnegative validated discriminant. Do not call `numpy.poly`, `numpy.roots`,
+`numpy.linalg.det`, or an eigenvalue API for this oracle.
+
+FlightLab's documented `luenberger_observer()` convention has augmented state
+order `[x; x_hat]`, external input `u`, and output order `[y; x_hat]`. Freeze the
+literal interconnection oracle
+
+```text
+A_aug_reference = [[A,   0],
+                   [L C, A-L C]]
+
+ = [[-1,    -3/4,      0,       0],
+    [ 1,       0,      0,       0],
+    [17/3,  17/3,  -20/3,  -77/12],
+    [-5/3, -5/3,    8/3,     5/3]]
+
+B_aug_reference = [[1], [0], [1], [0]]
+
+C_aug_reference = [[1, 1, 0, 0],
+                   [0, 0, 1, 0],
+                   [0, 0, 0, 1]]
+
+D_aug_reference = [[0], [0], [0]].
+```
+
+These matrices follow by direct substitution into FlightLab's already-public
+interconnection contract. They are independent literal evidence, not a second
+observer implementation.
+
+## FlightLab APIs and comparison quantities
+
+Construct one fixed `StateSpace`. Call
+`place_siso_observer_poles([-2.0, -3.0])` exactly once, then pass that returned
+gain unchanged to `luenberger_observer()` exactly once. Validate the gain and
+returned interconnection record, observer gain copy, augmented `StateSpace`, all
+matrix shapes/cardinalities, real/complex expectations, and finiteness before
+comparison. Compute without rounding:
+
+1. observer-gain residual: maximum absolute componentwise difference from
+   literal `[[17/3],[-5/3]]`;
+2. observer-gain preservation residual: maximum absolute difference between the
+   gain returned by placement and the gain stored by the interconnection;
+3. error-state-matrix residual: maximum absolute componentwise difference of
+   directly computed `A - L C` from literal `A_error_reference`;
+4. characteristic-coefficient residual: maximum absolute difference of direct
+   `[1, -trace(A-LC), det(A-LC)]` from `[1,5,6]`;
+5. achieved-error-pole residual: maximum absolute difference of the sorted
+   scalar-quadratic roots from `[-3,-2]`;
+6. augmented-realization residual: maximum absolute componentwise difference
+   across returned augmented `A/B/C/D` and all four literal matrices above;
+7. exact Booleans that the quadratic discriminant is nonnegative, both error
+   poles have strictly negative real value, and the source `A/B/C/D` matrices
+   remain exactly unchanged after both calls.
+
+Do not call `place_siso_poles()`, `is_fully_observable()`, observability/rank,
+`eigenvalues()`, `modal_properties()`, simulation/response, controller,
+frequency-response, Gramian, balanced-reduction, or aircraft APIs directly from
+the runner. Calls made internally by the two target public APIs remain
+implementation details and are not additional runner boundaries.
+
+## Deterministic tolerances and acceptance semantics
+
+- Maximum absolute observer-gain residual: `1.0e-12`.
+- Observer-gain preservation tolerance: `0.0` (exact copied values).
+- Maximum absolute error-state-matrix residual: `1.0e-12`.
+- Maximum absolute characteristic-coefficient residual: `1.0e-12`.
+- Maximum absolute achieved-error-pole residual: `1.0e-12`.
+- Maximum absolute augmented-realization residual: `1.0e-12`.
+- Source-matrix preservation tolerance: `0.0` (exact unchanged arrays).
+
+These are deterministic numerical-equivalence limits for exact terminating or
+rational source/oracle values, not source uncertainty. Equality with every
+limit passes.
+
+The benchmark passes if and only if all frozen inputs and both API results meet
+their structural validation; every residual, coefficient, discriminant, and
+root is finite and real; every residual meets its limit; the discriminant
+Boolean is true; the two roots are in fixed ascending order and equal the
+desired pole multiset within tolerance; error dynamics are asymptotically
+stable; gain preservation is exact; and all source matrices are exactly
+preserved.
+
+Malformed, complex where real is required, nonfinite, wrong-shape,
+wrong-cardinality, wrong record/system type, negative discriminant,
+non-real/nonfinite derived root, unsorted returned evidence, mutated source
+matrix, or internally inconsistent gain/interconnection/residual/pass evidence
+raises `ValueError` before an `ExperimentRun` is constructed. An exception
+raised directly by either target API propagates unchanged. Structurally valid
+finite evidence outside a numerical tolerance or with finite nonstable/wrong
+error poles returns an `ExperimentRun` with `passed = False`; comparison
+failure alone must not raise.
+
+## Evidence carrier and deterministic provenance
+
+Continue using `response_metrics()` and `experiment_run()` only as evidence-
+composition boundaries. This benchmark does not reproduce the source
+simulation, so use a fixed two-sample zero output/reference carrier and zero
+two-state initial condition. Label all response metrics as auxiliary and
+excluded from acceptance.
+
+Use run ID `verification-mathworks-luenberger-observer-v1`, method `exact`, and
+aware UTC creation time `2026-09-05T12:00:00+00:00`. Record in existing flat
+metadata:
+
+- every exact source/provenance field specified above;
+- fixed `A/B/C/D`, shapes, ordering/counts, no-unit status, desired poles,
+  observer/error conventions, and state/input/output orders;
+- coefficient equations, literal gain, literal error matrix, coefficient/pole
+  oracle, and literal augmented matrices;
+- returned/stored gain, returned augmented matrices and shapes, directly
+  computed error matrix, trace, determinant, coefficients, discriminant, roots,
+  all residuals/tolerances/Booleans, auxiliary-carrier status, evidence
+  classification, and overall pass.
+
+Two equivalent calls must return exactly equal detached JSON-compatible
+`reproducibility_record()` dictionaries. Do not check in downloaded source
+content, generated matrices, plots, pulse data, or serialized evidence.
+
+## Evidence classification and material distinction
+
+Classify this as **computational/software verification of deterministic
+full-order state-observer synthesis, estimation-error pole assignment, and
+Luenberger plant/observer interconnection against an authoritative worked
+example and exact algebraic oracles**. It is not runtime MathWorks
+cross-validation, trajectory validation, physical model validation, or mixed
+evidence.
+
+This is materially distinct from all eight completed runners. It verifies
+state estimation from measured output, dual pole placement, innovation
+injection, autonomous estimation-error dynamics, and the augmented
+plant/estimate signal topology. The prior controller benchmark assigns
+`A-BK` through an actuation law; it does not verify `A-LC`, observer gain shape,
+measured-output injection, estimated-state outputs, or an observer
+interconnection. No other runner supplies estimation evidence.
+
+## Focused tests to add during implementation
+
+- Assert exact MathWorks product/page/example/URL/access-date provenance,
+  published matrices/commands/premise, evidence classification, fixed ordering,
+  run ID, method, and timestamp.
+- Independently hard-code the fractional gain, error matrix, characteristic
+  coefficients/poles, and augmented matrices; assert nominal returned evidence,
+  every residual/tolerance/Boolean, and overall pass.
+- Spy on the two target APIs to require exactly one direct call each, exact
+  desired-pole input ordering, and identity of the gain passed into the
+  interconnection; assert the runner directly invokes no out-of-scope API
+  listed above.
+- Assert the zero carrier, zero initial state, JSON compatibility, detachment,
+  and exact repeated-run determinism.
+- Parameterize structurally valid finite gains/interconnections independently
+  exceeding gain, gain-preservation, error-matrix, coefficient, pole, and
+  augmented-realization tolerances; include finite wrong/nonstable error poles;
+  assert failed evidence is returned without raising.
+- Reject wrong gain/interconnection/system types, shapes/cardinalities,
+  complex/nonfinite values, negative/nonfinite discriminant, nonfinite derived
+  evidence, source mutation, and internally inconsistent stored gain or
+  augmented blocks with `ValueError` before record creation.
+- Verify direct exceptions from either target API propagate unchanged and the
+  benchmark imports no optional dependency.
+
+## Explicit non-goals
+
+- No experimental, flight-test, wind-tunnel, or aircraft data; no physical
+  validation, noise/disturbance model, uncertainty, certification, performance,
+  convergence-rate, or safety claim.
+- No reproduction of MathWorks pulse simulation, `lsim`, plots, time grid,
+  initial condition, state-estimate trajectory, or qualitative comparison.
+- No Kalman filter, stochastic estimation, covariance/Riccati equation,
+  reduced-order/unknown-input/nonlinear/time-varying observer, multi-output
+  placement, observer tuning, robustness, sensitivity, or broad model family.
+- No state-feedback controller, observer-based output-feedback compensator,
+  separation-principle benchmark, integral action, prefilter, saturation, or
+  automatic pole selection.
+- No new abstraction, dependency, registry, source schema, result/report type,
+  serializer, persistence feature, CLI, plotting, generated artifact, or
+  refactor of `StateSpace`, `ExperimentRun`, existing runners, or unrelated
+  tests unless implementation exposes a demonstrated core discrepancy.
 
 ## Selected eighth V&V capability
 
@@ -2937,7 +3196,9 @@ git status
 
 ## Restart instruction
 
-Read `NEXT.md`, inspect the eight completed verification runners, then define
-the ninth single V&V capability exactly as directed under "Exact next smallest
-task." Do not implement it, expand the V&V framework, refactor unrelated
-modules, touch the existing untracked `.vscode/`, or push.
+Read `NEXT.md`, then implement
+`run_mathworks_luenberger_observer_verification_benchmark()` beside the eight
+completed verification runners exactly as directed under "Exact next smallest
+task." Add only the focused tests frozen there. Do not expand the V&V framework,
+add dependencies or persistence, refactor unrelated modules, touch the existing
+untracked `.vscode/`, or push.
