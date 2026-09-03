@@ -12,6 +12,7 @@ from flightlab.state_space import StateSpace
 from flightlab.verification import (
     run_linear_state_space_verification_benchmark,
     run_mathworks_controllability_verification_benchmark,
+    run_mathworks_siso_pole_placement_verification_benchmark,
     run_nasa_gtm_longitudinal_modal_verification_benchmark,
     run_nasa_unstable_roll_frequency_response_verification_benchmark,
     run_scipy_linear_state_space_verification_benchmark,
@@ -1256,3 +1257,288 @@ def test_mathworks_benchmark_does_not_import_optional_dependencies():
     )
 
     assert result.returncode == 0, result.stderr
+
+
+_POLE_PLACEMENT_A = np.array([[-1.0, -2.0], [1.0, 0.0]])
+_POLE_PLACEMENT_B = np.array([[2.0], [0.0]])
+_POLE_PLACEMENT_C = np.array([[0.0, 1.0]])
+_POLE_PLACEMENT_D = np.array([[0.0]])
+_POLE_PLACEMENT_GAIN = np.array([[1.0, 0.0]])
+_POLE_PLACEMENT_CLOSED_A = np.array([[-3.0, -2.0], [1.0, 0.0]])
+
+
+def test_pole_placement_benchmark_calls_fixed_public_api_boundaries(monkeypatch):
+    original_feedback = StateSpace.full_state_feedback
+    original_eigenvalues = StateSpace.eigenvalues
+    calls = []
+    closed_loop_systems = []
+
+    def place_siso_poles(system, desired_poles):
+        np.testing.assert_array_equal(system.A, _POLE_PLACEMENT_A)
+        np.testing.assert_array_equal(system.B, _POLE_PLACEMENT_B)
+        np.testing.assert_array_equal(system.C, _POLE_PLACEMENT_C)
+        np.testing.assert_array_equal(system.D, _POLE_PLACEMENT_D)
+        np.testing.assert_array_equal(desired_poles, [-1.0, -2.0])
+        calls.append("place")
+        return _POLE_PLACEMENT_GAIN.copy()
+
+    def full_state_feedback(system, gain):
+        np.testing.assert_array_equal(gain, _POLE_PLACEMENT_GAIN)
+        calls.append("feedback")
+        closed_loop = original_feedback(system, gain)
+        closed_loop_systems.append(closed_loop)
+        return closed_loop
+
+    def eigenvalues(system):
+        assert system is closed_loop_systems[0]
+        calls.append("eigenvalues")
+        return original_eigenvalues(system)
+
+    monkeypatch.setattr(StateSpace, "place_siso_poles", place_siso_poles)
+    monkeypatch.setattr(StateSpace, "full_state_feedback", full_state_feedback)
+    monkeypatch.setattr(StateSpace, "eigenvalues", eigenvalues)
+
+    run = run_mathworks_siso_pole_placement_verification_benchmark()
+
+    assert calls == ["place", "feedback", "eigenvalues"]
+    assert run.user_metadata["passed"] is True
+
+
+def test_pole_placement_benchmark_matches_exact_algebraic_oracle():
+    run = run_mathworks_siso_pole_placement_verification_benchmark()
+
+    assert run.controller["gain"] == tuple(_POLE_PLACEMENT_GAIN.flat)
+    np.testing.assert_array_equal(
+        run.user_metadata["closed_loop_A"], _POLE_PLACEMENT_CLOSED_A.ravel()
+    )
+    np.testing.assert_array_equal(
+        run.user_metadata["closed_loop_B"], _POLE_PLACEMENT_B.ravel()
+    )
+    np.testing.assert_array_equal(
+        run.user_metadata["closed_loop_C"], _POLE_PLACEMENT_C.ravel()
+    )
+    np.testing.assert_array_equal(
+        run.user_metadata["closed_loop_D"], _POLE_PLACEMENT_D.ravel()
+    )
+    assert run.user_metadata["achieved_poles_sorted"] == (-2.0, -1.0)
+    assert run.user_metadata["maximum_absolute_gain_residual"] == 0.0
+    assert run.user_metadata[
+        "maximum_absolute_closed_loop_state_matrix_residual"
+    ] == 0.0
+    assert run.user_metadata[
+        "maximum_absolute_preserved_realization_residual"
+    ] == 0.0
+    assert run.user_metadata["maximum_absolute_achieved_pole_residual"] == 0.0
+    assert run.user_metadata["closed_loop_consistent"] is True
+    assert run.user_metadata["desired_poles_achieved"] is True
+    assert run.user_metadata["matrices_preserved"] is True
+    assert run.user_metadata["asymptotically_stable"] is True
+    assert run.user_metadata["passed"] is True
+
+
+def test_pole_placement_benchmark_records_source_model_and_identity():
+    run = run_mathworks_siso_pole_placement_verification_benchmark()
+
+    assert isinstance(run, ExperimentRun)
+    assert run.system["A"] == tuple(_POLE_PLACEMENT_A.flat)
+    assert run.system["B"] == tuple(_POLE_PLACEMENT_B.flat)
+    assert run.system["C"] == tuple(_POLE_PLACEMENT_C.flat)
+    assert run.system["D"] == tuple(_POLE_PLACEMENT_D.flat)
+    assert run.controller["desired_poles_input_order"] == (-1.0, -2.0)
+    assert run.controller["feedback_convention"] == "u = -K x"
+    assert run.reference["reference_gain"] == (1.0, 0.0)
+    assert run.reference["reference_closed_loop_A"] == (-3.0, -2.0, 1.0, 0.0)
+    assert run.reference["reference_poles_sorted"] == (-2.0, -1.0)
+    assert run.reference["section"] == "Pole Placement Design for Second-Order System"
+    assert run.reference["access_date"] == "2026-09-03"
+    assert "r2024b" in run.reference["release_reference_pdf_url"]
+    assert run.run_id == "verification-mathworks-siso-pole-placement-v1"
+    assert run.created_at.isoformat() == "2026-09-04T00:00:00+00:00"
+
+
+def test_pole_placement_benchmark_carrier_and_records_are_deterministic():
+    first = run_mathworks_siso_pole_placement_verification_benchmark()
+    second = run_mathworks_siso_pole_placement_verification_benchmark()
+
+    assert first.method == "exact"
+    np.testing.assert_array_equal(first.initial_state, np.zeros(2))
+    np.testing.assert_array_equal(first.metrics.time, [0.0, 1.0])
+    np.testing.assert_array_equal(first.metrics.output, np.zeros(2))
+    np.testing.assert_array_equal(first.metrics.reference, np.zeros(2))
+    assert first.user_metadata["auxiliary_response_carrier"] is True
+    assert first.user_metadata["gain_residual_tolerance"] == 1.0e-12
+    assert first.user_metadata["state_matrix_residual_tolerance"] == 1.0e-12
+    assert first.user_metadata["preserved_realization_tolerance"] == 0.0
+    assert first.user_metadata["pole_residual_tolerance"] == 1.0e-12
+    first_record = first.reproducibility_record()
+    second_record = second.reproducibility_record()
+    assert first_record == second_record
+    json.dumps(first_record, allow_nan=False)
+    first_record["user_metadata"]["passed"] = False
+    assert first.reproducibility_record() == second_record
+
+
+@pytest.mark.parametrize(
+    ("failure", "metadata_key"),
+    [
+        ("gain", "maximum_absolute_gain_residual"),
+        ("state_matrix", "maximum_absolute_closed_loop_state_matrix_residual"),
+        ("preservation", "maximum_absolute_preserved_realization_residual"),
+        ("pole", "maximum_absolute_achieved_pole_residual"),
+    ],
+)
+def test_pole_placement_benchmark_returns_failed_run_over_tolerance(
+    monkeypatch, failure, metadata_key
+):
+    original_feedback = StateSpace.full_state_feedback
+    if failure in ("gain", "state_matrix"):
+        changed_gain = _POLE_PLACEMENT_GAIN.copy()
+        changed_gain[0, 0 if failure == "gain" else 1] += 2.0e-12
+        monkeypatch.setattr(
+            StateSpace, "place_siso_poles", lambda self, poles: changed_gain
+        )
+    elif failure == "preservation":
+
+        def changed_feedback(self, gain):
+            closed_loop = original_feedback(self, gain)
+            closed_loop.B[0, 0] = np.nextafter(closed_loop.B[0, 0], np.inf)
+            return closed_loop
+
+        monkeypatch.setattr(StateSpace, "full_state_feedback", changed_feedback)
+    else:
+        monkeypatch.setattr(
+            StateSpace,
+            "eigenvalues",
+            lambda self: np.array([-2.0, -1.0 + 2.0e-12]),
+        )
+
+    run = run_mathworks_siso_pole_placement_verification_benchmark()
+
+    assert run.user_metadata[metadata_key] > run.user_metadata[
+        {
+            "maximum_absolute_gain_residual": "gain_residual_tolerance",
+            "maximum_absolute_closed_loop_state_matrix_residual": (
+                "state_matrix_residual_tolerance"
+            ),
+            "maximum_absolute_preserved_realization_residual": (
+                "preserved_realization_tolerance"
+            ),
+            "maximum_absolute_achieved_pole_residual": "pole_residual_tolerance",
+        }[metadata_key]
+    ]
+    assert run.user_metadata["passed"] is False
+
+
+@pytest.mark.parametrize("poles", [np.array([-2.0, -0.5]), np.array([1.0, 2.0])])
+def test_pole_placement_benchmark_returns_failed_run_for_wrong_or_nonstable_poles(
+    monkeypatch, poles
+):
+    monkeypatch.setattr(StateSpace, "eigenvalues", lambda self: poles)
+
+    run = run_mathworks_siso_pole_placement_verification_benchmark()
+
+    assert run.user_metadata["passed"] is False
+
+
+@pytest.mark.parametrize(
+    ("gain", "message"),
+    [
+        (np.zeros((2,)), "must have shape"),
+        (np.zeros((1, 2), dtype=complex), "finite real values"),
+        (np.full((1, 2), np.nan), "finite real values"),
+    ],
+)
+def test_pole_placement_benchmark_rejects_malformed_gain(
+    monkeypatch, gain, message
+):
+    monkeypatch.setattr(StateSpace, "place_siso_poles", lambda self, poles: gain)
+    with pytest.raises(ValueError, match=message):
+        run_mathworks_siso_pole_placement_verification_benchmark()
+
+
+@pytest.mark.parametrize(
+    ("poles", "message"),
+    [
+        (np.array([-1.0]), "must have shape"),
+        (np.array([-2.0 + 1.0e-15j, -1.0 - 1.0e-15j]), "must be real"),
+        (np.array([-2.0, np.inf]), "must be finite"),
+    ],
+)
+def test_pole_placement_benchmark_rejects_malformed_achieved_poles(
+    monkeypatch, poles, message
+):
+    monkeypatch.setattr(StateSpace, "eigenvalues", lambda self: poles)
+    with pytest.raises(ValueError, match=message):
+        run_mathworks_siso_pole_placement_verification_benchmark()
+
+
+def test_pole_placement_benchmark_rejects_inconsistent_closed_loop(monkeypatch):
+    original_feedback = StateSpace.full_state_feedback
+
+    def inconsistent_feedback(self, gain):
+        closed_loop = original_feedback(self, gain)
+        closed_loop.A[0, 0] = np.nextafter(closed_loop.A[0, 0], np.inf)
+        return closed_loop
+
+    monkeypatch.setattr(StateSpace, "full_state_feedback", inconsistent_feedback)
+    with pytest.raises(ValueError, match="internally inconsistent"):
+        run_mathworks_siso_pole_placement_verification_benchmark()
+
+
+@pytest.mark.parametrize(
+    "method_name", ["place_siso_poles", "full_state_feedback", "eigenvalues"]
+)
+def test_pole_placement_benchmark_propagates_target_api_exceptions(
+    monkeypatch, method_name
+):
+    expected = RuntimeError(f"{method_name} failed")
+
+    def fail(*args, **kwargs):
+        raise expected
+
+    monkeypatch.setattr(StateSpace, method_name, fail)
+    with pytest.raises(RuntimeError) as caught:
+        run_mathworks_siso_pole_placement_verification_benchmark()
+    assert caught.value is expected
+
+
+def test_pole_placement_benchmark_does_not_import_optional_dependencies():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "from flightlab.verification import "
+                "run_mathworks_siso_pole_placement_verification_benchmark as run; "
+                "run(); "
+                "assert 'scipy' not in sys.modules; "
+                "assert 'matlab' not in sys.modules"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_pole_placement_benchmark_does_not_invoke_out_of_scope_apis(monkeypatch):
+    def unexpected(*args, **kwargs):
+        raise AssertionError("out-of-scope StateSpace API was invoked")
+
+    for method_name in (
+        "place_siso_observer_poles",
+        "place_siso_integral_poles",
+        "siso_reference_prefilter",
+        "simulate",
+        "frequency_response",
+        "balanced_realization",
+        "modal_properties",
+    ):
+        monkeypatch.setattr(StateSpace, method_name, unexpected)
+
+    run = run_mathworks_siso_pole_placement_verification_benchmark()
+
+    assert run.user_metadata["passed"] is True

@@ -134,7 +134,11 @@ analytical aircraft model, not physical validation. The fifth V&V capability
 is now complete: the official MathWorks rank-deficient two-state, two-input
 worked example verifies FlightLab's exact controllability-matrix ordering,
 numerical rank, uncontrollable-state count, and negative full-controllability
-classification through deterministic `ExperimentRun` evidence.
+classification through deterministic `ExperimentRun` evidence. The sixth V&V
+capability is now complete: the official MathWorks second-order worked example
+verifies FlightLab's SISO state-feedback gain synthesis, `A - B K`
+interconnection convention, exact preservation of `B`, `C`, and `D`, and
+achieved stable closed-loop poles through deterministic evidence.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -180,15 +184,16 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: definition of the sixth fixed V&V capability: exact
-  SISO state-feedback pole-placement and closed-loop interconnection evidence
-  using the official MathWorks second-order worked example.
-- Completed capability commit: this documentation checkpoint's commit
-  (`docs: define pole-placement verification benchmark`).
+- Completed capability: one fixed SISO pole-placement verification runner using
+  the official MathWorks second-order worked example, exact gain and closed-loop
+  algebraic oracles, existing `StateSpace` controller APIs, and deterministic
+  `ExperimentRun` evidence.
+- Completed capability commit: this checkpoint's implementation commit
+  (`feat: add pole-placement verification benchmark`).
 
 ## Current verification baseline
 
-- Test count: 1527 tests.
+- Test count: 1549 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1815,7 +1820,7 @@ physical-validation claim.
   completed runners, or unrelated tests unless this exact benchmark exposes a
   demonstrated core discrepancy.
 
-## Exact next smallest task
+## Completed pole-placement benchmark specification
 
 ### Implement the fixed MathWorks SISO pole-placement benchmark
 
@@ -2060,6 +2065,19 @@ or interconnects a controller.
 - No change to `StateSpace`, `ExperimentRun`, response metrics, the five
   completed runners, or unrelated tests unless this exact benchmark exposes a
   demonstrated core discrepancy.
+
+## Exact next smallest task
+
+Define, but do not implement, the seventh single V&V capability. Select one
+authoritative, publicly accessible source and freeze its exact citation,
+reconstructable inputs, evidence classification, FlightLab API target,
+independent comparison oracle, quantities, deterministic tolerances, failure
+semantics, `ExperimentRun` provenance, focused tests, and explicit non-goals in
+this file. It must add one materially distinct kind of evidence beyond the six
+completed runners, including the new controller-synthesis benchmark. Do not add
+a framework, abstraction, dependency, persistence behavior, experimental or
+flight-data physical validation, or implementation code. Commit only that
+documentation checkpoint and do not push.
 
 ## Read-only repository size and complexity snapshot
 
@@ -2445,8 +2463,7 @@ git status
 
 ## Restart instruction
 
-Read `NEXT.md`, then implement the narrowly scoped fixed MathWorks SISO pole-
-placement verification runner exactly as specified, without expanding the V&V
-framework or refactoring unrelated modules. Run the required checks, update
-this checkpoint, commit the implementation, do not touch the existing untracked
-`.vscode/`, and do not push.
+Read `NEXT.md`, inspect the six completed verification runners, then define the
+seventh single V&V capability exactly as directed under "Exact next smallest
+task." Do not implement it, expand the V&V framework, refactor unrelated
+modules, touch the existing untracked `.vscode/`, or push.

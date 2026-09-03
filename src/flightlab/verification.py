@@ -822,3 +822,222 @@ def run_mathworks_controllability_verification_benchmark() -> ExperimentRun:
         run_id="verification-mathworks-controllability-rank-v1",
         created_at=datetime(2026, 9, 3, 12, tzinfo=UTC),
     )
+
+
+def run_mathworks_siso_pole_placement_verification_benchmark() -> ExperimentRun:
+    """Verify SISO pole placement against an official worked example."""
+    matrix_a = np.array([[-1.0, -2.0], [1.0, 0.0]])
+    matrix_b = np.array([[2.0], [0.0]])
+    matrix_c = np.array([[0.0, 1.0]])
+    matrix_d = np.array([[0.0]])
+    desired_poles = np.array([-1.0, -2.0])
+    reference_gain = np.array([[1.0, 0.0]])
+    reference_closed_loop_a = np.array([[-3.0, -2.0], [1.0, 0.0]])
+    reference_poles = np.array([-2.0, -1.0])
+    gain_tolerance = 1.0e-12
+    state_matrix_tolerance = 1.0e-12
+    preservation_tolerance = 0.0
+    pole_tolerance = 1.0e-12
+
+    for name, matrix, shape in (
+        ("A", matrix_a, (2, 2)),
+        ("B", matrix_b, (2, 1)),
+        ("C", matrix_c, (1, 2)),
+        ("D", matrix_d, (1, 1)),
+    ):
+        if matrix.shape != shape:
+            raise ValueError(
+                f"MathWorks pole-placement benchmark matrix {name} "
+                f"must have shape {shape}"
+            )
+        if np.iscomplexobj(matrix) or not np.all(np.isfinite(matrix)):
+            raise ValueError(
+                f"MathWorks pole-placement benchmark matrix {name} "
+                "must contain only finite real values"
+            )
+    if desired_poles.shape != (2,) or not np.array_equal(
+        desired_poles, np.array([-1.0, -2.0])
+    ):
+        raise ValueError(
+            "MathWorks pole-placement benchmark desired poles must contain "
+            "the fixed ordered values"
+        )
+    if np.iscomplexobj(desired_poles) or not np.all(np.isfinite(desired_poles)):
+        raise ValueError(
+            "MathWorks pole-placement benchmark desired poles must contain "
+            "only finite real values"
+        )
+
+    system = StateSpace(matrix_a, matrix_b, matrix_c, matrix_d)
+    gain = np.asarray(system.place_siso_poles(desired_poles))
+    if gain.shape != (1, 2):
+        raise ValueError(
+            "MathWorks pole-placement benchmark gain must have shape (1, 2)"
+        )
+    if np.iscomplexobj(gain) or not np.all(np.isfinite(gain)):
+        raise ValueError(
+            "MathWorks pole-placement benchmark gain must contain only "
+            "finite real values"
+        )
+
+    closed_loop = system.full_state_feedback(gain)
+    for name, matrix, shape in (
+        ("A", np.asarray(closed_loop.A), (2, 2)),
+        ("B", np.asarray(closed_loop.B), (2, 1)),
+        ("C", np.asarray(closed_loop.C), (1, 2)),
+        ("D", np.asarray(closed_loop.D), (1, 1)),
+    ):
+        if matrix.shape != shape:
+            raise ValueError(
+                f"MathWorks pole-placement benchmark closed-loop matrix {name} "
+                f"must have shape {shape}"
+            )
+        if np.iscomplexobj(matrix) or not np.all(np.isfinite(matrix)):
+            raise ValueError(
+                f"MathWorks pole-placement benchmark closed-loop matrix {name} "
+                "must contain only finite real values"
+            )
+
+    expected_closed_loop_a = np.array(
+        [
+            [-1.0 - 2.0 * gain[0, 0], -2.0 - 2.0 * gain[0, 1]],
+            [1.0, 0.0],
+        ]
+    )
+    closed_loop_consistent = bool(
+        np.array_equal(closed_loop.A, expected_closed_loop_a)
+    )
+    if not closed_loop_consistent:
+        raise ValueError(
+            "MathWorks pole-placement benchmark gain and closed-loop A "
+            "are internally inconsistent"
+        )
+
+    achieved_poles = np.asarray(closed_loop.eigenvalues())
+    if achieved_poles.shape != (2,):
+        raise ValueError(
+            "MathWorks pole-placement benchmark achieved poles must have shape (2,)"
+        )
+    if not np.all(np.isfinite(achieved_poles)):
+        raise ValueError(
+            "MathWorks pole-placement benchmark achieved poles must be finite"
+        )
+    if np.iscomplexobj(achieved_poles) and np.any(achieved_poles.imag != 0.0):
+        raise ValueError(
+            "MathWorks pole-placement benchmark achieved poles must be real"
+        )
+    achieved_poles = np.sort(np.asarray(achieved_poles.real, dtype=float))
+
+    gain_residual = float(np.max(np.abs(gain - reference_gain)))
+    state_matrix_residual = float(
+        np.max(np.abs(closed_loop.A - reference_closed_loop_a))
+    )
+    preservation_residual = float(
+        max(
+            np.max(np.abs(closed_loop.B - matrix_b)),
+            np.max(np.abs(closed_loop.C - matrix_c)),
+            np.max(np.abs(closed_loop.D - matrix_d)),
+        )
+    )
+    pole_residual = float(np.max(np.abs(achieved_poles - reference_poles)))
+    residuals = (
+        gain_residual,
+        state_matrix_residual,
+        preservation_residual,
+        pole_residual,
+    )
+    if not all(np.isfinite(residual) for residual in residuals):
+        raise ValueError(
+            "MathWorks pole-placement benchmark residuals must be finite"
+        )
+    desired_poles_achieved = bool(np.array_equal(achieved_poles, reference_poles))
+    asymptotically_stable = bool(np.all(achieved_poles < 0.0))
+    matrices_preserved = preservation_residual <= preservation_tolerance
+    passed = bool(
+        gain_residual <= gain_tolerance
+        and state_matrix_residual <= state_matrix_tolerance
+        and preservation_residual <= preservation_tolerance
+        and pole_residual <= pole_tolerance
+        and desired_poles_achieved
+        and asymptotically_stable
+    )
+
+    carrier_time = np.array([0.0, 1.0])
+    metrics = response_metrics(carrier_time, np.zeros(2), np.zeros(2))
+    return experiment_run(
+        time=carrier_time,
+        initial_state=np.zeros(2),
+        metrics=metrics,
+        method="exact",
+        system={
+            "A": tuple(matrix_a.flat),
+            "A_shape": (2, 2),
+            "B": tuple(matrix_b.flat),
+            "B_shape": (2, 1),
+            "C": tuple(matrix_c.flat),
+            "C_shape": (1, 2),
+            "D": tuple(matrix_d.flat),
+            "D_shape": (1, 1),
+            "input_count": 1,
+            "output_count": 1,
+            "physical_units": "none assigned",
+            "state_count": 2,
+        },
+        controller={
+            "closed_loop_convention": "A_cl = A - B K",
+            "desired_poles_input_order": tuple(desired_poles),
+            "feedback_convention": "u = -K x",
+            "gain": tuple(gain.flat),
+            "type": "static_full_state_feedback",
+        },
+        reference={
+            "access_date": "2026-09-03",
+            "coefficient_matching": (
+                "1 + 2 k1 = 3; 2 + 2 k2 = 2; k1 = 1; k2 = 0"
+            ),
+            "evidence_classification": (
+                "computational/software verification of deterministic controller "
+                "synthesis and feedback interconnection against an official worked "
+                "example and exact algebraic oracle"
+            ),
+            "product_documentation": "MathWorks Control System Toolbox Documentation",
+            "reference_closed_loop_A": tuple(reference_closed_loop_a.flat),
+            "reference_gain": tuple(reference_gain.flat),
+            "reference_poles_sorted": tuple(reference_poles),
+            "release_reference_pdf_url": (
+                "https://www.mathworks.com/help/releases/r2024b/pdf_doc/control/control_ref.pdf"
+            ),
+            "section": "Pole Placement Design for Second-Order System",
+            "source_conclusion": "closed-loop system is stable and nonoscillatory",
+            "source_title": "place - Pole placement design",
+            "source_url": "https://www.mathworks.com/help/control/ref/place.html",
+            "target_characteristic_polynomial": "(s + 1)(s + 2) = s^2 + 3 s + 2",
+        },
+        user_metadata={
+            "achieved_poles_sorted": tuple(achieved_poles),
+            "asymptotically_stable": asymptotically_stable,
+            "auxiliary_response_carrier": True,
+            "closed_loop_A": tuple(closed_loop.A.flat),
+            "closed_loop_B": tuple(closed_loop.B.flat),
+            "closed_loop_C": tuple(closed_loop.C.flat),
+            "closed_loop_D": tuple(closed_loop.D.flat),
+            "closed_loop_consistent": closed_loop_consistent,
+            "desired_poles_achieved": desired_poles_achieved,
+            "gain_residual_tolerance": gain_tolerance,
+            "matrices_preserved": matrices_preserved,
+            "maximum_absolute_closed_loop_state_matrix_residual": (
+                state_matrix_residual
+            ),
+            "maximum_absolute_gain_residual": gain_residual,
+            "maximum_absolute_preserved_realization_residual": (
+                preservation_residual
+            ),
+            "maximum_absolute_achieved_pole_residual": pole_residual,
+            "passed": passed,
+            "pole_residual_tolerance": pole_tolerance,
+            "preserved_realization_tolerance": preservation_tolerance,
+            "state_matrix_residual_tolerance": state_matrix_tolerance,
+        },
+        run_id="verification-mathworks-siso-pole-placement-v1",
+        created_at=datetime(2026, 9, 4, tzinfo=UTC),
+    )
