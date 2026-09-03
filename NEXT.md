@@ -119,7 +119,13 @@ propagation foundation. It returns deterministic evidence through the existing
 mathematical oracle, not physical validation of an aircraft model. The second
 V&V capability is now complete: one fixed SciPy cross-check of a different
 coupled oscillatory system, using SciPy only as a development/test verification
-dependency and reusing the same existing evidence machinery.
+dependency and reusing the same existing evidence machinery. The third V&V
+capability is now complete: one fixed reconstruction of the published NASA
+Generic Transport Model rigid-body longitudinal descriptor system at Mach 0.8,
+with FlightLab modal quantities checked against the NASA/AIAA paper's rounded
+published poles, natural frequencies, and damping ratios. This remains
+computational/software verification against published computational results,
+not physical validation.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -165,15 +171,15 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: definition of the first authoritative published
-  aircraft flight-dynamics benchmark: the NASA Generic Transport Model rigid-
-  body longitudinal model published in AIAA 2013-4746.
-- Completed capability commit: this documentation checkpoint's commit
-  (`docs: define published GTM flight-dynamics benchmark`).
+- Completed capability: one fixed published NASA GTM rigid-body longitudinal
+  modal verification runner using `A = numpy.linalg.solve(M_r, S)`, the
+  existing `StateSpace` modal APIs, and deterministic `ExperimentRun` evidence.
+- Completed capability commit: this checkpoint's implementation commit
+  (`feat: add NASA GTM longitudinal verification benchmark`).
 
 ## Current verification baseline
 
-- Test count: 1479 tests.
+- Test count: 1489 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1142,9 +1148,9 @@ or EXACT set matching for both inclusions and exclusions.
   equations, or sign conventions without a demonstrated inconsistency.
 - Do not add dependencies or perform unrelated refactors.
 
-## Exact next smallest task
+## Completed published-aircraft benchmark specification
 
-### Implement the fixed published NASA GTM longitudinal modal benchmark
+### Fixed published NASA GTM longitudinal modal benchmark
 
 Add one narrowly scoped runner beside the two existing runners in
 `flightlab.verification`. Encode the published descriptor matrices below,
@@ -1353,6 +1359,20 @@ published modal targets whose limited decimal precision is handled explicitly.
   dependency.
 - No alteration of published coordinates or signs and no change to existing
   StateSpace mathematics unless implementation demonstrates a core defect.
+
+## Exact next smallest task
+
+Define, but do not implement, the next single V&V capability. Select one
+authoritative, publicly accessible source and freeze the exact evidence
+classification, reconstructable numerical inputs, FlightLab APIs under test,
+comparison quantities, source-precision tolerances, failure semantics,
+provenance fields, focused tests, and explicit non-goals in this file. The
+definition must add evidence materially different from the completed closed-
+form, SciPy, and published NASA GTM modal benchmarks while remaining one narrow
+runner that reuses `ExperimentRun`; it must not introduce a generic V&V
+framework, new result type, dependency, persistence behavior, or physical-
+validation claim. Commit that documentation checkpoint without implementing
+the runner or pushing.
 
 ## Read-only repository size and complexity snapshot
 
@@ -1738,6 +1758,7 @@ git status
 
 ## Restart instruction
 
-Read `NEXT.md`, then implement the narrowly scoped NASA GTM longitudinal
-verification runner exactly as specified, without expanding the V&V framework
-or refactoring unrelated modules.
+Read `NEXT.md`, inspect the three completed verification runners, then define
+the next single V&V capability exactly as directed under "Exact next smallest
+task." Do not implement it, expand the V&V framework, refactor unrelated
+modules, touch the existing untracked `.vscode/`, or push.

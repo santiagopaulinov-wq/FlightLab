@@ -11,6 +11,7 @@ from flightlab.experiment import ExperimentRun
 from flightlab.state_space import StateSpace
 from flightlab.verification import (
     run_linear_state_space_verification_benchmark,
+    run_nasa_gtm_longitudinal_modal_verification_benchmark,
     run_scipy_linear_state_space_verification_benchmark,
 )
 
@@ -631,3 +632,137 @@ def test_scipy_benchmark_rejects_inconsistent_output_residual_evidence(monkeypat
 
     with pytest.raises(ValueError, match="output residual evidence is inconsistent"):
         run_scipy_linear_state_space_verification_benchmark()
+
+
+def test_nasa_gtm_benchmark_uses_published_descriptor_transformation(monkeypatch):
+    original_solve = np.linalg.solve
+    calls = []
+
+    def checked_solve(mass_matrix, stability_matrix):
+        assert mass_matrix.shape == (4, 4)
+        assert stability_matrix.shape == (4, 4)
+        assert mass_matrix[2, 1] == 0.1310
+        assert stability_matrix[1, 2] == 10.9544
+        calls.append(True)
+        return original_solve(mass_matrix, stability_matrix)
+
+    monkeypatch.setattr(np.linalg, "solve", checked_solve)
+    run = run_nasa_gtm_longitudinal_modal_verification_benchmark()
+
+    assert calls == [True]
+    expected = original_solve(
+        np.reshape(run.system["descriptor_mass_matrix"], (4, 4)),
+        np.reshape(run.system["descriptor_stability_matrix"], (4, 4)),
+    )
+    np.testing.assert_array_equal(run.system["A"], expected.ravel())
+    assert run.system["transformation"] == "A = numpy.linalg.solve(M_r, S)"
+    assert run.system["auxiliary_input_output_matrices"] is True
+
+
+def test_nasa_gtm_benchmark_matches_published_modal_results():
+    run = run_nasa_gtm_longitudinal_modal_verification_benchmark()
+
+    assert isinstance(run, ExperimentRun)
+    assert run.reference["published_mode_order"] == ("phugoid", "short_period")
+    assert run.user_metadata["maximum_absolute_eigenvalue_residual"] == pytest.approx(
+        6.2345e-4, rel=1e-4
+    )
+    assert run.user_metadata["maximum_absolute_natural_frequency_residual"] == (
+        pytest.approx(1.7155e-4, rel=1e-4)
+    )
+    assert run.user_metadata["maximum_absolute_damping_ratio_residual"] == (
+        pytest.approx(3.4108e-4, rel=1e-4)
+    )
+    assert run.user_metadata["passed"] is True
+
+
+def test_nasa_gtm_benchmark_records_source_trim_and_fixed_identity():
+    run = run_nasa_gtm_longitudinal_modal_verification_benchmark()
+
+    assert run.run_id == "verification-nasa-gtm-longitudinal-modal-v1"
+    assert run.created_at.isoformat() == "2026-09-02T18:00:00+00:00"
+    assert run.reference["doi"] == "10.2514/6.2013-4746"
+    assert run.reference["ntrs_document_id"] == "20140008923"
+    assert run.reference["source_printed_page"] == 28
+    assert run.reference["state_order"] == (
+        "Delta V / V",
+        "Delta alpha",
+        "q",
+        "Delta theta",
+    )
+    assert run.reference["trim_mach"] == 0.8
+    assert run.reference["trim_altitude_ft"] == 35000.0
+    np.testing.assert_array_equal(run.metrics.output, [0.0, 0.0])
+    np.testing.assert_array_equal(run.metrics.reference, [0.0, 0.0])
+
+
+def test_nasa_gtm_benchmark_is_deterministic_and_json_compatible():
+    first = run_nasa_gtm_longitudinal_modal_verification_benchmark()
+    second = run_nasa_gtm_longitudinal_modal_verification_benchmark()
+
+    first_record = first.reproducibility_record()
+    second_record = second.reproducibility_record()
+    assert first_record == second_record
+    json.dumps(first_record, allow_nan=False)
+    first_record["user_metadata"]["passed"] = False
+    assert first.reproducibility_record() == second_record
+
+
+@pytest.mark.parametrize(
+    ("quantity", "property_name"),
+    [
+        ("eigenvalue", "eigenvalue"),
+        ("natural_frequency", "natural_frequency"),
+        ("damping_ratio", "damping_ratio"),
+    ],
+)
+def test_nasa_gtm_benchmark_returns_failed_run_for_over_limit_modal_evidence(
+    monkeypatch, quantity, property_name
+):
+    original = StateSpace.modal_properties
+
+    def changed_properties(self):
+        properties = list(original(self))
+        positive = [index for index, prop in enumerate(properties) if prop.eigenvalue.imag > 0]
+        index = positive[0]
+        prop = properties[index]
+        if quantity == "eigenvalue":
+            changed = prop._replace(eigenvalue=prop.eigenvalue + 1.0e-3)
+        else:
+            changed = prop._replace(**{property_name: getattr(prop, property_name) + 1.0e-3})
+        properties[index] = changed
+        return tuple(properties)
+
+    if quantity == "eigenvalue":
+        original_eigenvalues = StateSpace.eigenvalues
+
+        def changed_eigenvalues(self):
+            values = original_eigenvalues(self).copy()
+            index = np.flatnonzero(values.imag > 0)[0]
+            values[index] += 1.0e-3
+            conjugate = np.flatnonzero(values.imag < 0)[0]
+            values[conjugate] = values[index].conjugate()
+            return values
+
+        monkeypatch.setattr(StateSpace, "eigenvalues", changed_eigenvalues)
+    if quantity != "eigenvalue":
+        monkeypatch.setattr(StateSpace, "modal_properties", changed_properties)
+
+    run = run_nasa_gtm_longitudinal_modal_verification_benchmark()
+    assert run.user_metadata["passed"] is False
+
+
+@pytest.mark.parametrize(
+    ("eigenvalues", "message"),
+    [
+        (np.ones(3), "must have shape"),
+        (np.array([np.nan, 1j, -1j, 1.0]), "only finite"),
+        (np.array([1j, 2j, -1j, -3j]), "two conjugate pairs"),
+    ],
+)
+def test_nasa_gtm_benchmark_rejects_malformed_eigenvalues(
+    monkeypatch, eigenvalues, message
+):
+    monkeypatch.setattr(StateSpace, "eigenvalues", lambda self: eigenvalues)
+    with pytest.raises(ValueError, match=message):
+        run_nasa_gtm_longitudinal_modal_verification_benchmark()

@@ -316,3 +316,164 @@ def run_scipy_linear_state_space_verification_benchmark() -> ExperimentRun:
         run_id="verification-linear-state-space-scipy-lsim-v1",
         created_at=datetime(2026, 9, 2, 12, tzinfo=UTC),
     )
+
+
+def run_nasa_gtm_longitudinal_modal_verification_benchmark() -> ExperimentRun:
+    """Reproduce the published NASA GTM longitudinal modal quantities."""
+    mass_matrix = np.array(
+        [
+            [11.1138, 0.0, 0.0, 0.0],
+            [0.0, 11.1757, 0.0, 0.0],
+            [0.0, 0.1310, 0.7841, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    stability_matrix = np.array(
+        [
+            [-0.0558, -0.4364, -0.7480, -0.4595],
+            [-1.7284, -6.3068, 10.9544, -0.0306],
+            [-0.0074, -1.7648, -0.3370, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+        ]
+    )
+    published_eigenvalues = np.array(
+        [complex(-0.0042, 0.0763), complex(-0.5779, 1.4491)]
+    )
+    published_natural_frequencies = np.array([0.0764, 1.5601])
+    published_damping_ratios = np.array([0.0545, 0.3704])
+    eigenvalue_tolerance = 7.0e-4
+    natural_frequency_tolerance = 2.0e-4
+    damping_ratio_tolerance = 4.0e-4
+
+    for name, matrix in (
+        ("descriptor mass matrix", mass_matrix),
+        ("descriptor stability matrix", stability_matrix),
+    ):
+        if matrix.shape != (4, 4):
+            raise ValueError(f"GTM {name} must have shape (4, 4)")
+        if np.iscomplexobj(matrix) or not np.all(np.isfinite(matrix)):
+            raise ValueError(f"GTM {name} must contain only finite real values")
+
+    state_matrix = np.linalg.solve(mass_matrix, stability_matrix)
+    if state_matrix.shape != (4, 4):
+        raise ValueError("GTM standard state matrix must have shape (4, 4)")
+    if np.iscomplexobj(state_matrix) or not np.all(np.isfinite(state_matrix)):
+        raise ValueError(
+            "GTM standard state matrix must contain only finite real values"
+        )
+
+    system = StateSpace(
+        state_matrix, np.zeros((4, 1)), np.eye(4), np.zeros((4, 1))
+    )
+    eigenvalues = np.asarray(system.eigenvalues())
+    properties = tuple(system.modal_properties())
+    if eigenvalues.shape != (4,):
+        raise ValueError("GTM benchmark eigenvalues must have shape (4,)")
+    if not np.all(np.isfinite(eigenvalues)):
+        raise ValueError("GTM benchmark eigenvalues must contain only finite values")
+    if len(properties) != 4:
+        raise ValueError("GTM benchmark modal properties must contain four members")
+
+    positive_indices = np.flatnonzero(eigenvalues.imag > 0.0)
+    negative_eigenvalues = eigenvalues[eigenvalues.imag < 0.0]
+    if positive_indices.size != 2 or negative_eigenvalues.size != 2:
+        raise ValueError("GTM benchmark eigenvalues must form two conjugate pairs")
+    positive_indices = positive_indices[
+        np.argsort(np.abs(eigenvalues[positive_indices]))
+    ]
+    matched_eigenvalues = eigenvalues[positive_indices]
+    if any(
+        not np.any(np.isclose(negative_eigenvalues, value.conjugate(), rtol=0.0, atol=1e-12))
+        for value in matched_eigenvalues
+    ):
+        raise ValueError("GTM benchmark eigenvalues must form two conjugate pairs")
+
+    natural_frequencies = []
+    damping_ratios = []
+    for index in positive_indices:
+        prop = properties[int(index)]
+        values = (prop.eigenvalue, prop.natural_frequency, prop.damping_ratio)
+        if prop.natural_frequency is None or prop.damping_ratio is None:
+            raise ValueError("GTM benchmark modal quantities must be oscillatory")
+        if not all(np.isfinite(value) for value in values):
+            raise ValueError("GTM benchmark modal quantities must be finite")
+        if prop.natural_frequency <= 0.0 or prop.damping_ratio <= 0.0:
+            raise ValueError("GTM benchmark modal quantities must be positive")
+        if prop.eigenvalue != eigenvalues[index]:
+            raise ValueError("GTM benchmark modal evidence is internally inconsistent")
+        natural_frequencies.append(prop.natural_frequency)
+        damping_ratios.append(prop.damping_ratio)
+
+    natural_frequencies = np.asarray(natural_frequencies)
+    damping_ratios = np.asarray(damping_ratios)
+    eigenvalue_residual = float(
+        np.max(np.abs(matched_eigenvalues - published_eigenvalues))
+    )
+    natural_frequency_residual = float(
+        np.max(np.abs(natural_frequencies - published_natural_frequencies))
+    )
+    damping_ratio_residual = float(
+        np.max(np.abs(damping_ratios - published_damping_ratios))
+    )
+    passed = bool(
+        eigenvalue_residual <= eigenvalue_tolerance
+        and natural_frequency_residual <= natural_frequency_tolerance
+        and damping_ratio_residual <= damping_ratio_tolerance
+    )
+
+    time = np.array([0.0, 1.0])
+    metrics = response_metrics(time, np.zeros(2), np.zeros(2))
+    return experiment_run(
+        time=time,
+        initial_state=np.zeros(4),
+        metrics=metrics,
+        method="exact",
+        system={
+            "A": tuple(state_matrix.flat),
+            "A_shape": (4, 4),
+            "B": (0.0, 0.0, 0.0, 0.0),
+            "B_shape": (4, 1),
+            "C": tuple(np.eye(4).flat),
+            "C_shape": (4, 4),
+            "D": (0.0, 0.0, 0.0, 0.0),
+            "D_shape": (4, 1),
+            "auxiliary_input_output_matrices": True,
+            "descriptor_mass_matrix": tuple(mass_matrix.flat),
+            "descriptor_stability_matrix": tuple(stability_matrix.flat),
+            "name": "nasa_gtm_rigid_body_longitudinal_mach_0_8_v1",
+            "transformation": "A = numpy.linalg.solve(M_r, S)",
+        },
+        controller={"type": "none"},
+        reference={
+            "doi": "10.2514/6.2013-4746",
+            "evidence_classification": "computational_software_verification",
+            "ntrs_document_id": "20140008923",
+            "paper": "AIAA 2013-4746",
+            "published_damping_ratios": (0.0545, 0.3704),
+            "published_eigenvalues_imaginary": (0.0763, 1.4491),
+            "published_eigenvalues_real": (-0.0042, -0.5779),
+            "published_mode_order": ("phugoid", "short_period"),
+            "published_natural_frequencies": (0.0764, 1.5601),
+            "section": "V.A",
+            "source_printed_page": 28,
+            "state_order": ("Delta V / V", "Delta alpha", "q", "Delta theta"),
+            "trim_alpha_deg": 3.8142,
+            "trim_altitude_ft": 35000.0,
+            "trim_elevator_deg": -6.1497,
+            "trim_mach": 0.8,
+            "trim_speed_ft_per_s": 778.2063,
+            "trim_theta_deg": -3.8142,
+            "trim_thrust_lb": 5617.0,
+        },
+        user_metadata={
+            "damping_ratio_tolerance": damping_ratio_tolerance,
+            "eigenvalue_tolerance": eigenvalue_tolerance,
+            "maximum_absolute_damping_ratio_residual": damping_ratio_residual,
+            "maximum_absolute_eigenvalue_residual": eigenvalue_residual,
+            "maximum_absolute_natural_frequency_residual": natural_frequency_residual,
+            "natural_frequency_tolerance": natural_frequency_tolerance,
+            "passed": passed,
+        },
+        run_id="verification-nasa-gtm-longitudinal-modal-v1",
+        created_at=datetime(2026, 9, 2, 18, tzinfo=UTC),
+    )
