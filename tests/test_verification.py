@@ -11,6 +11,7 @@ from flightlab.experiment import ExperimentRun
 from flightlab.state_space import StateSpace
 from flightlab.verification import (
     run_linear_state_space_verification_benchmark,
+    run_mathworks_balanced_truncation_verification_benchmark,
     run_mathworks_controllability_verification_benchmark,
     run_mathworks_siso_pole_placement_verification_benchmark,
     run_nasa_gtm_longitudinal_modal_verification_benchmark,
@@ -1780,3 +1781,366 @@ def test_scipy_manual_gramian_benchmark_does_not_invoke_out_of_scope_apis(
     run = run_scipy_manual_controllability_gramian_verification_benchmark()
 
     assert run.user_metadata["passed"] is True
+
+
+_BALANCED_A = np.diag([-1.0, -2.0])
+_BALANCED_B = np.diag([2.0, 1.0])
+_BALANCED_C = np.diag([2.0, 1.0])
+_BALANCED_D = np.zeros((2, 2))
+_BALANCED_FREQUENCIES = np.array([0.0, 0.5, 1.0, 2.0, 5.0])
+_BALANCED_ERROR_SINGULAR_VALUES = np.column_stack(
+    (
+        1.0 / np.sqrt(_BALANCED_FREQUENCIES**2 + 4.0),
+        np.zeros(5),
+    )
+)
+
+
+def test_balanced_truncation_benchmark_calls_fixed_public_boundaries(monkeypatch):
+    original_truncation = StateSpace.balanced_truncation
+    calls = []
+
+    def balanced_truncation(system, retained_order):
+        np.testing.assert_array_equal(system.A, _BALANCED_A)
+        np.testing.assert_array_equal(system.B, _BALANCED_B)
+        np.testing.assert_array_equal(system.C, _BALANCED_C)
+        np.testing.assert_array_equal(system.D, _BALANCED_D)
+        assert retained_order == 1
+        calls.append("truncation")
+        return original_truncation(system, retained_order)
+
+    def sampled_error(system, retained_order, frequencies):
+        assert retained_order == 1
+        np.testing.assert_array_equal(frequencies, _BALANCED_FREQUENCIES)
+        calls.append("sampled_error")
+        return _BALANCED_ERROR_SINGULAR_VALUES.copy()
+
+    monkeypatch.setattr(StateSpace, "balanced_truncation", balanced_truncation)
+    monkeypatch.setattr(
+        StateSpace,
+        "balanced_truncation_frequency_response_error_singular_values",
+        sampled_error,
+    )
+
+    run = run_mathworks_balanced_truncation_verification_benchmark()
+
+    assert calls == ["truncation", "sampled_error"]
+    assert run.user_metadata["passed"] is True
+
+
+def test_balanced_truncation_benchmark_matches_exact_analytical_oracles():
+    run = run_mathworks_balanced_truncation_verification_benchmark()
+
+    assert run.user_metadata["reduced_A"] == (-1.0,)
+    assert run.user_metadata["reduced_B"] == (2.0, 0.0)
+    assert run.user_metadata["reduced_C"] == (2.0, 0.0)
+    assert run.user_metadata["reduced_D"] == (0.0, 0.0, 0.0, 0.0)
+    assert run.user_metadata["returned_projection"] == (1.0, 0.0)
+    assert run.user_metadata["reconstruction"] == (1.0, 0.0)
+    assert run.user_metadata["returned_balanced_transformation"] == (
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+    )
+    assert run.user_metadata["returned_retained_hankel_singular_values"] == (2.0,)
+    assert run.user_metadata["returned_discarded_hankel_singular_values"] == (
+        0.25,
+    )
+    assert run.user_metadata["returned_a_priori_error_bound"] == 0.5
+    np.testing.assert_allclose(
+        run.user_metadata["sampled_error_singular_values"],
+        _BALANCED_ERROR_SINGULAR_VALUES.ravel(),
+        rtol=0.0,
+        atol=1.0e-12,
+    )
+    for key in (
+        "maximum_absolute_reduction_realization_residual",
+        "maximum_absolute_coordinate_map_residual",
+        "maximum_absolute_hankel_evidence_residual",
+        "maximum_absolute_error_bound_residual",
+        "maximum_absolute_sampled_error_singular_value_residual",
+    ):
+        assert run.user_metadata[key] <= 1.0e-12
+    assert run.user_metadata["bound_satisfaction_margin"] >= -1.0e-12
+    assert run.user_metadata["all_sampled_errors_within_bound"] is True
+    assert run.user_metadata["dc_error_attains_returned_bound"] is True
+    assert run.user_metadata["passed"] is True
+
+
+def test_balanced_truncation_benchmark_records_provenance_model_and_identity():
+    run = run_mathworks_balanced_truncation_verification_benchmark()
+
+    assert isinstance(run, ExperimentRun)
+    assert run.system["A"] == tuple(_BALANCED_A.flat)
+    assert run.system["B"] == tuple(_BALANCED_B.flat)
+    assert run.system["C"] == tuple(_BALANCED_C.flat)
+    assert run.system["D"] == tuple(_BALANCED_D.flat)
+    assert run.reference["product_documentation"] == (
+        "MathWorks Control System Toolbox Documentation"
+    )
+    assert run.reference["page_title"] == (
+        "balred - (Not recommended) Model order reduction"
+    )
+    assert run.reference["page_sections"] == (
+        "Description",
+        "Output Arguments: info",
+        "Algorithms",
+    )
+    assert run.reference["access_date"] == "2026-09-03"
+    assert run.reference["source_url"].endswith("dynamicsystem.balred.html")
+    assert run.reference["absolute_error_bound_formula"] == (
+        "||G_s - G_r||_infinity <= 2 * sum(sigma_j, j=r+1,...,n)"
+    )
+    assert run.user_metadata["angular_frequencies_rad_per_s"] == tuple(
+        _BALANCED_FREQUENCIES
+    )
+    assert run.run_id == "verification-mathworks-balanced-truncation-v1"
+    assert run.created_at.isoformat() == "2026-09-05T00:00:00+00:00"
+
+
+def test_balanced_truncation_benchmark_carrier_and_record_are_deterministic():
+    first = run_mathworks_balanced_truncation_verification_benchmark()
+    second = run_mathworks_balanced_truncation_verification_benchmark()
+
+    assert first.method == "exact"
+    np.testing.assert_array_equal(first.initial_state, np.zeros(2))
+    np.testing.assert_array_equal(first.metrics.time, [0.0, 1.0])
+    np.testing.assert_array_equal(first.metrics.output, np.zeros(2))
+    np.testing.assert_array_equal(first.metrics.reference, np.zeros(2))
+    assert first.user_metadata["auxiliary_response_carrier"] is True
+    for key in (
+        "reduction_realization_residual_tolerance",
+        "coordinate_map_residual_tolerance",
+        "hankel_evidence_residual_tolerance",
+        "error_bound_residual_tolerance",
+        "sampled_error_singular_value_residual_tolerance",
+        "bound_comparison_tolerance",
+    ):
+        assert first.user_metadata[key] == 1.0e-12
+    first_record = first.reproducibility_record()
+    second_record = second.reproducibility_record()
+    assert first_record == second_record
+    json.dumps(first_record, allow_nan=False)
+    first_record["user_metadata"]["passed"] = False
+    assert first.reproducibility_record() == second_record
+
+
+@pytest.mark.parametrize(
+    ("changed_field", "residual_key"),
+    [
+        ("realization", "maximum_absolute_reduction_realization_residual"),
+        ("coordinate", "maximum_absolute_coordinate_map_residual"),
+        ("hsv", "maximum_absolute_hankel_evidence_residual"),
+        ("bound", "maximum_absolute_error_bound_residual"),
+        (
+            "sampled",
+            "maximum_absolute_sampled_error_singular_value_residual",
+        ),
+    ],
+)
+def test_balanced_truncation_benchmark_returns_failed_evidence_over_tolerance(
+    monkeypatch, changed_field, residual_key
+):
+    system = StateSpace(_BALANCED_A, _BALANCED_B, _BALANCED_C, _BALANCED_D)
+    result = system.balanced_truncation(1)
+    sampled = _BALANCED_ERROR_SINGULAR_VALUES.copy()
+    if changed_field == "realization":
+        reduced = StateSpace(
+            [[-1.0 + 2.0e-12]], [[2.0, 0.0]], [[2.0], [0.0]], _BALANCED_D
+        )
+        result = result._replace(system=reduced)
+    elif changed_field == "coordinate":
+        projection = result.projection.copy()
+        projection[0, 1] = 2.0e-12
+        result = result._replace(projection=projection)
+    elif changed_field == "hsv":
+        result = result._replace(
+            retained_hankel_singular_values=np.array([2.0 + 2.0e-12])
+        )
+    elif changed_field == "bound":
+        result = result._replace(a_priori_error_bound=0.5 + 2.0e-12)
+    else:
+        sampled[1, 0] += 2.0e-12
+
+    monkeypatch.setattr(StateSpace, "balanced_truncation", lambda self, order: result)
+    monkeypatch.setattr(
+        StateSpace,
+        "balanced_truncation_frequency_response_error_singular_values",
+        lambda self, order, frequencies: sampled,
+    )
+
+    run = run_mathworks_balanced_truncation_verification_benchmark()
+
+    assert run.user_metadata[residual_key] > 1.0e-12
+    assert run.user_metadata["passed"] is False
+
+
+@pytest.mark.parametrize("failure", ["bound", "dc"])
+def test_balanced_truncation_benchmark_returns_failed_bound_evidence(
+    monkeypatch, failure
+):
+    system = StateSpace(_BALANCED_A, _BALANCED_B, _BALANCED_C, _BALANCED_D)
+    result = system.balanced_truncation(1)
+    sampled = _BALANCED_ERROR_SINGULAR_VALUES.copy()
+    if failure == "bound":
+        sampled[1, 0] = 0.5 + 2.0e-12
+    else:
+        sampled[0, 0] = 0.5 - 2.0e-12
+    monkeypatch.setattr(StateSpace, "balanced_truncation", lambda self, order: result)
+    monkeypatch.setattr(
+        StateSpace,
+        "balanced_truncation_frequency_response_error_singular_values",
+        lambda self, order, frequencies: sampled,
+    )
+
+    run = run_mathworks_balanced_truncation_verification_benchmark()
+
+    assert run.user_metadata["passed"] is False
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("projection", np.zeros((2, 1)), "must have shape"),
+        ("reconstruction", np.full((2, 1), np.nan), "finite real values"),
+        (
+            "retained_hankel_singular_values",
+            np.array([-1.0]),
+            "must be nonnegative",
+        ),
+        (
+            "discarded_hankel_singular_values",
+            np.array([3.0]),
+            "must be ordered",
+        ),
+        ("a_priori_error_bound", -1.0, "must be nonnegative"),
+    ],
+)
+def test_balanced_truncation_benchmark_rejects_malformed_truncation(
+    monkeypatch, field, value, message
+):
+    system = StateSpace(_BALANCED_A, _BALANCED_B, _BALANCED_C, _BALANCED_D)
+    result = system.balanced_truncation(1)._replace(**{field: value})
+    monkeypatch.setattr(StateSpace, "balanced_truncation", lambda self, order: result)
+    with pytest.raises(ValueError, match=message):
+        run_mathworks_balanced_truncation_verification_benchmark()
+
+
+@pytest.mark.parametrize(
+    ("sampled", "message"),
+    [
+        (np.zeros((5, 1)), "must have shape"),
+        (np.zeros((5, 2), dtype=complex), "finite real values"),
+        (np.full((5, 2), np.inf), "finite real values"),
+        (-np.ones((5, 2)), "must be nonnegative"),
+        (np.tile([0.0, 1.0], (5, 1)), "must be ordered"),
+    ],
+)
+def test_balanced_truncation_benchmark_rejects_malformed_sampled_errors(
+    monkeypatch, sampled, message
+):
+    monkeypatch.setattr(
+        StateSpace,
+        "balanced_truncation_frequency_response_error_singular_values",
+        lambda self, order, frequencies: sampled,
+    )
+    with pytest.raises(ValueError, match=message):
+        run_mathworks_balanced_truncation_verification_benchmark()
+
+
+@pytest.mark.parametrize(
+    "method_name",
+    [
+        "balanced_truncation",
+        "balanced_truncation_frequency_response_error_singular_values",
+    ],
+)
+def test_balanced_truncation_benchmark_propagates_target_exceptions(
+    monkeypatch, method_name
+):
+    expected = RuntimeError(f"{method_name} failed")
+
+    def fail(*args, **kwargs):
+        raise expected
+
+    monkeypatch.setattr(StateSpace, method_name, fail)
+    with pytest.raises(RuntimeError) as caught:
+        run_mathworks_balanced_truncation_verification_benchmark()
+    assert caught.value is expected
+
+
+def test_balanced_truncation_benchmark_does_not_import_optional_dependencies():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; from flightlab.verification import "
+                "run_mathworks_balanced_truncation_verification_benchmark as run; "
+                "run(); assert 'scipy' not in sys.modules; "
+                "assert 'control' not in sys.modules; assert 'matlab' not in sys.modules"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_balanced_truncation_benchmark_does_not_directly_call_other_apis(
+    monkeypatch,
+):
+    system = StateSpace(_BALANCED_A, _BALANCED_B, _BALANCED_C, _BALANCED_D)
+    truncation = system.balanced_truncation(1)
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("out-of-scope API was called directly")
+
+    for method_name in (
+        "hankel_singular_values",
+        "balanced_realization",
+        "controllability_gramian",
+        "observability_gramian",
+        "frequency_response",
+        "balanced_truncation_frequency_response_error",
+        "balanced_truncation_frequency_response_error_singular_directions",
+        "simulate",
+        "place_siso_poles",
+        "modal_properties",
+    ):
+        monkeypatch.setattr(StateSpace, method_name, unexpected)
+    monkeypatch.setattr(
+        StateSpace, "balanced_truncation", lambda self, order: truncation
+    )
+    monkeypatch.setattr(
+        StateSpace,
+        "balanced_truncation_frequency_response_error_singular_values",
+        lambda self, order, frequencies: _BALANCED_ERROR_SINGULAR_VALUES.copy(),
+    )
+
+    run = run_mathworks_balanced_truncation_verification_benchmark()
+
+    assert run.user_metadata["passed"] is True
+
+
+@pytest.mark.parametrize("result", [None, ("not", "a", "truncation")])
+def test_balanced_truncation_benchmark_rejects_wrong_result_type(
+    monkeypatch, result
+):
+    monkeypatch.setattr(StateSpace, "balanced_truncation", lambda self, order: result)
+    with pytest.raises(ValueError, match="must be a BalancedTruncation"):
+        run_mathworks_balanced_truncation_verification_benchmark()
+
+
+@pytest.mark.parametrize("retained_order", [True, 1.0, 0, 2])
+def test_balanced_truncation_benchmark_rejects_invalid_returned_order(
+    monkeypatch, retained_order
+):
+    system = StateSpace(_BALANCED_A, _BALANCED_B, _BALANCED_C, _BALANCED_D)
+    result = system.balanced_truncation(1)._replace(retained_order=retained_order)
+    monkeypatch.setattr(StateSpace, "balanced_truncation", lambda self, order: result)
+    with pytest.raises(ValueError, match="retained order"):
+        run_mathworks_balanced_truncation_verification_benchmark()

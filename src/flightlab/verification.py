@@ -7,7 +7,7 @@ import numpy as np
 
 from flightlab.experiment import ExperimentRun, experiment_run
 from flightlab.response import response_metrics
-from flightlab.state_space import StateSpace
+from flightlab.state_space import BalancedTruncation, StateSpace
 
 _ACCEPTANCE_TOLERANCE = 1.0e-12
 _RUN_ID = "verification-linear-state-space-closed-form-v1"
@@ -1218,4 +1218,356 @@ def run_scipy_manual_controllability_gramian_verification_benchmark() -> Experim
         },
         run_id="verification-scipy-manual-controllability-gramian-v1",
         created_at=datetime(2026, 9, 4, 12, tzinfo=UTC),
+    )
+
+
+def run_mathworks_balanced_truncation_verification_benchmark() -> ExperimentRun:
+    """Verify fixed balanced truncation against exact analytical oracles."""
+    matrix_a = np.diag([-1.0, -2.0])
+    matrix_b = np.diag([2.0, 1.0])
+    matrix_c = np.diag([2.0, 1.0])
+    matrix_d = np.zeros((2, 2))
+    retained_order = 1
+    frequencies = np.array([0.0, 0.5, 1.0, 2.0, 5.0])
+    reference_reduced_a = np.array([[-1.0]])
+    reference_reduced_b = np.array([[2.0, 0.0]])
+    reference_reduced_c = np.array([[2.0], [0.0]])
+    reference_reduced_d = np.zeros((2, 2))
+    reference_projection = np.array([[1.0, 0.0]])
+    reference_reconstruction = np.array([[1.0], [0.0]])
+    reference_transformation = np.eye(2)
+    reference_retained_hsv = np.array([2.0])
+    reference_discarded_hsv = np.array([0.25])
+    reference_error_bound = 0.5
+    reference_error_singular_values = np.column_stack(
+        (1.0 / np.sqrt(frequencies * frequencies + 4.0), np.zeros(5))
+    )
+    tolerance = 1.0e-12
+
+    for name, matrix, shape in (
+        ("A", matrix_a, (2, 2)),
+        ("B", matrix_b, (2, 2)),
+        ("C", matrix_c, (2, 2)),
+        ("D", matrix_d, (2, 2)),
+    ):
+        if matrix.shape != shape:
+            raise ValueError(
+                f"MathWorks balanced-truncation matrix {name} must have shape {shape}"
+            )
+        if np.iscomplexobj(matrix) or not np.all(np.isfinite(matrix)):
+            raise ValueError(
+                f"MathWorks balanced-truncation matrix {name} must contain only "
+                "finite real values"
+            )
+    if frequencies.shape != (5,) or not np.array_equal(
+        frequencies, np.array([0.0, 0.5, 1.0, 2.0, 5.0])
+    ):
+        raise ValueError(
+            "MathWorks balanced-truncation frequencies must contain five fixed values"
+        )
+
+    system = StateSpace(matrix_a, matrix_b, matrix_c, matrix_d)
+    truncation = system.balanced_truncation(retained_order)
+    if not isinstance(truncation, BalancedTruncation):
+        raise ValueError(  # noqa: TRY004 - frozen evidence contract uses ValueError
+            "MathWorks balanced-truncation result must be a BalancedTruncation"
+        )
+    if isinstance(truncation.retained_order, (bool, np.bool_)) or not isinstance(
+        truncation.retained_order, (int, np.integer)
+    ):
+        raise ValueError(  # noqa: TRY004 - frozen evidence contract uses ValueError
+            "MathWorks balanced-truncation retained order must be an integer"
+        )
+    if int(truncation.retained_order) != retained_order:
+        raise ValueError(
+            "MathWorks balanced-truncation retained order must equal one"
+        )
+
+    reduced = truncation.system
+    if not isinstance(reduced, StateSpace):
+        raise ValueError(  # noqa: TRY004 - frozen evidence contract uses ValueError
+            "MathWorks balanced-truncation reduced system must be a StateSpace"
+        )
+    returned_arrays = {
+        "reduced A": (np.asarray(reduced.A), (1, 1)),
+        "reduced B": (np.asarray(reduced.B), (1, 2)),
+        "reduced C": (np.asarray(reduced.C), (2, 1)),
+        "reduced D": (np.asarray(reduced.D), (2, 2)),
+        "projection": (np.asarray(truncation.projection), (1, 2)),
+        "reconstruction": (np.asarray(truncation.reconstruction), (2, 1)),
+        "balanced transformation": (
+            np.asarray(truncation.balanced_transformation),
+            (2, 2),
+        ),
+        "retained Hankel singular values": (
+            np.asarray(truncation.retained_hankel_singular_values),
+            (1,),
+        ),
+        "discarded Hankel singular values": (
+            np.asarray(truncation.discarded_hankel_singular_values),
+            (1,),
+        ),
+    }
+    for name, (values, shape) in returned_arrays.items():
+        if values.shape != shape:
+            raise ValueError(
+                f"MathWorks balanced-truncation {name} must have shape {shape}"
+            )
+        if np.iscomplexobj(values) or not np.all(np.isfinite(values)):
+            raise ValueError(
+                f"MathWorks balanced-truncation {name} must contain only "
+                "finite real values"
+            )
+
+    retained_hsv = returned_arrays["retained Hankel singular values"][0]
+    discarded_hsv = returned_arrays["discarded Hankel singular values"][0]
+    returned_hsv = np.concatenate((retained_hsv, discarded_hsv))
+    if np.any(returned_hsv < 0.0):
+        raise ValueError(
+            "MathWorks balanced-truncation Hankel singular values must be nonnegative"
+        )
+    if np.any(returned_hsv[:-1] < returned_hsv[1:]):
+        raise ValueError(
+            "MathWorks balanced-truncation Hankel singular values must be ordered"
+        )
+
+    error_bound = truncation.a_priori_error_bound
+    if isinstance(error_bound, (bool, np.bool_)) or not np.isscalar(error_bound):
+        raise ValueError(
+            "MathWorks balanced-truncation error bound must be a real scalar"
+        )
+    if np.iscomplexobj(error_bound) or not np.isfinite(error_bound):
+        raise ValueError(
+            "MathWorks balanced-truncation error bound must be finite and real"
+        )
+    error_bound = float(error_bound)
+    if error_bound < 0.0:
+        raise ValueError(
+            "MathWorks balanced-truncation error bound must be nonnegative"
+        )
+
+    sampled_error_singular_values = np.asarray(
+        system.balanced_truncation_frequency_response_error_singular_values(
+            retained_order, frequencies
+        )
+    )
+    if sampled_error_singular_values.shape != (5, 2):
+        raise ValueError(
+            "MathWorks balanced-truncation sampled singular values must have "
+            "shape (5, 2)"
+        )
+    if np.iscomplexobj(sampled_error_singular_values) or not np.all(
+        np.isfinite(sampled_error_singular_values)
+    ):
+        raise ValueError(
+            "MathWorks balanced-truncation sampled singular values must contain "
+            "only finite real values"
+        )
+    if np.any(sampled_error_singular_values < 0.0):
+        raise ValueError(
+            "MathWorks balanced-truncation sampled singular values must be nonnegative"
+        )
+    if np.any(
+        sampled_error_singular_values[:, :-1]
+        < sampled_error_singular_values[:, 1:]
+    ):
+        raise ValueError(
+            "MathWorks balanced-truncation sampled singular values must be ordered"
+        )
+
+    realization_residual = float(
+        max(
+            np.max(np.abs(reduced.A - reference_reduced_a)),
+            np.max(np.abs(reduced.B - reference_reduced_b)),
+            np.max(np.abs(reduced.C - reference_reduced_c)),
+            np.max(np.abs(reduced.D - reference_reduced_d)),
+        )
+    )
+    coordinate_map_residual = float(
+        max(
+            np.max(np.abs(truncation.projection - reference_projection)),
+            np.max(np.abs(truncation.reconstruction - reference_reconstruction)),
+            np.max(
+                np.abs(
+                    truncation.balanced_transformation
+                    - reference_transformation
+                )
+            ),
+        )
+    )
+    hankel_residual = float(
+        max(
+            np.max(np.abs(retained_hsv - reference_retained_hsv)),
+            np.max(np.abs(discarded_hsv - reference_discarded_hsv)),
+        )
+    )
+    error_bound_residual = float(abs(error_bound - reference_error_bound))
+    sampled_error_residual = float(
+        np.max(
+            np.abs(
+                sampled_error_singular_values
+                - reference_error_singular_values
+            )
+        )
+    )
+    bound_margin = float(
+        reference_error_bound - np.max(sampled_error_singular_values)
+    )
+    residuals_and_margin = (
+        realization_residual,
+        coordinate_map_residual,
+        hankel_residual,
+        error_bound_residual,
+        sampled_error_residual,
+        bound_margin,
+    )
+    if not all(np.isfinite(value) for value in residuals_and_margin):
+        raise ValueError(
+            "MathWorks balanced-truncation residuals and margin must be finite"
+        )
+
+    all_samples_within_bound = bool(
+        np.all(sampled_error_singular_values <= error_bound + tolerance)
+    )
+    dc_attains_bound = bool(
+        abs(sampled_error_singular_values[0, 0] - error_bound) <= tolerance
+    )
+    passed = bool(
+        realization_residual <= tolerance
+        and coordinate_map_residual <= tolerance
+        and hankel_residual <= tolerance
+        and error_bound_residual <= tolerance
+        and sampled_error_residual <= tolerance
+        and all_samples_within_bound
+        and dc_attains_bound
+        and bound_margin >= -tolerance
+    )
+
+    carrier_time = np.array([0.0, 1.0])
+    metrics = response_metrics(carrier_time, np.zeros(2), np.zeros(2))
+    if metrics.maximum_absolute_tracking_error != 0.0:
+        raise ValueError(
+            "MathWorks balanced-truncation carrier evidence is inconsistent"
+        )
+
+    return experiment_run(
+        time=carrier_time,
+        initial_state=np.zeros(2),
+        metrics=metrics,
+        method="exact",
+        system={
+            "A": tuple(matrix_a.flat),
+            "A_shape": (2, 2),
+            "B": tuple(matrix_b.flat),
+            "B_shape": (2, 2),
+            "C": tuple(matrix_c.flat),
+            "C_shape": (2, 2),
+            "D": tuple(matrix_d.flat),
+            "D_shape": (2, 2),
+            "input_count": 2,
+            "output_count": 2,
+            "physical_units": "none assigned",
+            "state_count": 2,
+        },
+        controller={"type": "none"},
+        reference={
+            "absolute_error_algorithm_statement": (
+                "absolute-error balanced truncation reduces the stable part"
+            ),
+            "absolute_error_bound_formula": (
+                "||G_s - G_r||_infinity <= 2 * sum(sigma_j, j=r+1,...,n)"
+            ),
+            "access_date": "2026-09-03",
+            "evidence_classification": (
+                "computational/software verification of continuous-time balanced "
+                "truncation, Hankel-energy ordering, reduced realization, and the "
+                "absolute input/output error bound against an authoritative "
+                "algorithm contract and exact analytical oracles"
+            ),
+            "full_transfer_matrix": "diag([4/(s+1), 1/(s+2)])",
+            "hsv_description": (
+                "state contributions to input/output behavior in balanced coordinates"
+            ),
+            "info_error_bound_description": (
+                "bounds the absolute approximation error for the retained order"
+            ),
+            "page_sections": ("Description", "Output Arguments: info", "Algorithms"),
+            "page_title": "balred - (Not recommended) Model order reduction",
+            "product_documentation": "MathWorks Control System Toolbox Documentation",
+            "reduced_transfer_matrix": "diag([4/(s+1), 0])",
+            "scalar_gramian_integral": (
+                "integral_0^infinity exp(-2 a t) q^2 dt = q^2 / (2 a)"
+            ),
+            "source_url": (
+                "https://www.mathworks.com/help/control/ref/"
+                "dynamicsystem.balred.html"
+            ),
+            "transfer_error_matrix": "diag([0, 1/(s+2)])",
+        },
+        user_metadata={
+            "absolute_a_priori_error_bound_reference": reference_error_bound,
+            "all_sampled_errors_within_bound": all_samples_within_bound,
+            "angular_frequencies_rad_per_s": tuple(frequencies),
+            "angular_frequency_units": "rad/s",
+            "auxiliary_response_carrier": True,
+            "bound_comparison_tolerance": tolerance,
+            "bound_satisfaction_margin": bound_margin,
+            "coordinate_map_residual_tolerance": tolerance,
+            "dc_error_attains_returned_bound": dc_attains_bound,
+            "error_bound_residual_tolerance": tolerance,
+            "hankel_evidence_residual_tolerance": tolerance,
+            "maximum_absolute_coordinate_map_residual": coordinate_map_residual,
+            "maximum_absolute_error_bound_residual": error_bound_residual,
+            "maximum_absolute_hankel_evidence_residual": hankel_residual,
+            "maximum_absolute_reduction_realization_residual": (
+                realization_residual
+            ),
+            "maximum_absolute_sampled_error_singular_value_residual": (
+                sampled_error_residual
+            ),
+            "passed": passed,
+            "reconstruction": tuple(truncation.reconstruction.flat),
+            "reconstruction_shape": (2, 1),
+            "reconstruction_reference": tuple(reference_reconstruction.flat),
+            "reduced_A": tuple(reduced.A.flat),
+            "reduced_A_shape": (1, 1),
+            "reduced_A_reference": tuple(reference_reduced_a.flat),
+            "reduced_B": tuple(reduced.B.flat),
+            "reduced_B_shape": (1, 2),
+            "reduced_B_reference": tuple(reference_reduced_b.flat),
+            "reduced_C": tuple(reduced.C.flat),
+            "reduced_C_shape": (2, 1),
+            "reduced_C_reference": tuple(reference_reduced_c.flat),
+            "reduced_D": tuple(reduced.D.flat),
+            "reduced_D_shape": (2, 2),
+            "reduced_D_reference": tuple(reference_reduced_d.flat),
+            "reduction_realization_residual_tolerance": tolerance,
+            "retained_order": int(truncation.retained_order),
+            "returned_a_priori_error_bound": error_bound,
+            "returned_balanced_transformation": tuple(
+                truncation.balanced_transformation.flat
+            ),
+            "returned_balanced_transformation_shape": (2, 2),
+            "returned_discarded_hankel_singular_values": tuple(discarded_hsv),
+            "returned_discarded_hankel_singular_values_shape": (1,),
+            "returned_projection": tuple(truncation.projection.flat),
+            "returned_projection_shape": (1, 2),
+            "returned_retained_hankel_singular_values": tuple(retained_hsv),
+            "returned_retained_hankel_singular_values_shape": (1,),
+            "sampled_error_singular_value_reference": tuple(
+                reference_error_singular_values.flat
+            ),
+            "sampled_error_singular_value_residual_tolerance": tolerance,
+            "sampled_error_singular_values": tuple(
+                sampled_error_singular_values.flat
+            ),
+            "sampled_error_singular_values_shape": (5, 2),
+            "transformation_reference": tuple(reference_transformation.flat),
+            "projection_reference": tuple(reference_projection.flat),
+            "hankel_singular_values_reference": (2.0, 0.25),
+            "controllability_gramian_reference": (2.0, 0.0, 0.0, 0.25),
+            "observability_gramian_reference": (2.0, 0.0, 0.0, 0.25),
+        },
+        run_id="verification-mathworks-balanced-truncation-v1",
+        created_at=datetime(2026, 9, 5, tzinfo=UTC),
     )

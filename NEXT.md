@@ -184,15 +184,16 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: definition of the eighth fixed V&V capability: a
-  balanced-truncation model-reduction benchmark using the official MathWorks
-  absolute-error algorithm contract and exact analytical oracles.
-- Completed capability commit: this documentation checkpoint's commit
-  (`docs: define balanced truncation verification benchmark`).
+- Completed capability: one fixed balanced-truncation model-reduction runner
+  using the official MathWorks absolute-error algorithm contract, exact Hankel
+  singular values, an exact first-order reduced realization, and deterministic
+  sampled error-bound evidence through `ExperimentRun`.
+- Completed capability commit: this checkpoint's implementation commit
+  (`feat: add balanced truncation verification benchmark`).
 
 ## Current verification baseline
 
-- Test count: 1565 tests.
+- Test count: 1596 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -2067,16 +2068,16 @@ or interconnects a controller.
 
 ## Exact next smallest task
 
-### Implement the fixed MathWorks-contract balanced-truncation benchmark
-
-Add `run_mathworks_balanced_truncation_verification_benchmark()` beside the
-seven completed runners in `flightlab.verification`. Use the fixed already-
-balanced realization and exact analytical oracles below to verify
-`StateSpace.balanced_truncation(1)` and its sampled frequency-response error.
-Return deterministic evidence through the existing `ExperimentRun` machinery
-and add only the focused tests frozen here. Do not add a framework, dependency,
-generic model-reduction adapter, persistence behavior, or physical-validation
-claim.
+Define, but do not implement, the ninth single V&V capability. Select one
+authoritative, publicly accessible source and freeze its exact citation,
+reconstructable inputs, evidence classification, FlightLab API target,
+independent comparison oracle, quantities, deterministic tolerances, failure
+semantics, `ExperimentRun` provenance, focused tests, and explicit non-goals in
+this file. It must add one materially distinct kind of evidence beyond the eight
+completed runners, including the new balanced-truncation benchmark. Do not add
+a framework, abstraction, dependency, persistence behavior, experimental or
+flight-data physical validation, or implementation code. Commit only that
+documentation checkpoint and do not push.
 
 ## Selected eighth V&V capability
 
@@ -2936,9 +2937,7 @@ git status
 
 ## Restart instruction
 
-Read `NEXT.md`, then implement
-`run_mathworks_balanced_truncation_verification_benchmark()` beside the seven
-completed verification runners exactly as directed under "Exact next smallest
-task." Add only the focused tests frozen there. Do not expand the V&V framework,
-add dependencies or persistence, refactor unrelated modules, touch the existing
-untracked `.vscode/`, or push.
+Read `NEXT.md`, inspect the eight completed verification runners, then define
+the ninth single V&V capability exactly as directed under "Exact next smallest
+task." Do not implement it, expand the V&V framework, refactor unrelated
+modules, touch the existing untracked `.vscode/`, or push.
