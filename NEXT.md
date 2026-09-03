@@ -184,12 +184,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: one fixed SISO pole-placement verification runner using
-  the official MathWorks second-order worked example, exact gain and closed-loop
-  algebraic oracles, existing `StateSpace` controller APIs, and deterministic
-  `ExperimentRun` evidence.
-- Completed capability commit: this checkpoint's implementation commit
-  (`feat: add pole-placement verification benchmark`).
+- Completed capability: definition of the seventh fixed V&V capability: a
+  continuous-time controllability-Gramian and Lyapunov-equation benchmark using
+  the exact worked example in the official SciPy 1.18.0 manual.
+- Completed capability commit: this documentation checkpoint's commit
+  (`docs: define controllability gramian verification benchmark`).
 
 ## Current verification baseline
 
@@ -2068,16 +2067,242 @@ or interconnects a controller.
 
 ## Exact next smallest task
 
-Define, but do not implement, the seventh single V&V capability. Select one
-authoritative, publicly accessible source and freeze its exact citation,
-reconstructable inputs, evidence classification, FlightLab API target,
-independent comparison oracle, quantities, deterministic tolerances, failure
-semantics, `ExperimentRun` provenance, focused tests, and explicit non-goals in
-this file. It must add one materially distinct kind of evidence beyond the six
-completed runners, including the new controller-synthesis benchmark. Do not add
-a framework, abstraction, dependency, persistence behavior, experimental or
-flight-data physical validation, or implementation code. Commit only that
-documentation checkpoint and do not push.
+### Implement the fixed SciPy-manual controllability-Gramian benchmark
+
+Add
+`run_scipy_manual_controllability_gramian_verification_benchmark()` as one
+narrowly scoped runner beside the six existing runners in
+`flightlab.verification`. Encode the official continuous Lyapunov worked example
+below, map its sign convention explicitly to FlightLab's controllability-
+Gramian equation with `B = I`, and compare
+`StateSpace.controllability_gramian()` with the literal sign-adjusted published
+solution. Check the independent Lyapunov residual, symmetry, and exact positive-
+definiteness certificate defined below. Return deterministic evidence through
+the existing `ExperimentRun` machinery and add only the focused tests specified
+here. Do not add a framework, dependency, generic Lyapunov adapter, new record
+type, or physical-validation assertion.
+
+## Selected seventh V&V capability
+
+### Official SciPy continuous Lyapunov worked example as a controllability Gramian
+
+Use *SciPy v1.18.0 Manual*, `scipy.linalg.solve_continuous_lyapunov`, example
+"Given a and q solve for x," official versioned online documentation, accessed
+`2026-09-03`:
+
+```text
+https://docs.scipy.org/doc/scipy-1.18.0/reference/generated/scipy.linalg.solve_continuous_lyapunov.html
+```
+
+The page states that the function solves `A X + X A^H = Q`, identifies its
+Bartels-Stewart algorithm, and publishes one real three-state example with
+literal `A`, `Q = I`, and solution `X`. It verifies that solution by evaluating
+`A X + X A^T`. Record the manual version, function page, example title, URL,
+access date, equation convention, algorithm name, published inputs, published
+solution, and published equation-check result as provenance.
+
+This capability uses the authoritative worked values but must not import or
+call SciPy at runtime. The source's equation and FlightLab's Gramian convention
+have opposite forcing signs; the mapping below is explicit and exact rather
+than an empirical library cross-check.
+
+## Frozen source inputs and FlightLab realization
+
+Copy the source example exactly:
+
+```text
+    [[-3, -2,  0]]        [[1, 0, 0]]
+A = [[-1, -1,  0]]    Q = [[0, 1, 0]]
+    [[ 0, -5, -1]]        [[0, 0, 1]]
+
+              [[-0.75,    0.875,  -3.75  ]]
+X_published = [[ 0.875,  -1.375,   5.3125]]
+              [[-3.75,    5.3125, -27.0625]]
+
+A X_published + X_published A^T = Q = I
+```
+
+FlightLab defines the infinite-horizon continuous-time controllability Gramian
+by
+
+```text
+A Wc + Wc A^T + B B^T = 0.
+```
+
+Freeze `B = eye(3)`, so `B B^T = I = Q`. Therefore direct sign substitution
+gives the literal independent oracle
+
+```text
+Wc_reference = -X_published
+
+             [[ 0.75,  -0.875,   3.75  ]]
+           = [[-0.875,  1.375,  -5.3125]]
+             [[ 3.75,  -5.3125, 27.0625]]
+```
+
+Use construction-only `C = eye(3)` and `D = zeros((3, 3))` to complete the
+`StateSpace`. They are not source data or verification targets and must be
+labeled auxiliary. Preserve every printed source value and the state ordering
+exactly; assign no physical state/input/output meaning or units.
+
+## Independent oracle and certificates
+
+Encode `Wc_reference` literally. Do not derive it with SciPy, another Lyapunov
+solver, numerical integration, Kronecker products, vectorization, a matrix
+inverse, a second `StateSpace`, or FlightLab output. The sign change from the
+published `X` is the only transformation.
+
+Independently evaluate the nine scalar entries of
+`A Wc + Wc A^T + I` using ordinary fixed matrix multiplication after the
+FlightLab result has been validated. This equation residual checks the defining
+identity but is not used to create the literal Gramian oracle.
+
+For an independent exact positive-definiteness certificate, use Sylvester's
+criterion and the three literal leading principal minors of `Wc_reference`:
+
+```text
+Delta1 = 0.75
+Delta2 = 0.265625
+Delta3 = 1.548828125
+```
+
+Record these literal references. Compute the returned matrix's leading
+principal minors directly from the scalar one-by-one, two-by-two, and three-by-
+three determinant formulas; do not call `numpy.linalg.det`, an eigensolver,
+Cholesky factorization, or another positivity helper. Positive definiteness is
+the exact Boolean conjunction that all three validated finite minors are
+strictly greater than zero.
+
+## FlightLab API and comparison quantities
+
+Construct one fixed `StateSpace` and call `controllability_gramian()` exactly
+once. Validate its result before comparison. Compute without rounding:
+
+1. Gramian residual: maximum absolute componentwise difference between the
+   returned `(3, 3)` matrix and literal `Wc_reference`;
+2. Lyapunov-equation residual: maximum absolute entry of
+   `A Wc + Wc A^T + B B^T`;
+3. symmetry residual: maximum absolute entry of `Wc - Wc^T`;
+4. leading-principal-minor residual: maximum absolute difference between the
+   three directly calculated minors and literal
+   `[0.75, 0.265625, 1.548828125]`;
+5. exact positive-definiteness flag from strict positivity of those three
+   returned minors.
+
+Do not call `controllability_matrix()`, rank APIs, `hankel_singular_values()`,
+`balanced_realization()`, or `observability_gramian()`. This runner verifies one
+Gramian and its defining equation only.
+
+## Deterministic tolerances and acceptance semantics
+
+- Maximum absolute Gramian residual: `1.0e-12`.
+- Maximum absolute Lyapunov-equation residual: `1.0e-12`.
+- Maximum absolute symmetry residual: `1.0e-12`.
+- Maximum absolute leading-principal-minor residual: `1.0e-12`.
+
+These are numerical-equivalence limits for a fixed, well-conditioned three-
+state example, not source uncertainty. The source publishes exact terminating
+decimal solution entries. The nominal current FlightLab implementation gives a
+Gramian residual below `4.0e-15` and a Lyapunov residual below `8.0e-15`.
+Equality with any limit passes.
+
+The benchmark passes if and only if fixed `A`, `B`, auxiliary `C`, and auxiliary
+`D` have their exact shapes and finite real values; the returned Gramian has
+shape `(3, 3)` and finite real values; all three returned principal minors and
+all four residuals are finite; all residuals meet their respective limits; and
+the exact positive-definiteness flag is `True`.
+
+Malformed, complex, nonfinite, wrong-shape, wrong-cardinality, nonfinite-minor,
+or internally inconsistent residual/pass evidence raises `ValueError` before an
+`ExperimentRun` is constructed. An exception raised directly by
+`controllability_gramian()` propagates unchanged. A well-shaped finite Gramian
+outside any tolerance, failing the Lyapunov identity, lacking symmetry, or not
+positive definite remains meaningful failed evidence and returns an
+`ExperimentRun` with `passed = False`; comparison failure alone must not raise.
+
+## Evidence carrier and deterministic provenance
+
+Continue using `response_metrics()` and `experiment_run()` only as evidence-
+composition boundaries. This matrix-equation benchmark has no sampled response,
+so use a fixed two-sample zero output/reference carrier and zero three-state
+initial condition. Label all response metrics as an auxiliary carrier excluded
+from acceptance.
+
+Use run ID `verification-scipy-manual-controllability-gramian-v1`, method
+`exact`, and aware UTC creation time `2026-09-04T12:00:00+00:00`. Record in
+existing flat metadata:
+
+- exact manual/version, page/function name, worked-example title, URL, access
+  date, published equation convention, algorithm name, `A`, `Q`, published `X`,
+  and published equation-check result;
+- fixed FlightLab `A`, `B`, auxiliary `C`, auxiliary `D`, all shapes, the
+  `B B^T = Q = I` mapping, sign transformation, absence of physical units, and
+  literal `Wc_reference`;
+- returned Gramian, Lyapunov left-hand side, symmetry difference, returned and
+  reference principal minors, four residuals and limits, positive-definiteness
+  flag, auxiliary-carrier status, evidence classification, and overall pass.
+
+Two equivalent calls must return exactly equal detached JSON-compatible
+`reproducibility_record()` dictionaries. Do not check in downloaded source
+content, generated matrices, or serialized evidence.
+
+## Evidence classification and material distinction
+
+Classify this as **computational/software verification of a continuous-time
+controllability Gramian and Lyapunov equation against an official worked
+example, exact sign mapping, and literal algebraic oracle**. It is not a runtime
+SciPy cross-check, not physical model validation, and not mixed evidence.
+
+This is materially distinct from all six completed runners. It verifies an
+infinite-horizon energy Gramian, a continuous Lyapunov matrix equation,
+symmetry, and positive definiteness. Prior evidence covers open-loop modes,
+sampled propagation, frequency response, finite controllability-matrix rank,
+and controller synthesis, but no matrix-equation solver, energy metric, or
+definiteness certificate.
+
+## Focused tests to add during implementation
+
+- Assert exact SciPy manual/version provenance, URL, example title, equation and
+  sign conventions, algorithm name, `A`, `Q`, published `X`, fixed `B`,
+  auxiliary `C/D`, shapes, run identity, timestamp, and evidence classification.
+- Independently hard-code `Wc_reference`, the zero Lyapunov target, and all
+  three principal-minor references; assert nominal returned values, four
+  residuals and limits, positive-definiteness flag, and overall pass.
+- Spy on `controllability_gramian()` to require exactly one call on the fixed
+  realization; assert no controllability-matrix/rank, observability-Gramian,
+  Hankel, balancing, eigenvalue, simulation, frequency-response, controller, or
+  aircraft API is invoked.
+- Assert the zero carrier, zero initial state, JSON compatibility, detachment,
+  and repeated-run determinism.
+- Parameterize well-shaped finite matrices that independently exceed the
+  Gramian, Lyapunov, symmetry, and principal-minor tolerances, and assert failed
+  evidence is returned without raising; likewise test a finite non-positive-
+  definite result as failed evidence.
+- Reject wrong shape, complex/nonfinite Gramian values, nonfinite derived
+  minors/residuals, and inconsistent evidence with `ValueError` before record
+  construction.
+- Verify direct Gramian exceptions propagate unchanged and the runner imports
+  no SciPy or other optional dependency.
+
+## Explicit non-goals
+
+- No physical/model validation, aircraft or experimental data, flight-test or
+  wind-tunnel comparison, uncertainty quantification, certification, energy or
+  performance claim about a real system, or safety claim.
+- No runtime SciPy comparison, alternate Lyapunov solver, numerical quadrature,
+  finite-time/frequency-limited Gramian, discrete-time equation, generalized
+  equation, complex-valued case, or broad matrix family.
+- No observability Gramian, controllability matrix/rank, stabilizability,
+  detectability, minimality, PBH diagnostic, Hankel singular value, balanced
+  realization/truncation, model-reduction bound, or frequency-error assertion.
+- No controller, observer, modal, trajectory, transfer-function, frequency-
+  response, aircraft wrapper, campaign, sweep, or optimization behavior.
+- No generic V&V framework, benchmark registry, Lyapunov adapter, matrix-
+  equation abstraction, source schema, new result/report/verdict/serializer,
+  persistence behavior, CLI, plotting, or generated evidence artifact.
+- No new dependency and no change to `StateSpace`, `ExperimentRun`, response
+  metrics, the six completed runners, or unrelated tests unless this exact
+  benchmark exposes a demonstrated core discrepancy.
 
 ## Read-only repository size and complexity snapshot
 
@@ -2463,7 +2688,9 @@ git status
 
 ## Restart instruction
 
-Read `NEXT.md`, inspect the six completed verification runners, then define the
-seventh single V&V capability exactly as directed under "Exact next smallest
-task." Do not implement it, expand the V&V framework, refactor unrelated
-modules, touch the existing untracked `.vscode/`, or push.
+Read `NEXT.md`, then implement
+`run_scipy_manual_controllability_gramian_verification_benchmark()` beside the
+six completed verification runners exactly as directed under "Exact next
+smallest task." Add only the focused tests frozen there. Do not expand the V&V
+framework, add dependencies or persistence, refactor unrelated modules, touch
+the existing untracked `.vscode/`, or push.
