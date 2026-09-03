@@ -11,6 +11,7 @@ from flightlab.experiment import ExperimentRun
 from flightlab.state_space import StateSpace
 from flightlab.verification import (
     run_linear_state_space_verification_benchmark,
+    run_mathworks_controllability_verification_benchmark,
     run_nasa_gtm_longitudinal_modal_verification_benchmark,
     run_nasa_unstable_roll_frequency_response_verification_benchmark,
     run_scipy_linear_state_space_verification_benchmark,
@@ -1010,3 +1011,248 @@ def test_nasa_roll_benchmark_does_not_invoke_out_of_scope_state_space_apis(
     run = run_nasa_unstable_roll_frequency_response_verification_benchmark()
 
     assert run.user_metadata["passed"] is True
+
+
+_MATHWORKS_A = np.array([[1.0, 1.0], [4.0, -2.0]])
+_MATHWORKS_B = np.array([[1.0, -1.0], [1.0, -1.0]])
+_MATHWORKS_C = np.eye(2)
+_MATHWORKS_D = np.zeros((2, 2))
+_MATHWORKS_AB = np.array([[2.0, -2.0], [2.0, -2.0]])
+_MATHWORKS_CONTROLLABILITY = np.array(
+    [[1.0, -1.0, 2.0, -2.0], [1.0, -1.0, 2.0, -2.0]]
+)
+
+
+def test_mathworks_benchmark_calls_three_targeted_apis_once(monkeypatch):
+    calls = []
+
+    def controllability_matrix(system):
+        np.testing.assert_array_equal(system.A, _MATHWORKS_A)
+        np.testing.assert_array_equal(system.B, _MATHWORKS_B)
+        np.testing.assert_array_equal(system.C, _MATHWORKS_C)
+        np.testing.assert_array_equal(system.D, _MATHWORKS_D)
+        calls.append("matrix")
+        return _MATHWORKS_CONTROLLABILITY
+
+    def controllability_rank(system):
+        calls.append("rank")
+        return 1
+
+    def is_fully_controllable(system):
+        calls.append("classification")
+        return False
+
+    monkeypatch.setattr(StateSpace, "controllability_matrix", controllability_matrix)
+    monkeypatch.setattr(StateSpace, "controllability_rank", controllability_rank)
+    monkeypatch.setattr(StateSpace, "is_fully_controllable", is_fully_controllable)
+
+    run = run_mathworks_controllability_verification_benchmark()
+
+    assert calls == ["matrix", "rank", "classification"]
+    assert run.user_metadata["passed"] is True
+
+
+def test_mathworks_benchmark_matches_literal_controllability_oracle():
+    run = run_mathworks_controllability_verification_benchmark()
+
+    np.testing.assert_array_equal(
+        run.user_metadata["reference_A_B"], _MATHWORKS_AB.ravel()
+    )
+    np.testing.assert_array_equal(
+        run.user_metadata["reference_controllability_matrix"],
+        _MATHWORKS_CONTROLLABILITY.ravel(),
+    )
+    np.testing.assert_array_equal(
+        run.user_metadata["controllability_matrix"],
+        _MATHWORKS_CONTROLLABILITY.ravel(),
+    )
+    assert run.user_metadata["maximum_absolute_controllability_matrix_residual"] == 0.0
+    assert run.user_metadata["controllability_rank"] == 1
+    assert run.user_metadata["uncontrollable_state_count"] == 1
+    assert run.user_metadata["fully_controllable"] is False
+    assert run.user_metadata["rank_matches"] is True
+    assert run.user_metadata["uncontrollable_state_count_matches"] is True
+    assert run.user_metadata["classification_matches"] is True
+    assert run.user_metadata["passed"] is True
+
+
+def test_mathworks_benchmark_records_fixed_model_source_and_identity():
+    run = run_mathworks_controllability_verification_benchmark()
+
+    assert isinstance(run, ExperimentRun)
+    assert run.system == {
+        "A": tuple(_MATHWORKS_A.flat),
+        "A_shape": (2, 2),
+        "B": tuple(_MATHWORKS_B.flat),
+        "B_shape": (2, 2),
+        "C": tuple(_MATHWORKS_C.flat),
+        "C_shape": (2, 2),
+        "D": tuple(_MATHWORKS_D.flat),
+        "D_shape": (2, 2),
+        "auxiliary_output_matrices": True,
+        "input_count": 2,
+        "physical_units": "none assigned",
+        "state_count": 2,
+    }
+    assert run.reference["product_documentation"] == (
+        "MathWorks Control System Toolbox Documentation"
+    )
+    assert run.reference["source_title"] == (
+        "ctrb - Controllability of state-space model"
+    )
+    assert run.reference["section"] == "Check System Controllability"
+    assert run.reference["access_date"] == "2026-09-03"
+    assert run.reference["published_uncontrollable_state_count"] == 1
+    assert run.reference["published_full_controllability"] is False
+    assert run.reference["published_conclusion"] == "system is not controllable"
+    assert run.run_id == "verification-mathworks-controllability-rank-v1"
+    assert run.created_at.isoformat() == "2026-09-03T12:00:00+00:00"
+
+
+def test_mathworks_benchmark_evidence_carrier_and_records_are_deterministic():
+    first = run_mathworks_controllability_verification_benchmark()
+    second = run_mathworks_controllability_verification_benchmark()
+
+    assert first.method == "exact"
+    np.testing.assert_array_equal(first.initial_state, np.zeros(2))
+    np.testing.assert_array_equal(first.metrics.time, [0.0, 1.0])
+    np.testing.assert_array_equal(first.metrics.output, np.zeros(2))
+    np.testing.assert_array_equal(first.metrics.reference, np.zeros(2))
+    assert first.user_metadata["auxiliary_response_carrier"] is True
+    assert first.user_metadata["matrix_residual_tolerance"] == 1.0e-12
+    first_record = first.reproducibility_record()
+    second_record = second.reproducibility_record()
+    assert first_record == second_record
+    json.dumps(first_record, allow_nan=False)
+    first_record["user_metadata"]["passed"] = False
+    assert first.reproducibility_record() == second_record
+
+
+@pytest.mark.parametrize("failure", ["matrix", "reference_classification"])
+def test_mathworks_benchmark_returns_failed_run_for_well_formed_mismatch(
+    monkeypatch, failure
+):
+    if failure == "matrix":
+        changed = _MATHWORKS_CONTROLLABILITY.copy()
+        changed[0, 0] += 2.0e-12
+        monkeypatch.setattr(
+            StateSpace, "controllability_matrix", lambda self: changed
+        )
+    else:
+        monkeypatch.setattr(StateSpace, "controllability_rank", lambda self: 2)
+        monkeypatch.setattr(
+            StateSpace, "is_fully_controllable", lambda self: True
+        )
+
+    run = run_mathworks_controllability_verification_benchmark()
+
+    assert run.user_metadata["passed"] is False
+    if failure == "matrix":
+        assert run.user_metadata[
+            "maximum_absolute_controllability_matrix_residual"
+        ] > 1.0e-12
+    else:
+        assert run.user_metadata["uncontrollable_state_count"] == 0
+        assert run.user_metadata["fully_controllable"] is True
+
+
+@pytest.mark.parametrize(
+    ("matrix", "message"),
+    [
+        (np.zeros((2, 3)), "must have shape"),
+        (np.zeros((2, 4), dtype=complex), "finite real values"),
+        (np.full((2, 4), np.nan), "finite real values"),
+    ],
+)
+def test_mathworks_benchmark_rejects_malformed_controllability_matrix(
+    monkeypatch, matrix, message
+):
+    monkeypatch.setattr(StateSpace, "controllability_matrix", lambda self: matrix)
+    with pytest.raises(ValueError, match=message):
+        run_mathworks_controllability_verification_benchmark()
+
+
+@pytest.mark.parametrize(
+    ("rank", "fully_controllable", "message"),
+    [
+        (1.0, False, "rank must be an integer"),
+        (True, False, "rank must be an integer"),
+        (-1, False, "rank and count must be in range"),
+        (3, False, "rank and count must be in range"),
+        (1, 0, "result must be Boolean"),
+        (1, True, "internally inconsistent"),
+        (2, False, "internally inconsistent"),
+    ],
+)
+def test_mathworks_benchmark_rejects_invalid_rank_or_classification(
+    monkeypatch, rank, fully_controllable, message
+):
+    monkeypatch.setattr(StateSpace, "controllability_rank", lambda self: rank)
+    monkeypatch.setattr(
+        StateSpace,
+        "is_fully_controllable",
+        lambda self: fully_controllable,
+    )
+    with pytest.raises(ValueError, match=message):
+        run_mathworks_controllability_verification_benchmark()
+
+
+@pytest.mark.parametrize(
+    "method_name",
+    ["controllability_matrix", "controllability_rank", "is_fully_controllable"],
+)
+def test_mathworks_benchmark_propagates_target_api_exceptions(
+    monkeypatch, method_name
+):
+    expected = RuntimeError(f"{method_name} failed")
+
+    def fail(self):
+        raise expected
+
+    monkeypatch.setattr(StateSpace, method_name, fail)
+    with pytest.raises(RuntimeError) as caught:
+        run_mathworks_controllability_verification_benchmark()
+    assert caught.value is expected
+
+
+def test_mathworks_benchmark_does_not_invoke_out_of_scope_state_space_apis(
+    monkeypatch,
+):
+    def unexpected(*args, **kwargs):
+        raise AssertionError("out-of-scope StateSpace API was invoked")
+
+    for method_name in (
+        "structural_analysis",
+        "observability_matrix",
+        "nonstable_pbh_diagnostics",
+        "eigenvalues",
+        "simulate",
+        "frequency_response",
+    ):
+        monkeypatch.setattr(StateSpace, method_name, unexpected)
+
+    run = run_mathworks_controllability_verification_benchmark()
+
+    assert run.user_metadata["passed"] is True
+
+
+def test_mathworks_benchmark_does_not_import_optional_dependencies():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "from flightlab.verification import "
+                "run_mathworks_controllability_verification_benchmark as run; "
+                "run(); "
+                "assert 'scipy' not in sys.modules; "
+                "assert 'matlab' not in sys.modules"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr

@@ -130,7 +130,11 @@ NASA Ames unstable-roll transfer function is realized in controllable-canonical
 state-space form and its complex frequency response is checked against direct
 scalar evaluation of the published rational expression at five fixed
 frequencies. This is computational/software verification against a published
-analytical aircraft model, not physical validation.
+analytical aircraft model, not physical validation. The fifth V&V capability
+is now complete: the official MathWorks rank-deficient two-state, two-input
+worked example verifies FlightLab's exact controllability-matrix ordering,
+numerical rank, uncontrollable-state count, and negative full-controllability
+classification through deterministic `ExperimentRun` evidence.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -176,15 +180,16 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: definition of the next fixed V&V capability: an exact
-  controllability-matrix and rank benchmark using the official rank-deficient
-  MIMO worked example in MathWorks Control System Toolbox documentation.
-- Completed capability commit: this documentation checkpoint's commit
-  (`docs: define controllability verification benchmark`).
+- Completed capability: one fixed rank-deficient MIMO controllability
+  verification runner using the official MathWorks worked example, the existing
+  `StateSpace` controllability APIs, a literal `[B, A B]` oracle, and
+  deterministic `ExperimentRun` evidence.
+- Completed capability commit: this checkpoint's implementation commit
+  (`feat: add controllability verification benchmark`).
 
 ## Current verification baseline
 
-- Test count: 1506 tests.
+- Test count: 1527 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1598,7 +1603,7 @@ the published rational model at the fixed frequencies.
   `ExperimentRun`, the three completed runners, or unrelated tests unless the
   fixed benchmark demonstrates an actual core discrepancy.
 
-## Exact next smallest task
+## Completed controllability benchmark specification
 
 ### Implement the fixed MathWorks controllability benchmark
 
@@ -1810,6 +1815,20 @@ physical-validation claim.
 - No change to `StateSpace`, `ExperimentRun`, response metrics, the four
   completed runners, or unrelated tests unless this exact benchmark exposes a
   demonstrated core discrepancy.
+
+## Exact next smallest task
+
+Define, but do not implement, the next single V&V capability. Select one
+authoritative, publicly accessible source and freeze its exact citation,
+reconstructable inputs, evidence classification, FlightLab API target,
+independent comparison oracle, quantities, deterministic tolerances, failure
+semantics, `ExperimentRun` provenance, focused tests, and explicit non-goals in
+this file. It must add one materially distinct kind of evidence beyond the
+completed analytical and SciPy trajectories, NASA GTM modal results, NASA roll
+frequency response, and MathWorks controllability benchmark. Do not add a
+framework, abstraction, dependency, persistence behavior, experimental or
+flight-data physical validation, or implementation code. Commit only that
+documentation checkpoint and do not push.
 
 ## Read-only repository size and complexity snapshot
 
@@ -2195,8 +2214,7 @@ git status
 
 ## Restart instruction
 
-Read `NEXT.md`, then implement the narrowly scoped fixed MathWorks
-controllability verification runner exactly as specified, without expanding the
-V&V framework or refactoring unrelated modules. Run the required checks, update
-this checkpoint, commit the implementation, do not touch the existing untracked
-`.vscode/`, and do not push.
+Read `NEXT.md`, inspect the five completed verification runners, then define the
+next single V&V capability exactly as directed under "Exact next smallest
+task." Do not implement it, expand the V&V framework, refactor unrelated
+modules, touch the existing untracked `.vscode/`, or push.

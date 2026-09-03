@@ -673,3 +673,152 @@ def run_nasa_unstable_roll_frequency_response_verification_benchmark(
         run_id="verification-nasa-unstable-roll-frequency-response-v1",
         created_at=datetime(2026, 9, 3, tzinfo=UTC),
     )
+
+
+def run_mathworks_controllability_verification_benchmark() -> ExperimentRun:
+    """Verify MIMO controllability against an official worked example."""
+    matrix_a = np.array([[1.0, 1.0], [4.0, -2.0]])
+    matrix_b = np.array([[1.0, -1.0], [1.0, -1.0]])
+    matrix_c = np.eye(2)
+    matrix_d = np.zeros((2, 2))
+    reference_ab = np.array([[2.0, -2.0], [2.0, -2.0]])
+    reference_controllability = np.array(
+        [[1.0, -1.0, 2.0, -2.0], [1.0, -1.0, 2.0, -2.0]]
+    )
+    matrix_tolerance = 1.0e-12
+
+    for name, matrix, shape in (
+        ("A", matrix_a, (2, 2)),
+        ("B", matrix_b, (2, 2)),
+        ("C", matrix_c, (2, 2)),
+        ("D", matrix_d, (2, 2)),
+    ):
+        if matrix.shape != shape:
+            raise ValueError(
+                f"MathWorks controllability benchmark matrix {name} "
+                f"must have shape {shape}"
+            )
+        if np.iscomplexobj(matrix) or not np.all(np.isfinite(matrix)):
+            raise ValueError(
+                f"MathWorks controllability benchmark matrix {name} "
+                "must contain only finite real values"
+            )
+
+    system = StateSpace(matrix_a, matrix_b, matrix_c, matrix_d)
+    controllability = np.asarray(system.controllability_matrix())
+    if controllability.shape != (2, 4):
+        raise ValueError(
+            "MathWorks benchmark controllability matrix must have shape (2, 4)"
+        )
+    if np.iscomplexobj(controllability) or not np.all(
+        np.isfinite(controllability)
+    ):
+        raise ValueError(
+            "MathWorks benchmark controllability matrix must contain only "
+            "finite real values"
+        )
+    rank = system.controllability_rank()
+    fully_controllable = system.is_fully_controllable()
+    if isinstance(rank, (bool, np.bool_)) or not isinstance(
+        rank, (int, np.integer)
+    ):
+        raise ValueError(  # noqa: TRY004 - fixed evidence contract uses ValueError
+            "MathWorks benchmark controllability rank must be an integer"
+        )
+    rank = int(rank)
+    uncontrollable_state_count = 2 - rank
+    if rank < 0 or rank > 2 or not 0 <= uncontrollable_state_count <= 2:
+        raise ValueError(
+            "MathWorks benchmark controllability rank and count must be in range"
+        )
+    if not isinstance(fully_controllable, (bool, np.bool_)):
+        raise ValueError(  # noqa: TRY004 - fixed evidence contract uses ValueError
+            "MathWorks benchmark full-controllability result must be Boolean"
+        )
+    fully_controllable = bool(fully_controllable)
+    if fully_controllable != (rank == 2):
+        raise ValueError(
+            "MathWorks benchmark controllability evidence is internally inconsistent"
+        )
+
+    matrix_residual = float(
+        np.max(np.abs(controllability - reference_controllability))
+    )
+    if not np.isfinite(matrix_residual):
+        raise ValueError(
+            "MathWorks benchmark controllability residual must be finite"
+        )
+    rank_matches = rank == 1
+    uncontrollable_state_count_matches = uncontrollable_state_count == 1
+    classification_matches = fully_controllable is False
+    passed = bool(
+        matrix_residual <= matrix_tolerance
+        and rank_matches
+        and uncontrollable_state_count_matches
+        and classification_matches
+    )
+
+    carrier_time = np.array([0.0, 1.0])
+    metrics = response_metrics(carrier_time, np.zeros(2), np.zeros(2))
+    return experiment_run(
+        time=carrier_time,
+        initial_state=np.zeros(2),
+        metrics=metrics,
+        method="exact",
+        system={
+            "A": tuple(matrix_a.flat),
+            "A_shape": (2, 2),
+            "B": tuple(matrix_b.flat),
+            "B_shape": (2, 2),
+            "C": tuple(matrix_c.flat),
+            "C_shape": (2, 2),
+            "D": tuple(matrix_d.flat),
+            "D_shape": (2, 2),
+            "auxiliary_output_matrices": True,
+            "input_count": 2,
+            "physical_units": "none assigned",
+            "state_count": 2,
+        },
+        controller={"type": "none"},
+        reference={
+            "access_date": "2026-09-03",
+            "controllability_formula": "Co = [B, A B, ..., A^(n-1) B]",
+            "evidence_classification": (
+                "computational/software verification against an official "
+                "worked control-systems example and exact algebraic oracle"
+            ),
+            "product_documentation": "MathWorks Control System Toolbox Documentation",
+            "published_conclusion": "system is not controllable",
+            "published_full_controllability": False,
+            "published_uncontrollable_state_count": 1,
+            "section": "Check System Controllability",
+            "source_title": "ctrb - Controllability of state-space model",
+            "source_url": (
+                "https://www.mathworks.com/help/control/ref/statespacemodel.ctrb.html"
+            ),
+        },
+        user_metadata={
+            "auxiliary_response_carrier": True,
+            "classification_matches": classification_matches,
+            "controllability_matrix": tuple(controllability.flat),
+            "controllability_matrix_shape": (2, 4),
+            "controllability_rank": rank,
+            "fully_controllable": fully_controllable,
+            "matrix_residual_tolerance": matrix_tolerance,
+            "maximum_absolute_controllability_matrix_residual": matrix_residual,
+            "passed": passed,
+            "rank_matches": rank_matches,
+            "reference_A_B": tuple(reference_ab.flat),
+            "reference_controllability_matrix": tuple(
+                reference_controllability.flat
+            ),
+            "reference_controllability_matrix_shape": (2, 4),
+            "reference_rank": 1,
+            "uncontrollable_state_count": uncontrollable_state_count,
+            "uncontrollable_state_count_matches": (
+                uncontrollable_state_count_matches
+            ),
+        },
+        run_id="verification-mathworks-controllability-rank-v1",
+        created_at=datetime(2026, 9, 3, 12, tzinfo=UTC),
+    )
