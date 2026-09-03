@@ -125,7 +125,12 @@ Generic Transport Model rigid-body longitudinal descriptor system at Mach 0.8,
 with FlightLab modal quantities checked against the NASA/AIAA paper's rounded
 published poles, natural frequencies, and damping ratios. This remains
 computational/software verification against published computational results,
-not physical validation.
+not physical validation. The fourth V&V capability is now complete: one fixed
+NASA Ames unstable-roll transfer function is realized in controllable-canonical
+state-space form and its complex frequency response is checked against direct
+scalar evaluation of the published rational expression at five fixed
+frequencies. This is computational/software verification against a published
+analytical aircraft model, not physical validation.
 Every `StateSpace` can construct the standard controllability and observability
 matrices, report their numerical ranks, and test full-state controllability,
 observability, continuous-time stabilizability, and continuous-time
@@ -171,15 +176,16 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: definition of the next fixed published-aircraft V&V
-  capability: a NASA Ames unstable-roll frequency-response benchmark using the
-  transfer function published in AIAA 2015-0655.
-- Completed capability commit: this documentation checkpoint's commit
-  (`docs: define NASA roll frequency-response benchmark`).
+- Completed capability: one fixed NASA Ames unstable-roll frequency-response
+  verification runner using the transfer function published in AIAA 2015-0655,
+  the existing `StateSpace.frequency_response()` API, a direct scalar rational-
+  function oracle, and deterministic `ExperimentRun` evidence.
+- Completed capability commit: this checkpoint's implementation commit
+  (`feat: add NASA roll frequency-response verification`).
 
 ## Current verification baseline
 
-- Test count: 1489 tests.
+- Test count: 1506 tests.
 - `uv run pytest -q` passes.
 - `.venv/bin/ruff check` passes.
 - `git diff --check` passes.
@@ -1360,7 +1366,7 @@ published modal targets whose limited decimal precision is handled explicitly.
 - No alteration of published coordinates or signs and no change to existing
   StateSpace mathematics unless implementation demonstrates a core defect.
 
-## Exact next smallest task
+## Completed NASA roll frequency-response benchmark specification
 
 ### Implement the fixed NASA unstable-roll frequency-response benchmark
 
@@ -1592,6 +1598,19 @@ the published rational model at the fixed frequencies.
 - No new dependency and no change to `StateSpace`, response metrics,
   `ExperimentRun`, the three completed runners, or unrelated tests unless the
   fixed benchmark demonstrates an actual core discrepancy.
+
+## Exact next smallest task
+
+Define, but do not implement, the next single V&V capability. Select one
+authoritative, publicly accessible source and freeze its reconstructable inputs,
+evidence classification, FlightLab API target, independent comparison
+quantities, tolerances, failure semantics, deterministic `ExperimentRun`
+provenance, focused tests, and explicit non-goals in this file. It must add one
+materially distinct kind of evidence beyond the completed closed-form
+trajectory, SciPy trajectory, NASA GTM modal, and NASA roll frequency-response
+benchmarks. Do not add a generic V&V framework, dependency, new record type,
+persistence behavior, physical-validation claim, or implementation code.
+Commit only that documentation checkpoint and do not push.
 
 ## Read-only repository size and complexity snapshot
 
@@ -1977,8 +1996,7 @@ git status
 
 ## Restart instruction
 
-Read `NEXT.md`, then implement the narrowly scoped NASA unstable-roll
-frequency-response verification runner exactly as specified, without expanding
-the V&V framework or refactoring unrelated modules. Run the required checks,
-update this checkpoint, commit the implementation, do not touch the existing
-untracked `.vscode/`, and do not push.
+Read `NEXT.md`, inspect the four completed verification runners, then define the
+next single V&V capability exactly as directed under "Exact next smallest
+task." Do not implement it, expand the V&V framework, refactor unrelated
+modules, touch the existing untracked `.vscode/`, or push.

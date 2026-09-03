@@ -477,3 +477,199 @@ def run_nasa_gtm_longitudinal_modal_verification_benchmark() -> ExperimentRun:
         run_id="verification-nasa-gtm-longitudinal-modal-v1",
         created_at=datetime(2026, 9, 2, 18, tzinfo=UTC),
     )
+
+
+def _nasa_unstable_roll_reference(angular_frequencies: np.ndarray) -> np.ndarray:
+    return np.array(
+        [
+            0.78208 * (s**2 + 0.2175 * s + 0.5861)
+            / (
+                (s + 0.7599)
+                * (s - 0.02004)
+                * (s**2 + 0.1133 * s + 0.6375)
+            )
+            for frequency in angular_frequencies
+            for s in (complex(0.0, frequency),)
+        ],
+        dtype=complex,
+    )
+
+
+def run_nasa_unstable_roll_frequency_response_verification_benchmark(
+) -> ExperimentRun:
+    """Verify frequency response against a published NASA roll model."""
+    matrix_a = np.array(
+        [
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+            [
+                0.0097081024500,
+                -0.4699353727332,
+                -0.706097742,
+                -0.85316,
+            ],
+        ]
+    )
+    matrix_b = np.array([[0.0], [0.0], [0.0], [1.0]])
+    matrix_c = np.array([[0.458377088, 0.170102400, 0.78208, 0.0]])
+    matrix_d = np.array([[0.0]])
+    frequencies = np.array([0.1, 0.5, 1.0, 2.0, 5.0])
+    tolerance = 1.0e-12
+
+    for name, matrix, shape in (
+        ("A", matrix_a, (4, 4)),
+        ("B", matrix_b, (4, 1)),
+        ("C", matrix_c, (1, 4)),
+        ("D", matrix_d, (1, 1)),
+    ):
+        if matrix.shape != shape:
+            raise ValueError(f"NASA roll benchmark matrix {name} must have shape {shape}")
+        if np.iscomplexobj(matrix) or not np.all(np.isfinite(matrix)):
+            raise ValueError(
+                f"NASA roll benchmark matrix {name} must contain only finite real values"
+            )
+    if frequencies.shape != (5,) or not np.array_equal(
+        frequencies, np.array([0.1, 0.5, 1.0, 2.0, 5.0])
+    ):
+        raise ValueError(
+            "NASA roll benchmark frequencies must contain the fixed ordered values"
+        )
+    if np.iscomplexobj(frequencies) or not np.all(np.isfinite(frequencies)):
+        raise ValueError(
+            "NASA roll benchmark frequencies must contain only finite real values"
+        )
+
+    system = StateSpace(matrix_a, matrix_b, matrix_c, matrix_d)
+    flightlab_response = np.asarray(system.frequency_response(frequencies))
+    reference_response = np.asarray(_nasa_unstable_roll_reference(frequencies))
+    if flightlab_response.shape != (5, 1, 1):
+        raise ValueError(
+            "NASA roll benchmark FlightLab response must have shape (5, 1, 1)"
+        )
+    if reference_response.shape != (5,):
+        raise ValueError("NASA roll benchmark reference response must have shape (5,)")
+    if not np.iscomplexobj(flightlab_response) or not np.all(
+        np.isfinite(flightlab_response)
+    ):
+        raise ValueError(
+            "NASA roll benchmark FlightLab response must contain only finite complex values"
+        )
+    if not np.iscomplexobj(reference_response) or not np.all(
+        np.isfinite(reference_response)
+    ):
+        raise ValueError(
+            "NASA roll benchmark reference response must contain only finite complex values"
+        )
+
+    flightlab_response = flightlab_response[:, 0, 0]
+    reference_magnitudes = np.abs(reference_response)
+    if np.any(reference_magnitudes <= 0.0):
+        raise ValueError(
+            "NASA roll benchmark reference response must contain no zero values"
+        )
+    complex_residual = float(
+        np.max(np.abs(flightlab_response - reference_response))
+    )
+    magnitude_residual = float(
+        np.max(np.abs(np.abs(flightlab_response) - reference_magnitudes))
+    )
+    phase_residual = float(
+        np.max(np.abs(np.angle(flightlab_response / reference_response)))
+    )
+    residuals = (complex_residual, magnitude_residual, phase_residual)
+    if not all(np.isfinite(residual) for residual in residuals):
+        raise ValueError("NASA roll benchmark residuals must contain only finite values")
+    passed = bool(all(residual <= tolerance for residual in residuals))
+
+    carrier_time = np.array([0.0, 1.0])
+    metrics = response_metrics(carrier_time, np.zeros(2), np.zeros(2))
+    return experiment_run(
+        time=carrier_time,
+        initial_state=np.zeros(4),
+        metrics=metrics,
+        method="exact",
+        system={
+            "A": tuple(matrix_a.flat),
+            "A_shape": (4, 4),
+            "B": tuple(matrix_b.flat),
+            "B_shape": (4, 1),
+            "C": tuple(matrix_c.flat),
+            "C_shape": (1, 4),
+            "D": tuple(matrix_d.flat),
+            "D_shape": (1, 1),
+            "canonical_realization": "phase_variable_controllable",
+            "denominator_coefficients_ascending": (
+                -0.0097081024500,
+                0.4699353727332,
+                0.706097742,
+                0.85316,
+                1.0,
+            ),
+            "input_identity": "sidestick input",
+            "input_units": "deg",
+            "name": "nasa_unstable_roll_frequency_response_v1",
+            "numerator_coefficients_ascending": (
+                0.458377088,
+                0.170102400,
+                0.78208,
+                0.0,
+                0.0,
+            ),
+            "output_identity": "roll attitude",
+            "output_units": "deg",
+        },
+        controller={"type": "none"},
+        reference={
+            "aircraft_description": "mid-size twin-engine commercial transport",
+            "airspeed_kt": 150.0,
+            "aiaa_paper": "2015-0655",
+            "altitude_ft": 41000.0,
+            "authors": (
+                "Peter M. T. Zaal",
+                "Alexandru Popovici",
+                "Melinda A. Zavala",
+            ),
+            "denominator_factors": (
+                "s + 0.7599",
+                "s - 0.02004",
+                "s^2 + 0.1133 s + 0.6375",
+            ),
+            "equation": "1",
+            "evidence_classification": (
+                "computational/software verification against a published analytical aircraft model"
+            ),
+            "flight_condition_role": "source provenance, not validation evidence",
+            "gross_weight_lb": 185800.0,
+            "model_stability": "unstable",
+            "near_stall": True,
+            "ntrs_document_id": "20160008914",
+            "numerator_factor": "0.78208 (s^2 + 0.2175 s + 0.5861)",
+            "paper_page": 3,
+            "publication_date": "2015-01-05",
+            "section": "III.A.1 Controlled Aircraft Dynamics",
+            "source_pdf_url": (
+                "https://ntrs.nasa.gov/api/citations/20160008914/downloads/20160008914.pdf"
+            ),
+            "source_record_url": "https://ntrs.nasa.gov/citations/20160008914",
+            "title": "Effects of False Tilt Cues on the Training of Manual Roll Control Skills",
+        },
+        user_metadata={
+            "angular_frequencies_rad_per_s": tuple(frequencies),
+            "angular_frequency_units": "rad/s",
+            "auxiliary_response_carrier": True,
+            "complex_response_tolerance": tolerance,
+            "flightlab_response_imaginary": tuple(flightlab_response.imag),
+            "flightlab_response_real": tuple(flightlab_response.real),
+            "magnitude_tolerance": tolerance,
+            "maximum_absolute_complex_response_residual": complex_residual,
+            "maximum_absolute_magnitude_residual": magnitude_residual,
+            "maximum_absolute_phase_residual_rad": phase_residual,
+            "passed": passed,
+            "phase_tolerance_rad": tolerance,
+            "reference_response_imaginary": tuple(reference_response.imag),
+            "reference_response_real": tuple(reference_response.real),
+        },
+        run_id="verification-nasa-unstable-roll-frequency-response-v1",
+        created_at=datetime(2026, 9, 3, tzinfo=UTC),
+    )

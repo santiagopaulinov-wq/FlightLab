@@ -12,6 +12,7 @@ from flightlab.state_space import StateSpace
 from flightlab.verification import (
     run_linear_state_space_verification_benchmark,
     run_nasa_gtm_longitudinal_modal_verification_benchmark,
+    run_nasa_unstable_roll_frequency_response_verification_benchmark,
     run_scipy_linear_state_space_verification_benchmark,
 )
 
@@ -766,3 +767,246 @@ def test_nasa_gtm_benchmark_rejects_malformed_eigenvalues(
     monkeypatch.setattr(StateSpace, "eigenvalues", lambda self: eigenvalues)
     with pytest.raises(ValueError, match=message):
         run_nasa_gtm_longitudinal_modal_verification_benchmark()
+
+
+_NASA_ROLL_FREQUENCIES = np.array([0.1, 0.5, 1.0, 2.0, 5.0])
+_NASA_ROLL_A = np.array(
+    [
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+        [0.0097081024500, -0.4699353727332, -0.706097742, -0.85316],
+    ]
+)
+_NASA_ROLL_B = np.array([[0.0], [0.0], [0.0], [1.0]])
+_NASA_ROLL_C = np.array([[0.458377088, 0.170102400, 0.78208, 0.0]])
+_NASA_ROLL_D = np.array([[0.0]])
+
+
+def _nasa_roll_reference():
+    return np.array(
+        [
+            0.78208 * (s**2 + 0.2175 * s + 0.5861)
+            / (
+                (s + 0.7599)
+                * (s - 0.02004)
+                * (s**2 + 0.1133 * s + 0.6375)
+            )
+            for frequency in _NASA_ROLL_FREQUENCIES
+            for s in (complex(0.0, frequency),)
+        ]
+    )
+
+
+def test_nasa_roll_benchmark_calls_frequency_response_for_fixed_realization(
+    monkeypatch,
+):
+    original = StateSpace.frequency_response
+    calls = []
+
+    def checked_frequency_response(self, angular_frequencies):
+        np.testing.assert_array_equal(self.A, _NASA_ROLL_A)
+        np.testing.assert_array_equal(self.B, _NASA_ROLL_B)
+        np.testing.assert_array_equal(self.C, _NASA_ROLL_C)
+        np.testing.assert_array_equal(self.D, _NASA_ROLL_D)
+        np.testing.assert_array_equal(angular_frequencies, _NASA_ROLL_FREQUENCIES)
+        calls.append(True)
+        return original(self, angular_frequencies)
+
+    monkeypatch.setattr(StateSpace, "frequency_response", checked_frequency_response)
+
+    run = run_nasa_unstable_roll_frequency_response_verification_benchmark()
+
+    assert calls == [True]
+    assert run.system["A"] == tuple(_NASA_ROLL_A.flat)
+    assert run.system["B"] == tuple(_NASA_ROLL_B.flat)
+    assert run.system["C"] == tuple(_NASA_ROLL_C.flat)
+    assert run.system["D"] == tuple(_NASA_ROLL_D.flat)
+    assert run.system["canonical_realization"] == "phase_variable_controllable"
+
+
+def test_nasa_roll_benchmark_matches_direct_published_rational_oracle():
+    expected = _nasa_roll_reference()
+
+    run = run_nasa_unstable_roll_frequency_response_verification_benchmark()
+
+    np.testing.assert_array_equal(
+        run.user_metadata["reference_response_real"], expected.real
+    )
+    np.testing.assert_array_equal(
+        run.user_metadata["reference_response_imaginary"], expected.imag
+    )
+    actual = np.array(run.user_metadata["flightlab_response_real"]) + 1j * np.array(
+        run.user_metadata["flightlab_response_imaginary"]
+    )
+    complex_residual = float(np.max(np.abs(actual - expected)))
+    magnitude_residual = float(np.max(np.abs(np.abs(actual) - np.abs(expected))))
+    phase_residual = float(np.max(np.abs(np.angle(actual / expected))))
+    assert run.user_metadata["maximum_absolute_complex_response_residual"] == (
+        complex_residual
+    )
+    assert run.user_metadata["maximum_absolute_magnitude_residual"] == (
+        magnitude_residual
+    )
+    assert run.user_metadata["maximum_absolute_phase_residual_rad"] == phase_residual
+    assert max(complex_residual, magnitude_residual, phase_residual) <= 1.0e-12
+
+
+def test_nasa_roll_benchmark_records_exact_published_model_and_provenance():
+    run = run_nasa_unstable_roll_frequency_response_verification_benchmark()
+
+    assert run.system["denominator_coefficients_ascending"] == (
+        -0.0097081024500,
+        0.4699353727332,
+        0.706097742,
+        0.85316,
+        1.0,
+    )
+    assert run.system["numerator_coefficients_ascending"] == (
+        0.458377088,
+        0.170102400,
+        0.78208,
+        0.0,
+        0.0,
+    )
+    assert run.reference["aiaa_paper"] == "2015-0655"
+    assert run.reference["ntrs_document_id"] == "20160008914"
+    assert run.reference["equation"] == "1"
+    assert run.reference["paper_page"] == 3
+    assert run.reference["altitude_ft"] == 41000.0
+    assert run.reference["airspeed_kt"] == 150.0
+    assert run.reference["gross_weight_lb"] == 185800.0
+    assert run.reference["model_stability"] == "unstable"
+    assert run.reference["near_stall"] is True
+    assert run.system["input_identity"] == "sidestick input"
+    assert run.system["output_identity"] == "roll attitude"
+    assert run.system["input_units"] == run.system["output_units"] == "deg"
+    assert run.user_metadata["angular_frequencies_rad_per_s"] == tuple(
+        _NASA_ROLL_FREQUENCIES
+    )
+
+
+def test_nasa_roll_benchmark_returns_deterministic_experiment_run():
+    first = run_nasa_unstable_roll_frequency_response_verification_benchmark()
+    second = run_nasa_unstable_roll_frequency_response_verification_benchmark()
+
+    assert isinstance(first, ExperimentRun)
+    assert first.run_id == "verification-nasa-unstable-roll-frequency-response-v1"
+    assert first.created_at.isoformat() == "2026-09-03T00:00:00+00:00"
+    assert first.method == "exact"
+    np.testing.assert_array_equal(first.initial_state, np.zeros(4))
+    np.testing.assert_array_equal(first.metrics.output, np.zeros(2))
+    np.testing.assert_array_equal(first.metrics.reference, np.zeros(2))
+    assert first.user_metadata["auxiliary_response_carrier"] is True
+    assert first.user_metadata["complex_response_tolerance"] == 1.0e-12
+    assert first.user_metadata["magnitude_tolerance"] == 1.0e-12
+    assert first.user_metadata["phase_tolerance_rad"] == 1.0e-12
+    assert first.user_metadata["passed"] is True
+
+    first_record = first.reproducibility_record()
+    second_record = second.reproducibility_record()
+    assert first_record == second_record
+    json.dumps(first_record, allow_nan=False)
+    first_record["user_metadata"]["passed"] = False
+    assert first.reproducibility_record() == second_record
+
+
+@pytest.mark.parametrize("quantity", ["complex", "magnitude", "phase"])
+def test_nasa_roll_benchmark_returns_failed_run_for_over_limit_response(
+    monkeypatch, quantity
+):
+    reference = _nasa_roll_reference()
+    changed = reference.copy()
+    if quantity == "complex":
+        changed[2] += 2.0e-12
+    elif quantity == "magnitude":
+        changed[2] *= 1.0 + 2.0e-12
+    else:
+        changed[2] *= np.exp(2.0e-12j)
+    monkeypatch.setattr(
+        StateSpace,
+        "frequency_response",
+        lambda self, frequencies: changed[:, np.newaxis, np.newaxis],
+    )
+
+    run = run_nasa_unstable_roll_frequency_response_verification_benchmark()
+
+    key = {
+        "complex": "maximum_absolute_complex_response_residual",
+        "magnitude": "maximum_absolute_magnitude_residual",
+        "phase": "maximum_absolute_phase_residual_rad",
+    }[quantity]
+    assert run.user_metadata[key] > 1.0e-12
+    assert run.user_metadata["passed"] is False
+
+
+@pytest.mark.parametrize(
+    ("response", "message"),
+    [
+        (np.zeros((4, 1, 1), dtype=complex), "must have shape"),
+        (np.zeros((5, 1), dtype=complex), "must have shape"),
+        (np.zeros((5, 1, 1)), "finite complex values"),
+        (
+            np.full((5, 1, 1), complex(np.nan, 0.0)),
+            "finite complex values",
+        ),
+    ],
+)
+def test_nasa_roll_benchmark_rejects_malformed_flightlab_response(
+    monkeypatch, response, message
+):
+    monkeypatch.setattr(
+        StateSpace, "frequency_response", lambda self, frequencies: response
+    )
+    with pytest.raises(ValueError, match=message):
+        run_nasa_unstable_roll_frequency_response_verification_benchmark()
+
+
+@pytest.mark.parametrize(
+    ("reference", "message"),
+    [
+        (np.zeros(4, dtype=complex), "must have shape"),
+        (np.zeros(5), "finite complex values"),
+        (np.full(5, complex(np.inf, 0.0)), "finite complex values"),
+        (np.zeros(5, dtype=complex), "no zero values"),
+    ],
+)
+def test_nasa_roll_benchmark_rejects_malformed_reference(
+    monkeypatch, reference, message
+):
+    monkeypatch.setattr(
+        verification, "_nasa_unstable_roll_reference", lambda frequencies: reference
+    )
+    with pytest.raises(ValueError, match=message):
+        run_nasa_unstable_roll_frequency_response_verification_benchmark()
+
+
+def test_nasa_roll_benchmark_propagates_frequency_response_exception(monkeypatch):
+    expected = RuntimeError("frequency response failed")
+
+    def fail(self, frequencies):
+        raise expected
+
+    monkeypatch.setattr(StateSpace, "frequency_response", fail)
+    with pytest.raises(RuntimeError) as caught:
+        run_nasa_unstable_roll_frequency_response_verification_benchmark()
+    assert caught.value is expected
+
+
+def test_nasa_roll_benchmark_does_not_invoke_out_of_scope_state_space_apis(
+    monkeypatch,
+):
+    def unexpected(*args, **kwargs):
+        raise AssertionError("out-of-scope StateSpace API was invoked")
+
+    monkeypatch.setattr(StateSpace, "simulate", unexpected)
+    monkeypatch.setattr(StateSpace, "eigenvalues", unexpected)
+    monkeypatch.setattr(StateSpace, "modal_properties", unexpected)
+    monkeypatch.setattr(StateSpace, "frequency_response_singular_values", unexpected)
+    monkeypatch.setattr(
+        StateSpace, "frequency_response_singular_directions", unexpected
+    )
+
+    run = run_nasa_unstable_roll_frequency_response_verification_benchmark()
+
+    assert run.user_metadata["passed"] is True
