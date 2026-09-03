@@ -10,6 +10,7 @@ from flightlab.response import response_metrics
 from flightlab.state_space import (
     BalancedTruncation,
     LuenbergerObserverInterconnection,
+    ObserverBasedOutputFeedbackInterconnection,
     StateSpace,
 )
 
@@ -1906,4 +1907,467 @@ def run_mathworks_luenberger_observer_verification_benchmark() -> ExperimentRun:
         },
         run_id="verification-mathworks-luenberger-observer-v1",
         created_at=datetime(2026, 9, 5, 12, tzinfo=UTC),
+    )
+
+
+def run_mathworks_separation_principle_verification_benchmark() -> ExperimentRun:
+    """Verify dynamic output feedback and the separation principle."""
+    matrix_a = np.array([[-1.0, -3.0 / 4.0], [1.0, 0.0]])
+    matrix_b = np.array([[1.0], [0.0]])
+    matrix_c = np.array([[1.0, 1.0]])
+    matrix_d = np.array([[0.0]])
+    state_feedback_gain = np.array([[2.0, 5.0 / 4.0]])
+    observer_gain = np.array([[17.0 / 3.0], [-5.0 / 3.0]])
+
+    reference_feedback = np.array([[2.0, 5.0 / 4.0], [0.0, 0.0]])
+    reference_controller_a = np.array([[-3.0, -2.0], [1.0, 0.0]])
+    reference_correction = np.array(
+        [[17.0 / 3.0, 17.0 / 3.0], [-5.0 / 3.0, -5.0 / 3.0]]
+    )
+    reference_error_a = np.array(
+        [[-20.0 / 3.0, -77.0 / 12.0], [8.0 / 3.0, 5.0 / 3.0]]
+    )
+    reference_bottom_right = np.array(
+        [[-26.0 / 3.0, -23.0 / 3.0], [8.0 / 3.0, 5.0 / 3.0]]
+    )
+    reference_augmented_a = np.array(
+        [
+            [-1.0, -3.0 / 4.0, -2.0, -5.0 / 4.0],
+            [1.0, 0.0, 0.0, 0.0],
+            [17.0 / 3.0, 17.0 / 3.0, -26.0 / 3.0, -23.0 / 3.0],
+            [-5.0 / 3.0, -5.0 / 3.0, 8.0 / 3.0, 5.0 / 3.0],
+        ]
+    )
+    reference_augmented_b = np.array([[1.0], [0.0], [1.0], [0.0]])
+    reference_augmented_c = np.array([[1.0, 1.0, 0.0, 0.0]])
+    reference_augmented_d = np.array([[0.0]])
+    coordinate_map = np.array(
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [1.0, 0.0, -1.0, 0.0],
+            [0.0, 1.0, 0.0, -1.0],
+        ]
+    )
+    reference_separated_a = np.block(
+        [
+            [reference_controller_a, reference_feedback],
+            [np.zeros((2, 2)), reference_error_a],
+        ]
+    )
+    reference_separated_b = np.array([[1.0], [0.0], [0.0], [0.0]])
+    reference_separated_c = np.array([[1.0, 1.0, 0.0, 0.0]])
+    reference_controller_coefficients = np.array([1.0, 3.0, 2.0])
+    reference_observer_coefficients = np.array([1.0, 5.0, 6.0])
+    reference_poles = np.array([-3.0, -2.0, -2.0, -1.0])
+    reference_combined_coefficients = np.array([1.0, 8.0, 23.0, 28.0, 12.0])
+    numerical_tolerance = 1.0e-12
+    exact_tolerance = 0.0
+
+    for name, matrix, shape in (
+        ("A", matrix_a, (2, 2)),
+        ("B", matrix_b, (2, 1)),
+        ("C", matrix_c, (1, 2)),
+        ("D", matrix_d, (1, 1)),
+        ("K", state_feedback_gain, (1, 2)),
+        ("L", observer_gain, (2, 1)),
+    ):
+        if matrix.shape != shape:
+            raise ValueError(
+                f"MathWorks separation benchmark {name} must have shape {shape}"
+            )
+        if np.iscomplexobj(matrix) or not np.all(np.isfinite(matrix)):
+            raise ValueError(
+                f"MathWorks separation benchmark {name} must contain only finite "
+                "real values"
+            )
+
+    source_copies = tuple(
+        matrix.copy()
+        for matrix in (
+            matrix_a,
+            matrix_b,
+            matrix_c,
+            matrix_d,
+            state_feedback_gain,
+            observer_gain,
+        )
+    )
+    system = StateSpace(matrix_a, matrix_b, matrix_c, matrix_d)
+    interconnection = system.observer_based_output_feedback(
+        state_feedback_gain, observer_gain
+    )
+    if not isinstance(interconnection, ObserverBasedOutputFeedbackInterconnection):
+        raise ValueError(  # noqa: TRY004 - frozen evidence contract uses ValueError
+            "MathWorks separation benchmark result must be an "
+            "ObserverBasedOutputFeedbackInterconnection"
+        )
+
+    stored_k = np.asarray(interconnection.state_feedback_gain)
+    stored_l = np.asarray(interconnection.observer_gain)
+    for name, gain, shape in (
+        ("stored K", stored_k, (1, 2)),
+        ("stored L", stored_l, (2, 1)),
+    ):
+        if gain.shape != shape:
+            raise ValueError(
+                f"MathWorks separation benchmark {name} must have shape {shape}"
+            )
+        if np.iscomplexobj(gain) or not np.all(np.isfinite(gain)):
+            raise ValueError(
+                f"MathWorks separation benchmark {name} must contain only finite "
+                "real values"
+            )
+
+    augmented = interconnection.system
+    if not isinstance(augmented, StateSpace):
+        raise ValueError(  # noqa: TRY004 - frozen evidence contract uses ValueError
+            "MathWorks separation benchmark augmented system must be a StateSpace"
+        )
+    for name, matrix, shape in (
+        ("A", np.asarray(augmented.A), (4, 4)),
+        ("B", np.asarray(augmented.B), (4, 1)),
+        ("C", np.asarray(augmented.C), (1, 4)),
+        ("D", np.asarray(augmented.D), (1, 1)),
+    ):
+        if matrix.shape != shape:
+            raise ValueError(
+                f"MathWorks separation benchmark augmented {name} must have shape "
+                f"{shape}"
+            )
+        if np.iscomplexobj(matrix) or not np.all(np.isfinite(matrix)):
+            raise ValueError(
+                f"MathWorks separation benchmark augmented {name} must contain "
+                "only finite real values"
+            )
+
+    expected_feedback = system.B @ stored_k
+    expected_correction = stored_l @ system.C
+    expected_augmented_a = np.block(
+        [
+            [system.A, -expected_feedback],
+            [
+                expected_correction,
+                system.A - expected_feedback - expected_correction,
+            ],
+        ]
+    )
+    expected_augmented_b = np.vstack((system.B, system.B))
+    expected_augmented_c = np.hstack((system.C, -system.D @ stored_k))
+    if not all(
+        np.array_equal(actual, expected)
+        for actual, expected in (
+            (augmented.A, expected_augmented_a),
+            (augmented.B, expected_augmented_b),
+            (augmented.C, expected_augmented_c),
+            (augmented.D, system.D),
+        )
+    ):
+        raise ValueError(
+            "MathWorks separation benchmark interconnection is internally "
+            "inconsistent"
+        )
+
+    source_residual = float(
+        max(
+            np.max(np.abs(matrix - original))
+            for matrix, original in zip(
+                (
+                    system.A,
+                    system.B,
+                    system.C,
+                    system.D,
+                    state_feedback_gain,
+                    observer_gain,
+                ),
+                source_copies,
+                strict=True,
+            )
+        )
+    )
+    if source_residual != exact_tolerance:
+        raise ValueError("MathWorks separation benchmark source inputs were mutated")
+
+    controller_a = system.A - system.B @ stored_k
+    error_a = system.A - stored_l @ system.C
+    separated_a = coordinate_map @ augmented.A @ coordinate_map
+    separated_b = coordinate_map @ augmented.B
+    separated_c = augmented.C @ coordinate_map
+    involution = coordinate_map @ coordinate_map
+
+    def characteristic_coefficients(matrix):
+        trace = float(matrix[0, 0] + matrix[1, 1])
+        determinant = float(
+            matrix[0, 0] * matrix[1, 1]
+            - matrix[0, 1] * matrix[1, 0]
+        )
+        coefficients = np.array([1.0, -trace, determinant])
+        discriminant = float(coefficients[1] ** 2 - 4.0 * coefficients[2])
+        if not all(np.isfinite(value) for value in (*coefficients, discriminant)):
+            raise ValueError(
+                "MathWorks separation benchmark characteristic evidence must be "
+                "finite"
+            )
+        if discriminant < 0.0:
+            raise ValueError(
+                "MathWorks separation benchmark quadratic discriminant must be "
+                "nonnegative"
+            )
+        root = float(np.sqrt(discriminant))
+        poles = np.sort(
+            np.array(
+                [
+                    (-coefficients[1] - root) / 2.0,
+                    (-coefficients[1] + root) / 2.0,
+                ]
+            )
+        )
+        if not np.all(np.isfinite(poles)):
+            raise ValueError(
+                "MathWorks separation benchmark derived poles must be finite"
+            )
+        return coefficients, discriminant, poles
+
+    controller_coefficients, controller_discriminant, controller_poles = (
+        characteristic_coefficients(controller_a)
+    )
+    observer_coefficients, observer_discriminant, observer_poles = (
+        characteristic_coefficients(error_a)
+    )
+    separated_poles = np.sort(np.concatenate((controller_poles, observer_poles)))
+    combined_coefficients = np.array(
+        [
+            controller_coefficients[0] * observer_coefficients[0],
+            controller_coefficients[0] * observer_coefficients[1]
+            + controller_coefficients[1] * observer_coefficients[0],
+            controller_coefficients[0] * observer_coefficients[2]
+            + controller_coefficients[1] * observer_coefficients[1]
+            + controller_coefficients[2] * observer_coefficients[0],
+            controller_coefficients[1] * observer_coefficients[2]
+            + controller_coefficients[2] * observer_coefficients[1],
+            controller_coefficients[2] * observer_coefficients[2],
+        ]
+    )
+    if not np.all(np.isfinite(combined_coefficients)):
+        raise ValueError(
+            "MathWorks separation benchmark combined polynomial must be finite"
+        )
+
+    gain_residual = float(
+        max(
+            np.max(np.abs(stored_k - state_feedback_gain)),
+            np.max(np.abs(stored_l - observer_gain)),
+        )
+    )
+    augmented_residual = float(
+        max(
+            np.max(np.abs(augmented.A - reference_augmented_a)),
+            np.max(np.abs(augmented.B - reference_augmented_b)),
+            np.max(np.abs(augmented.C - reference_augmented_c)),
+            np.max(np.abs(augmented.D - reference_augmented_d)),
+        )
+    )
+    separation_residual = float(
+        max(
+            np.max(np.abs(separated_a - reference_separated_a)),
+            np.max(np.abs(separated_b - reference_separated_b)),
+            np.max(np.abs(separated_c - reference_separated_c)),
+        )
+    )
+    involution_residual = float(np.max(np.abs(involution - np.eye(4))))
+    zero_block_residual = float(np.max(np.abs(separated_a[2:, :2])))
+    coefficient_residual = float(
+        max(
+            np.max(
+                np.abs(
+                    controller_coefficients - reference_controller_coefficients
+                )
+            ),
+            np.max(
+                np.abs(observer_coefficients - reference_observer_coefficients)
+            ),
+        )
+    )
+    pole_residual = float(np.max(np.abs(separated_poles - reference_poles)))
+    polynomial_residual = float(
+        np.max(np.abs(combined_coefficients - reference_combined_coefficients))
+    )
+    residuals = (
+        gain_residual,
+        augmented_residual,
+        separation_residual,
+        involution_residual,
+        zero_block_residual,
+        coefficient_residual,
+        pole_residual,
+        polynomial_residual,
+        source_residual,
+    )
+    if not all(np.isfinite(value) for value in residuals):
+        raise ValueError("MathWorks separation benchmark residuals must be finite")
+
+    gains_preserved = gain_residual <= exact_tolerance
+    source_inputs_preserved = source_residual <= exact_tolerance
+    coordinate_map_involutory = involution_residual <= exact_tolerance
+    discriminants_nonnegative = bool(
+        controller_discriminant >= 0.0 and observer_discriminant >= 0.0
+    )
+    controller_poles_stable = bool(np.all(controller_poles < 0.0))
+    observer_poles_stable = bool(np.all(observer_poles < 0.0))
+    pole_union_multiplicity_matches = bool(
+        np.max(np.abs(separated_poles - reference_poles)) <= numerical_tolerance
+    )
+    passed = bool(
+        gains_preserved
+        and augmented_residual <= numerical_tolerance
+        and separation_residual <= numerical_tolerance
+        and coordinate_map_involutory
+        and zero_block_residual <= numerical_tolerance
+        and coefficient_residual <= numerical_tolerance
+        and pole_residual <= numerical_tolerance
+        and polynomial_residual <= numerical_tolerance
+        and source_inputs_preserved
+        and discriminants_nonnegative
+        and controller_poles_stable
+        and observer_poles_stable
+        and pole_union_multiplicity_matches
+    )
+
+    carrier_time = np.array([0.0, 1.0])
+    metrics = response_metrics(carrier_time, np.zeros(2), np.zeros(2))
+    if metrics.maximum_absolute_tracking_error != 0.0:
+        raise ValueError("MathWorks separation carrier evidence is inconsistent")
+
+    return experiment_run(
+        time=carrier_time,
+        initial_state=np.zeros(2),
+        metrics=metrics,
+        method="exact",
+        system={
+            "A": tuple(matrix_a.flat),
+            "A_shape": (2, 2),
+            "B": tuple(matrix_b.flat),
+            "B_shape": (2, 1),
+            "C": tuple(matrix_c.flat),
+            "C_shape": (1, 2),
+            "D": tuple(matrix_d.flat),
+            "D_shape": (1, 1),
+            "input_count": 1,
+            "output_count": 1,
+            "physical_units": "none assigned",
+            "state_count": 2,
+        },
+        controller={
+            "observer_gain_L": tuple(observer_gain.flat),
+            "state_feedback_gain_K": tuple(state_feedback_gain.flat),
+            "type": "observer_based_dynamic_output_feedback",
+        },
+        reference={
+            "access_date": "2026-09-03",
+            "block_triangular_dynamics": "[[A-BK, BK], [0, A-LC]]",
+            "complete_closed_loop_poles": (
+                "union of eigenvalues of A-BK and A-LC with multiplicity"
+            ),
+            "controller_dynamics": "A-BK",
+            "dynamic_output_feedback": "u = -K xi",
+            "error_coordinate_definition": "e = x - xi",
+            "evidence_classification": (
+                "computational/software verification of observer-based dynamic "
+                "output-feedback interconnection and the continuous-time "
+                "separation principle against an authoritative control-design "
+                "contract and exact algebraic oracles"
+            ),
+            "observer_equation": (
+                "xi_dot = A xi + B u + L(y - C xi - D u)"
+            ),
+            "page_title": "Pole Placement",
+            "product_documentation": "MathWorks Control System Toolbox Documentation",
+            "section_titles": (
+                "State-Feedback Gain Selection",
+                "State Estimator Design",
+            ),
+            "source_url": (
+                "https://www.mathworks.com/help/control/getstart/"
+                "pole-placement.html"
+            ),
+            "state_feedback_convention": "u = -Kx",
+        },
+        user_metadata={
+            "augmented_A": tuple(augmented.A.flat),
+            "augmented_A_reference": tuple(reference_augmented_a.flat),
+            "augmented_A_shape": (4, 4),
+            "augmented_B": tuple(augmented.B.flat),
+            "augmented_B_reference": tuple(reference_augmented_b.flat),
+            "augmented_B_shape": (4, 1),
+            "augmented_C": tuple(augmented.C.flat),
+            "augmented_C_reference": tuple(reference_augmented_c.flat),
+            "augmented_C_shape": (1, 4),
+            "augmented_D": tuple(augmented.D.flat),
+            "augmented_D_reference": tuple(reference_augmented_d.flat),
+            "augmented_D_shape": (1, 1),
+            "augmented_realization_residual_tolerance": numerical_tolerance,
+            "auxiliary_response_carrier": True,
+            "combined_characteristic_coefficients": tuple(combined_coefficients),
+            "combined_characteristic_coefficients_reference": tuple(
+                reference_combined_coefficients
+            ),
+            "combined_polynomial_residual_tolerance": numerical_tolerance,
+            "characteristic_coefficient_residual_tolerance": numerical_tolerance,
+            "controller_characteristic_coefficients": tuple(
+                controller_coefficients
+            ),
+            "controller_characteristic_discriminant": controller_discriminant,
+            "controller_state_A": tuple(controller_a.flat),
+            "controller_state_A_reference": tuple(reference_controller_a.flat),
+            "controller_poles_asymptotically_stable": controller_poles_stable,
+            "controller_poles_sorted": tuple(controller_poles),
+            "coordinate_map_S": tuple(coordinate_map.flat),
+            "coordinate_map_S_shape": (4, 4),
+            "coordinate_map_involutory": coordinate_map_involutory,
+            "feedback_product_BK_reference": tuple(reference_feedback.flat),
+            "gain_preservation_tolerance": exact_tolerance,
+            "gains_preserved": gains_preserved,
+            "involution_residual_tolerance": exact_tolerance,
+            "maximum_absolute_augmented_realization_residual": augmented_residual,
+            "maximum_absolute_characteristic_coefficient_residual": (
+                coefficient_residual
+            ),
+            "maximum_absolute_combined_polynomial_residual": polynomial_residual,
+            "maximum_absolute_gain_preservation_residual": gain_residual,
+            "maximum_absolute_involution_residual": involution_residual,
+            "maximum_absolute_separated_pole_residual": pole_residual,
+            "maximum_absolute_separation_coordinate_residual": separation_residual,
+            "maximum_absolute_source_input_preservation_residual": source_residual,
+            "maximum_absolute_zero_lower_left_block_residual": zero_block_residual,
+            "observer_characteristic_coefficients": tuple(observer_coefficients),
+            "observer_characteristic_discriminant": observer_discriminant,
+            "observer_correction_LC_reference": tuple(reference_correction.flat),
+            "observer_error_A": tuple(error_a.flat),
+            "observer_error_A_reference": tuple(reference_error_a.flat),
+            "observer_poles_asymptotically_stable": observer_poles_stable,
+            "observer_poles_sorted": tuple(observer_poles),
+            "passed": passed,
+            "pole_union_multiplicity_matches": pole_union_multiplicity_matches,
+            "separated_pole_residual_tolerance": numerical_tolerance,
+            "separated_A": tuple(separated_a.flat),
+            "separated_A_reference": tuple(reference_separated_a.flat),
+            "separated_B": tuple(separated_b.flat),
+            "separated_B_reference": tuple(reference_separated_b.flat),
+            "separated_C": tuple(separated_c.flat),
+            "separated_C_reference": tuple(reference_separated_c.flat),
+            "separated_poles_sorted": tuple(separated_poles),
+            "separation_coordinate_residual_tolerance": numerical_tolerance,
+            "source_input_preservation_tolerance": exact_tolerance,
+            "source_inputs_preserved": source_inputs_preserved,
+            "state_order": ("x", "x_hat"),
+            "state_order_after_coordinate_map": ("x", "e"),
+            "stored_observer_gain_L": tuple(stored_l.flat),
+            "stored_state_feedback_gain_K": tuple(stored_k.flat),
+            "observer_bottom_right_A_reference": tuple(
+                reference_bottom_right.flat
+            ),
+            "zero_lower_left_block_residual_tolerance": numerical_tolerance,
+        },
+        run_id="verification-mathworks-separation-principle-v1",
+        created_at=datetime(2026, 9, 6, tzinfo=UTC),
     )

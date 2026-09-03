@@ -1,8 +1,10 @@
 [project]
 name = "flightlab"
-version = "0.1.0"
-description = "Add your description here"
+version = "1.0.0"
+description = "NumPy-first linear flight-control experiments, campaigns, and verification"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Victor Santiago Paulino", email = "santiagopaulinov@gmail.com" }
 ]
@@ -10,6 +12,10 @@ requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.5.2",
 ]
+
+[project.urls]
+Changelog = "https://github.com/santiagopaulinov-wq/FlightLab/blob/main/CHANGELOG.md"
+Repository = "https://github.com/santiagopaulinov-wq/FlightLab"
 
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13.0"]
@@ -20,4 +26,16 @@ dev = [
     "pytest>=9.1.1",
     "ruff>=0.16.4",
     "scipy>=1.18.0,<1.19",
+]
+
+[tool.uv.build-backend]
+source-include = [
+    ".python-version",
+    "CHANGELOG.md",
+    "NEXT.md",
+    "ROADMAP.md",
+    "docs/**",
+    "examples/**",
+    "tests/**",
+    "uv.lock",
 ]

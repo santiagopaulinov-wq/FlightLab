@@ -14,6 +14,7 @@ from flightlab.verification import (
     run_mathworks_balanced_truncation_verification_benchmark,
     run_mathworks_controllability_verification_benchmark,
     run_mathworks_luenberger_observer_verification_benchmark,
+    run_mathworks_separation_principle_verification_benchmark,
     run_mathworks_siso_pole_placement_verification_benchmark,
     run_nasa_gtm_longitudinal_modal_verification_benchmark,
     run_nasa_unstable_roll_frequency_response_verification_benchmark,
@@ -2515,5 +2516,330 @@ def test_observer_benchmark_does_not_directly_invoke_out_of_scope_apis(
     )
 
     run = run_mathworks_luenberger_observer_verification_benchmark()
+
+    assert run.user_metadata["passed"] is True
+
+
+_SEPARATION_K = np.array([[2.0, 5.0 / 4.0]])
+_SEPARATION_AUGMENTED_A = np.array(
+    [
+        [-1.0, -3.0 / 4.0, -2.0, -5.0 / 4.0],
+        [1.0, 0.0, 0.0, 0.0],
+        [17.0 / 3.0, 17.0 / 3.0, -26.0 / 3.0, -23.0 / 3.0],
+        [-5.0 / 3.0, -5.0 / 3.0, 8.0 / 3.0, 5.0 / 3.0],
+    ]
+)
+_SEPARATION_S = np.array(
+    [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [1.0, 0.0, -1.0, 0.0],
+        [0.0, 1.0, 0.0, -1.0],
+    ]
+)
+_SEPARATED_A = np.array(
+    [
+        [-3.0, -2.0, 2.0, 5.0 / 4.0],
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, -20.0 / 3.0, -77.0 / 12.0],
+        [0.0, 0.0, 8.0 / 3.0, 5.0 / 3.0],
+    ]
+)
+
+
+def test_separation_benchmark_calls_fixed_public_api_once(monkeypatch):
+    original = StateSpace.observer_based_output_feedback
+    calls = []
+
+    def output_feedback(system, gain_k, gain_l):
+        np.testing.assert_array_equal(system.A, _OBSERVER_A)
+        np.testing.assert_array_equal(system.B, _OBSERVER_B)
+        np.testing.assert_array_equal(system.C, _OBSERVER_C)
+        np.testing.assert_array_equal(system.D, _OBSERVER_D)
+        assert gain_k is not _SEPARATION_K
+        np.testing.assert_array_equal(gain_k, _SEPARATION_K)
+        np.testing.assert_array_equal(gain_l, _OBSERVER_GAIN)
+        calls.append((gain_k, gain_l))
+        return original(system, gain_k, gain_l)
+
+    monkeypatch.setattr(
+        StateSpace, "observer_based_output_feedback", output_feedback
+    )
+
+    run = run_mathworks_separation_principle_verification_benchmark()
+
+    assert len(calls) == 1
+    assert run.user_metadata["passed"] is True
+
+
+def test_separation_benchmark_matches_exact_matrix_and_polynomial_oracles():
+    run = run_mathworks_separation_principle_verification_benchmark()
+
+    np.testing.assert_allclose(
+        run.user_metadata["augmented_A"],
+        _SEPARATION_AUGMENTED_A.ravel(),
+        rtol=0.0,
+        atol=1.0e-12,
+    )
+    assert run.user_metadata["augmented_B"] == (1.0, 0.0, 1.0, 0.0)
+    assert run.user_metadata["augmented_C"] == (1.0, 1.0, 0.0, 0.0)
+    assert run.user_metadata["augmented_D"] == (0.0,)
+    np.testing.assert_array_equal(
+        run.user_metadata["coordinate_map_S"], _SEPARATION_S.ravel()
+    )
+    np.testing.assert_allclose(
+        run.user_metadata["separated_A"],
+        _SEPARATED_A.ravel(),
+        rtol=0.0,
+        atol=1.0e-12,
+    )
+    assert run.user_metadata["separated_B"] == (1.0, 0.0, 0.0, 0.0)
+    assert run.user_metadata["separated_C"] == (1.0, 1.0, 0.0, 0.0)
+    np.testing.assert_allclose(
+        run.user_metadata["controller_characteristic_coefficients"],
+        [1.0, 3.0, 2.0],
+        rtol=0.0,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        run.user_metadata["observer_characteristic_coefficients"],
+        [1.0, 5.0, 6.0],
+        rtol=0.0,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        run.user_metadata["separated_poles_sorted"],
+        [-3.0, -2.0, -2.0, -1.0],
+        rtol=0.0,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        run.user_metadata["combined_characteristic_coefficients"],
+        [1.0, 8.0, 23.0, 28.0, 12.0],
+        rtol=0.0,
+        atol=1.0e-12,
+    )
+
+
+def test_separation_benchmark_records_acceptance_and_exact_provenance():
+    run = run_mathworks_separation_principle_verification_benchmark()
+
+    assert isinstance(run, ExperimentRun)
+    assert run.system["A"] == tuple(_OBSERVER_A.flat)
+    assert run.controller["state_feedback_gain_K"] == tuple(_SEPARATION_K.flat)
+    assert run.controller["observer_gain_L"] == tuple(_OBSERVER_GAIN.flat)
+    assert run.reference["product_documentation"] == (
+        "MathWorks Control System Toolbox Documentation"
+    )
+    assert run.reference["page_title"] == "Pole Placement"
+    assert run.reference["section_titles"] == (
+        "State-Feedback Gain Selection",
+        "State Estimator Design",
+    )
+    assert run.reference["access_date"] == "2026-09-03"
+    assert run.reference["source_url"] == (
+        "https://www.mathworks.com/help/control/getstart/pole-placement.html"
+    )
+    assert run.reference["state_feedback_convention"] == "u = -Kx"
+    assert run.reference["dynamic_output_feedback"] == "u = -K xi"
+    assert run.reference["error_coordinate_definition"] == "e = x - xi"
+    assert run.reference["block_triangular_dynamics"] == (
+        "[[A-BK, BK], [0, A-LC]]"
+    )
+    assert run.run_id == "verification-mathworks-separation-principle-v1"
+    assert run.created_at.isoformat() == "2026-09-06T00:00:00+00:00"
+
+    for key in (
+        "maximum_absolute_augmented_realization_residual",
+        "maximum_absolute_separation_coordinate_residual",
+        "maximum_absolute_zero_lower_left_block_residual",
+        "maximum_absolute_characteristic_coefficient_residual",
+        "maximum_absolute_separated_pole_residual",
+        "maximum_absolute_combined_polynomial_residual",
+    ):
+        assert run.user_metadata[key] <= 1.0e-12
+    for key in (
+        "maximum_absolute_gain_preservation_residual",
+        "maximum_absolute_involution_residual",
+        "maximum_absolute_source_input_preservation_residual",
+    ):
+        assert run.user_metadata[key] == 0.0
+    assert run.user_metadata["coordinate_map_involutory"] is True
+    assert run.user_metadata["controller_poles_asymptotically_stable"] is True
+    assert run.user_metadata["observer_poles_asymptotically_stable"] is True
+    assert run.user_metadata["pole_union_multiplicity_matches"] is True
+    assert run.user_metadata["source_inputs_preserved"] is True
+    assert run.user_metadata["passed"] is True
+
+
+def test_separation_benchmark_carrier_and_record_are_deterministic():
+    first = run_mathworks_separation_principle_verification_benchmark()
+    second = run_mathworks_separation_principle_verification_benchmark()
+
+    assert first.method == "exact"
+    np.testing.assert_array_equal(first.initial_state, np.zeros(2))
+    np.testing.assert_array_equal(first.metrics.time, [0.0, 1.0])
+    np.testing.assert_array_equal(first.metrics.output, np.zeros(2))
+    np.testing.assert_array_equal(first.metrics.reference, np.zeros(2))
+    assert first.user_metadata["auxiliary_response_carrier"] is True
+    assert first.user_metadata["gain_preservation_tolerance"] == 0.0
+    assert first.user_metadata["involution_residual_tolerance"] == 0.0
+    assert first.user_metadata["source_input_preservation_tolerance"] == 0.0
+    for key in (
+        "augmented_realization_residual_tolerance",
+        "separation_coordinate_residual_tolerance",
+        "zero_lower_left_block_residual_tolerance",
+        "combined_polynomial_residual_tolerance",
+    ):
+        assert first.user_metadata[key] == 1.0e-12
+    first_record = first.reproducibility_record()
+    second_record = second.reproducibility_record()
+    assert first_record == second_record
+    json.dumps(first_record, allow_nan=False)
+    first_record["user_metadata"]["passed"] = False
+    assert first.reproducibility_record() == second_record
+
+
+def test_separation_benchmark_returns_failed_finite_evidence(monkeypatch):
+    original = StateSpace.observer_based_output_feedback
+    changed_k = np.array([[-2.0, -3.0 / 4.0]])
+
+    def changed_output_feedback(system, gain_k, gain_l):
+        return original(system, changed_k, gain_l)
+
+    monkeypatch.setattr(
+        StateSpace, "observer_based_output_feedback", changed_output_feedback
+    )
+
+    run = run_mathworks_separation_principle_verification_benchmark()
+
+    assert run.user_metadata["maximum_absolute_gain_preservation_residual"] > 0.0
+    assert run.user_metadata["controller_poles_asymptotically_stable"] is False
+    assert run.user_metadata["passed"] is False
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("state_feedback_gain", np.zeros(2), "stored K must have shape"),
+        (
+            "observer_gain",
+            np.full((2, 1), np.nan),
+            "stored L must contain only finite real values",
+        ),
+    ],
+)
+def test_separation_benchmark_rejects_malformed_stored_gains(
+    monkeypatch, field, value, message
+):
+    original = StateSpace.observer_based_output_feedback
+
+    def malformed(system, gain_k, gain_l):
+        result = original(system, gain_k, gain_l)
+        return result._replace(**{field: value})
+
+    monkeypatch.setattr(StateSpace, "observer_based_output_feedback", malformed)
+    with pytest.raises(ValueError, match=message):
+        run_mathworks_separation_principle_verification_benchmark()
+
+
+def test_separation_benchmark_rejects_wrong_or_inconsistent_result(monkeypatch):
+    original = StateSpace.observer_based_output_feedback
+    monkeypatch.setattr(
+        StateSpace, "observer_based_output_feedback", lambda self, gain_k, gain_l: None
+    )
+    with pytest.raises(ValueError, match="ObserverBasedOutputFeedbackInterconnection"):
+        run_mathworks_separation_principle_verification_benchmark()
+
+    def inconsistent(system, gain_k, gain_l):
+        result = original(system, gain_k, gain_l)
+        changed = StateSpace(
+            result.system.A + np.eye(4) * 2.0e-12,
+            result.system.B,
+            result.system.C,
+            result.system.D,
+        )
+        return result._replace(system=changed)
+
+    monkeypatch.setattr(
+        StateSpace, "observer_based_output_feedback", inconsistent
+    )
+    with pytest.raises(ValueError, match="internally inconsistent"):
+        run_mathworks_separation_principle_verification_benchmark()
+
+
+def test_separation_benchmark_rejects_source_input_mutation(monkeypatch):
+    original = StateSpace.observer_based_output_feedback
+
+    def mutating(system, gain_k, gain_l):
+        result = original(system, gain_k, gain_l)
+        gain_k[0, 0] += 1.0
+        return result
+
+    monkeypatch.setattr(StateSpace, "observer_based_output_feedback", mutating)
+    with pytest.raises(ValueError, match="source inputs were mutated"):
+        run_mathworks_separation_principle_verification_benchmark()
+
+
+def test_separation_benchmark_propagates_target_exception(monkeypatch):
+    expected = RuntimeError("output feedback failed")
+
+    def fail(*args, **kwargs):
+        raise expected
+
+    monkeypatch.setattr(StateSpace, "observer_based_output_feedback", fail)
+    with pytest.raises(RuntimeError) as caught:
+        run_mathworks_separation_principle_verification_benchmark()
+    assert caught.value is expected
+
+
+def test_separation_benchmark_does_not_import_optional_dependencies():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; from flightlab.verification import "
+                "run_mathworks_separation_principle_verification_benchmark as run; "
+                "run(); assert 'scipy' not in sys.modules; "
+                "assert 'control' not in sys.modules; assert 'matlab' not in sys.modules"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_separation_benchmark_does_not_invoke_out_of_scope_apis(monkeypatch):
+    original = StateSpace.observer_based_output_feedback
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("out-of-scope API was invoked directly")
+
+    for method_name in (
+        "place_siso_poles",
+        "place_siso_observer_poles",
+        "luenberger_observer",
+        "full_state_feedback",
+        "eigenvalues",
+        "modal_properties",
+        "simulate",
+        "frequency_response",
+        "controllability_gramian",
+        "observability_gramian",
+        "balanced_truncation",
+        "structural_analysis",
+    ):
+        monkeypatch.setattr(StateSpace, method_name, unexpected)
+    monkeypatch.setattr(
+        StateSpace,
+        "observer_based_output_feedback",
+        lambda self, gain_k, gain_l: original(self, gain_k, gain_l),
+    )
+
+    run = run_mathworks_separation_principle_verification_benchmark()
 
     assert run.user_metadata["passed"] is True

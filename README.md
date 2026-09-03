@@ -1,5 +1,97 @@
 # FlightLab
 
+FlightLab is a NumPy-first Python library for reproducible linear
+flight-control experiments. It provides dimensional longitudinal and
+lateral-directional aircraft models, continuous-time state-space simulation and
+modal/structural analysis, control and observer primitives, immutable
+experiment provenance, SQLite persistence, ordered campaigns, performance
+analysis, and deterministic verification benchmarks.
+
+FlightLab **v1.0.0** is locally prepared and validated as a release candidate.
+V&V v1 is frozen, the representative end-to-end workflow is complete, clean
+installation from the final wheel has been verified, the release audit is
+complete, and the project is licensed under the MIT License. New product scope
+remains deferred until after v1.0.0. See
+[`ROADMAP.md`](https://github.com/santiagopaulinov-wq/FlightLab/blob/main/ROADMAP.md)
+for the ordered completion plan,
+[`NEXT.md`](https://github.com/santiagopaulinov-wq/FlightLab/blob/main/NEXT.md)
+for the exact current checkpoint,
+[`docs/ARCHITECTURE.md`](https://github.com/santiagopaulinov-wq/FlightLab/blob/main/docs/ARCHITECTURE.md)
+for component boundaries, and
+[`docs/VERIFICATION.md`](https://github.com/santiagopaulinov-wq/FlightLab/blob/main/docs/VERIFICATION.md)
+for the current evidence set.
+The exact clean-environment procedure and verified baseline are recorded in
+[`docs/REPRODUCIBILITY.md`](https://github.com/santiagopaulinov-wq/FlightLab/blob/main/docs/REPRODUCIBILITY.md).
+The demonstrated release findings and remaining checklist are in
+[`docs/RELEASE_AUDIT.md`](https://github.com/santiagopaulinov-wq/FlightLab/blob/main/docs/RELEASE_AUDIT.md),
+and candidate release notes are in
+[`CHANGELOG.md`](https://github.com/santiagopaulinov-wq/FlightLab/blob/main/CHANGELOG.md).
+
+## v1.0 scope
+
+The v1.0 product boundary is the implemented NumPy-first linear platform:
+aircraft model assembly and physical-mode interpretation; generic state-space
+analysis, control, observers, and simulation; SISO response metrics and
+immutable experiment provenance; SQLite run/campaign persistence; deterministic
+campaign analysis; the fixed ten-benchmark V&V set; and one representative
+integrated workflow.
+
+AI/LLM and repository-brain/RAG tooling, CFD/OpenFOAM, neural operators and
+PhysicsNeMo, GPU/HPC expansion, web/frontend work, unrelated campaign-analysis
+expansion, large refactors, and speculative infrastructure are post-v1.
+
+Public objects are imported from their defining modules, for example
+`flightlab.state_space`, `flightlab.longitudinal`, `flightlab.experiment`,
+`flightlab.persistence`, `flightlab.campaign`, `flightlab.analysis`, and
+`flightlab.verification`. The package root currently defines no re-exported API.
+
+## Installation and verification
+
+FlightLab requires Python 3.12 or newer. From a clean clone with
+[uv](https://docs.astral.sh/uv/) installed:
+
+```console
+uv sync --locked --dev
+uv run pytest -q
+uv run ruff check
+git diff --check
+```
+
+For a runtime-only environment, use `uv sync --locked --no-dev`. NumPy is the
+only runtime dependency; SciPy is intentionally confined to the development
+verification suite.
+
+## Representative end-to-end workflow
+
+Run the primary v1.0 platform demonstration from the repository root and give
+it a new SQLite output path:
+
+```console
+uv run python examples/longitudinal_campaign.py flightlab-demo.sqlite3
+```
+
+The example uses the existing four-state dimensional `LongitudinalModel` with
+state order `(u, w, q, theta)`, elevator input `delta_e`, and the pitch-attitude
+output `theta`. It constructs the aircraft `StateSpace`, evaluates its modal
+families, selects the SISO elevator-to-pitch channel, and records its complete
+structural analysis.
+
+Three deterministic cases scale the same stable desired-pole set by `0.8`,
+`1.0`, and `1.2`. Each case uses existing SISO pole placement, static full-state
+feedback, the nominal steady-state reference prefilter, and exact zero-order-
+hold simulation of a unit pitch-attitude step. `run_experiment_campaign()`
+turns the cases into immutable `ExperimentRun` records and atomically persists
+the runs, campaign manifest, and ordered membership through
+`SQLiteExperimentStore`.
+
+The persisted campaign is read back through `get_campaign_bundle()` and
+`campaign_bundle_record()`. Existing campaign-analysis functions then compare
+IAE, overshoot percentage, and settling time against the varied pole-scale
+parameter and compute signed metric deltas from the `1.0` baseline. The script
+prints a compact JSON summary of the structural result, persisted run IDs,
+metric comparison, and deltas. The output database path must be new because
+FlightLab never overwrites existing run or campaign identities.
+
 ## Full-order balanced coordinates
 
 For an asymptotically stable minimal continuous-time `StateSpace`,
@@ -1706,9 +1798,3 @@ This is a deterministic verdict over explicit scenario projections and
 caller-defined limits. It is not a probabilistic certification, formal safety
 proof, weighted score, or nonlinear robustness guarantee. No metric is ranked
 or assigned an implicit priority.
-
-An execution failure propagates unchanged and prevents all campaign
-persistence. Any run, manifest, or membership failure propagates after
-execution and rolls back every newly inserted campaign row. Existing records
-remain unchanged. There are no partial campaign results, retries, automatic
-case generation, parallel work, optimization, analysis, or CLI behavior.
