@@ -176,12 +176,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: one fixed NASA Ames unstable-roll frequency-response
-  verification runner using the transfer function published in AIAA 2015-0655,
-  the existing `StateSpace.frequency_response()` API, a direct scalar rational-
-  function oracle, and deterministic `ExperimentRun` evidence.
-- Completed capability commit: this checkpoint's implementation commit
-  (`feat: add NASA roll frequency-response verification`).
+- Completed capability: definition of the next fixed V&V capability: an exact
+  controllability-matrix and rank benchmark using the official rank-deficient
+  MIMO worked example in MathWorks Control System Toolbox documentation.
+- Completed capability commit: this documentation checkpoint's commit
+  (`docs: define controllability verification benchmark`).
 
 ## Current verification baseline
 
@@ -1601,16 +1600,216 @@ the published rational model at the fixed frequencies.
 
 ## Exact next smallest task
 
-Define, but do not implement, the next single V&V capability. Select one
-authoritative, publicly accessible source and freeze its reconstructable inputs,
-evidence classification, FlightLab API target, independent comparison
-quantities, tolerances, failure semantics, deterministic `ExperimentRun`
-provenance, focused tests, and explicit non-goals in this file. It must add one
-materially distinct kind of evidence beyond the completed closed-form
-trajectory, SciPy trajectory, NASA GTM modal, and NASA roll frequency-response
-benchmarks. Do not add a generic V&V framework, dependency, new record type,
-persistence behavior, physical-validation claim, or implementation code.
-Commit only that documentation checkpoint and do not push.
+### Implement the fixed MathWorks controllability benchmark
+
+Add one narrowly scoped runner beside the four existing runners in
+`flightlab.verification`. Encode the official two-state, two-input worked
+example below, construct one `StateSpace` with explicitly auxiliary identity
+output matrices, and compare `StateSpace.controllability_matrix()`,
+`controllability_rank()`, and `is_fully_controllable()` with the exact matrix,
+rank, uncontrollable-state count, and classification established below. Return
+the evidence through the existing `ExperimentRun` and deterministic
+reproducibility-record machinery. Add only the focused tests specified below.
+Do not add a framework, dependency, generic adapter, new record type, or
+physical-validation assertion.
+
+## Selected fifth V&V capability
+
+### Official MathWorks rank-deficient MIMO controllability example
+
+Use MathWorks, *Control System Toolbox Documentation*, `ctrb — Controllability
+of state-space model`, section "Check System Controllability," official online
+documentation, accessed `2026-09-03`:
+
+```text
+https://www.mathworks.com/help/control/ref/statespacemodel.ctrb.html
+```
+
+The page defines the finite-dimensional controllability matrix as
+`Co = [B, A B, A^2 B, ..., A^(n-1) B]`, states that full row rank equals full
+controllability, and publishes one two-state, two-input example with matrices
+`A` and `B`. For that example it reports one uncontrollable state (`unco = 1`)
+and explicitly concludes that the system is not controllable because `Co` does
+not have full rank two. Record the page title, product documentation name,
+section, URL, access date, published inputs, formula, published uncontrollable-
+state count, and conclusion as provenance.
+
+This official worked example is preferred to a new aircraft model because it
+isolates a previously unverified API family with exact integer arithmetic and
+an intentionally rank-deficient MIMO input matrix. It requires no digitized
+plot, source-precision allowance, external numerical library, or physical-data
+claim.
+
+## Frozen model and construction-only matrices
+
+Copy the source example exactly:
+
+```text
+    [[1,  1]]        [[1, -1]]
+A = [[4, -2]]    B = [[1, -1]]
+```
+
+The source example needs only `(A, B)`. To satisfy FlightLab's complete
+realization contract without inventing measured outputs, use construction-only
+`C = eye(2)` and `D = zeros((2, 2))`. Mark both as auxiliary in provenance;
+they are not verification targets and must not affect any controllability
+result. Use no aircraft wrapper and assign no physical state, input, or output
+meaning or units.
+
+The system has `n_states = 2`, so the exact controllability formula terminates
+after `A B`. Compute the independent reference by direct scalar arithmetic,
+not by calling FlightLab or any matrix-power, matrix-rank, control-library, or
+controllability helper:
+
+```text
+      [[2, -2]]
+A B = [[2, -2]]
+
+Co_reference = [B, A B]
+             = [[1, -1, 2, -2],
+                [1, -1, 2, -2]]
+```
+
+The two rows are exactly identical and nonzero. Therefore the exact reference
+rank is `1`, the exact number of uncontrollable states is `2 - 1 = 1`, and the
+reference full-controllability classification is `False`, matching the source's
+published `unco = 1` and conclusion.
+
+## APIs and independent comparison quantities
+
+Call each of these existing public APIs exactly once on the same fixed
+`StateSpace`:
+
+- `controllability_matrix()`;
+- `controllability_rank()`;
+- `is_fully_controllable()`.
+
+Do not substitute `structural_analysis()` because it would repeat the same
+controllability calls internally and broaden the benchmark into observability,
+stabilizability, detectability, and minimality.
+
+Validate the returned matrix before using it. Then compute and record:
+
+1. matrix residual: maximum absolute componentwise difference between the
+   returned `(2, 4)` matrix and the literal `Co_reference` above;
+2. rank match: returned integer rank equals `1`;
+3. uncontrollable-state-count match: `2 - returned_rank` equals the source's
+   published count `1`;
+4. classification match: the returned full-controllability Boolean is exactly
+   `False`.
+
+Also require internal consistency: the returned Boolean must equal
+`(returned_rank == 2)`, and the returned uncontrollable-state count must be an
+integer in `[0, 2]`. This check catches contradictory API evidence without
+silently converting it into an ordinary failed comparison.
+
+## Deterministic tolerance and exact acceptance semantics
+
+Use one maximum absolute matrix-residual tolerance of `1.0e-12`. This is a
+numerical guard, not source uncertainty: the fixed integer matrix multiplication
+is exactly representable in binary floating point. Rank, uncontrollable count,
+and Boolean comparisons are exact and have no numeric tolerance. Equality with
+the matrix tolerance passes.
+
+The benchmark passes if and only if `A`, `B`, auxiliary `C`, and auxiliary `D`
+have their fixed shapes and finite real values; the returned controllability
+matrix has shape `(2, 4)` and finite real values; returned rank and Boolean have
+the required scalar types and are internally consistent; the matrix residual
+is finite and at most `1.0e-12`; and the rank, uncontrollable count, and Boolean
+all match their exact references.
+
+Malformed, complex, nonfinite, wrong-shape, wrong-cardinality, noninteger-rank,
+out-of-range-rank/count, non-Boolean-classification, or internally inconsistent
+evidence raises `ValueError` before an `ExperimentRun` is constructed.
+Exceptions raised directly by any of the three FlightLab APIs propagate
+unchanged. A well-shaped finite matrix outside the residual tolerance, or
+internally consistent rank/count/classification evidence that differs from the
+published reference, returns an `ExperimentRun` with `passed = False`; a valid
+comparison failure alone must not raise.
+
+## Evidence carrier and deterministic provenance
+
+Continue using `response_metrics()` and `experiment_run()` only as evidence-
+composition boundaries. Because this benchmark has no trajectory, use a fixed
+two-sample zero output/reference carrier and zero two-state initial condition.
+Its response metrics are not acceptance quantities and must be labeled as an
+auxiliary evidence carrier.
+
+Use run ID `verification-mathworks-controllability-rank-v1`, method `exact`, and
+aware UTC creation time `2026-09-03T12:00:00+00:00`. Record in existing flat
+metadata:
+
+- the exact source title, product documentation name, worked-example section,
+  URL, access date, formula, published `unco = 1`, and published conclusion;
+- fixed `A`, `B`, auxiliary `C`, auxiliary `D`, all shapes, state/input counts,
+  auxiliary-output status, and absence of assigned physical units;
+- exact reference `A B`, controllability matrix, rank, uncontrollable count,
+  and full-controllability Boolean;
+- returned matrix, rank, count, Boolean, matrix residual and tolerance, three
+  exact-match flags, auxiliary-carrier status, evidence classification, and
+  overall pass Boolean.
+
+Two equivalent calls must return exactly equal detached JSON-compatible
+`reproducibility_record()` dictionaries. Do not check in generated evidence or
+downloaded source content.
+
+## Evidence classification and material distinction
+
+Classify this as **computational/software verification against an official
+worked control-systems example and exact algebraic oracle**. MathWorks supplies
+the model, controllability definition, uncontrollable-state count, and expected
+classification; the literal reference matrix follows by transparent scalar
+arithmetic. This is not a cross-library runtime comparison: the runner must not
+import or call MATLAB, the MATLAB Engine, SciPy, or another control package.
+
+This evidence is materially different from all four completed benchmarks. It
+tests structural MIMO reachability, exact block ordering, numerical rank, and a
+negative Boolean classification for a deliberately nonminimal input pair. It
+does not test eigenvalues, modal quantities, state/output propagation, or
+frequency response, and it uses neither an aircraft-data comparison nor a
+physical-validation claim.
+
+## Focused tests to add during implementation
+
+- Assert the exact `A`, `B`, auxiliary `C`, auxiliary `D`, shapes, source
+  citation, formula, published `unco`, conclusion, run identity, timestamp, and
+  evidence classification.
+- Independently hard-code `A B` and `Co_reference`; assert matrix assembly and
+  column order, zero nominal residual, returned rank `1`, uncontrollable count
+  `1`, full-controllability `False`, all match flags, and overall pass.
+- Spy on the three public APIs to require exactly one call each on the same
+  fixed realization; assert no structural summary, observability, PBH,
+  eigenvalue, simulation, or frequency-response API is called.
+- Assert the two-sample zero carrier, zero initial state, tolerance, JSON
+  compatibility, detached records, and repeated-run determinism.
+- Return a well-shaped finite matrix beyond tolerance and assert failed evidence
+  is returned without raising; likewise return an internally consistent rank
+  `2`, count `0`, and Boolean `True` and assert exact-reference failure.
+- Reject malformed matrix shape, complex/nonfinite matrix values, invalid rank
+  or Boolean scalar types, out-of-range rank/count, and contradictions between
+  rank and Boolean with `ValueError` before run construction.
+- Verify exceptions raised directly by each targeted API propagate unchanged,
+  and verify no optional dependency is imported eagerly or by the runner.
+
+## Explicit non-goals
+
+- No physical/model validation, aircraft or experimental data, flight-test or
+  wind-tunnel comparison, calibration, uncertainty quantification,
+  certification, handling-qualities result, or safety claim.
+- No observability, stabilizability, detectability, minimality, PBH diagnostics,
+  Gramians, Hankel singular values, balancing, model reduction, eigenvalue,
+  modal, trajectory, frequency-response, controller, or observer assertion.
+- No additional source example, controllable comparison case, SISO variant,
+  parameterization, randomized/property testing, tolerance policy, or broad
+  structural-analysis verification.
+- No MATLAB/Octave execution, MATLAB Engine, SciPy, python-control, alternate
+  rank algorithm, symbolic algebra, or new dependency.
+- No generic V&V framework, benchmark registry, source schema, structural
+  adapter, new result/report/verdict/serializer, persistence behavior, CLI,
+  plotting, or generated evidence artifact.
+- No change to `StateSpace`, `ExperimentRun`, response metrics, the four
+  completed runners, or unrelated tests unless this exact benchmark exposes a
+  demonstrated core discrepancy.
 
 ## Read-only repository size and complexity snapshot
 
@@ -1996,7 +2195,8 @@ git status
 
 ## Restart instruction
 
-Read `NEXT.md`, inspect the four completed verification runners, then define the
-next single V&V capability exactly as directed under "Exact next smallest
-task." Do not implement it, expand the V&V framework, refactor unrelated
-modules, touch the existing untracked `.vscode/`, or push.
+Read `NEXT.md`, then implement the narrowly scoped fixed MathWorks
+controllability verification runner exactly as specified, without expanding the
+V&V framework or refactoring unrelated modules. Run the required checks, update
+this checkpoint, commit the implementation, do not touch the existing untracked
+`.vscode/`, and do not push.
