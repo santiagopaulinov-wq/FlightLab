@@ -184,12 +184,11 @@ or EXACT set matching for both inclusions and exclusions.
 
 ## Current checkpoint
 
-- Completed capability: one fixed continuous-time controllability-Gramian and
-  Lyapunov-equation verification runner using the official SciPy 1.18.0 worked
-  example, a literal sign-adjusted oracle, direct principal-minor certificates,
-  and deterministic `ExperimentRun` evidence.
-- Completed capability commit: this checkpoint's implementation commit
-  (`feat: add controllability gramian verification benchmark`).
+- Completed capability: definition of the eighth fixed V&V capability: a
+  balanced-truncation model-reduction benchmark using the official MathWorks
+  absolute-error algorithm contract and exact analytical oracles.
+- Completed capability commit: this documentation checkpoint's commit
+  (`docs: define balanced truncation verification benchmark`).
 
 ## Current verification baseline
 
@@ -2068,16 +2067,268 @@ or interconnects a controller.
 
 ## Exact next smallest task
 
-Define, but do not implement, the eighth single V&V capability. Select one
-authoritative, publicly accessible source and freeze its exact citation,
-reconstructable inputs, evidence classification, FlightLab API target,
-independent comparison oracle, quantities, deterministic tolerances, failure
-semantics, `ExperimentRun` provenance, focused tests, and explicit non-goals in
-this file. It must add one materially distinct kind of evidence beyond the seven
-completed runners, including the new controllability-Gramian benchmark. Do not
-add a framework, abstraction, dependency, persistence behavior, experimental or
-flight-data physical validation, or implementation code. Commit only that
-documentation checkpoint and do not push.
+### Implement the fixed MathWorks-contract balanced-truncation benchmark
+
+Add `run_mathworks_balanced_truncation_verification_benchmark()` beside the
+seven completed runners in `flightlab.verification`. Use the fixed already-
+balanced realization and exact analytical oracles below to verify
+`StateSpace.balanced_truncation(1)` and its sampled frequency-response error.
+Return deterministic evidence through the existing `ExperimentRun` machinery
+and add only the focused tests frozen here. Do not add a framework, dependency,
+generic model-reduction adapter, persistence behavior, or physical-validation
+claim.
+
+## Selected eighth V&V capability
+
+### MathWorks absolute-error balanced truncation with exact analytical oracles
+
+Use *MathWorks Control System Toolbox Documentation*, `balred - (Not
+recommended) Model order reduction`, sections "Description," output `info`, and
+"Algorithms," official public online documentation, accessed `2026-09-03`:
+
+```text
+https://www.mathworks.com/help/control/ref/dynamicsystem.balred.html
+```
+
+The source states that Hankel singular values measure state contribution to
+input/output behavior; that small values identify discardable states; and that
+absolute-error balanced truncation of a stable part to order `r` satisfies
+
+```text
+||G_s - G_r||_infinity <= 2 * sum(sigma_j, j=r+1,...,n).
+```
+
+Record the product documentation, page title, URL, access date, `info.HSV` and
+`info.ErrorBound` descriptions, absolute-error algorithm statement, and bound
+formula as exact provenance. This benchmark uses that authoritative algorithm
+contract with an independently constructed exactly solvable realization. It
+must not call MATLAB, MathWorks services, SciPy, python-control, or any other
+external solver at runtime.
+
+## Frozen model and reduction request
+
+Freeze this stable, minimal, continuous-time, two-state/two-input/two-output
+realization with no assigned physical units:
+
+```text
+A = [[-1,  0]]    B = [[2, 0]]    C = [[2, 0]]    D = [[0, 0]]
+    [[ 0, -2]]        [[0, 1]]        [[0, 1]]        [[0, 0]]
+
+retained_order = 1
+angular_frequencies_rad_per_s = [0.0, 0.5, 1.0, 2.0, 5.0]
+```
+
+Preserve the state, input, output, and frequency ordering exactly. The model is
+already balanced by construction; this is part of the frozen oracle design,
+not a claim that it appears as a worked numerical model in the source. Use no
+aircraft wrapper, state labels, or physical interpretation.
+
+## Independent analytical oracle
+
+For a stable scalar channel `xdot = -a x + b u`, `y = c x`, independently use
+the direct scalar integrals
+
+```text
+Wc = integral_0^infinity exp(-2 a t) b^2 dt = b^2 / (2 a)
+Wo = integral_0^infinity exp(-2 a t) c^2 dt = c^2 / (2 a).
+```
+
+Applied channel-by-channel to the frozen diagonal model, encode the literal
+oracles
+
+```text
+Wc = Wo = diag([2.0, 0.25])
+hankel_singular_values = [2.0, 0.25]
+```
+
+The ordered HSVs are distinct, so the balanced state ordering and retained
+state are unambiguous. Because the input and output channels are also fixed,
+the exact order-one truncation is
+
+```text
+A_r = [[-1]]
+B_r = [[2, 0]]
+C_r = [[2], [0]]
+D_r = [[0, 0], [0, 0]]
+projection = [[1, 0]]
+reconstruction = [[1], [0]]
+transformation = [[1, 0], [0, 1]]
+retained_HSV = [2.0]
+discarded_HSV = [0.25]
+absolute_a_priori_error_bound = 2 * 0.25 = 0.5
+```
+
+Encode these values literally. Do not derive them from FlightLab results,
+another Gramian or Lyapunov solver, an eigensolver, SVD, numerical integration,
+optimization, or a second balanced-truncation implementation.
+
+The exact transfer matrices are
+
+```text
+G(s)   = diag([4/(s+1), 1/(s+2)])
+G_r(s) = diag([4/(s+1), 0])
+E(s)   = G(s) - G_r(s) = diag([0, 1/(s+2)]).
+```
+
+At each frozen nonnegative frequency, independently evaluate the two ordered
+error singular values as
+
+```text
+sigma_error(omega) = [1 / sqrt(omega^2 + 4), 0].
+```
+
+The maximum over all real frequencies is exactly the DC value `0.5`, so this
+specific benchmark attains the source's absolute bound. This exact equality is
+a property of the frozen diagonal example, not a general balanced-truncation
+claim.
+
+## FlightLab APIs and comparison quantities
+
+Construct one fixed `StateSpace`. Call `balanced_truncation(1)` exactly once
+and
+`balanced_truncation_frequency_response_error_singular_values(1, frequencies)`
+exactly once. The latter may internally perform its own truncation according to
+the existing public API; the runner must not reproduce or cache internal
+implementation steps. Validate all returned arrays, scalar evidence, shapes,
+real/complex expectations, finiteness, cardinalities, retained order, and
+nonnegative singular values before comparison. Compute without rounding:
+
+1. reduction-realization residual: the maximum absolute componentwise residual
+   across literal `A_r`, `B_r`, `C_r`, and `D_r`;
+2. projection/reconstruction/transformation residual: the maximum absolute
+   componentwise residual across the three literal coordinate maps;
+3. Hankel-evidence residual: the maximum absolute residual across literal
+   retained and discarded HSV arrays;
+4. error-bound residual: the absolute difference from literal `0.5`;
+5. sampled-error-singular-value residual: the maximum absolute componentwise
+   difference from the direct scalar oracle at all five frequencies;
+6. bound-satisfaction margin: `0.5 - max(returned sampled error singular
+   values)`, plus exact Booleans that every sample is at or below the bound and
+   that the returned DC leading singular value equals the returned bound within
+   the error-bound tolerance.
+
+Do not call `hankel_singular_values()`, `balanced_realization()`, either Gramian
+API, raw frequency-response APIs, singular-direction APIs, simulation,
+controller, observer, controllability/rank, observability/rank, modal, or
+aircraft APIs directly from the runner. Any such calls internal to the two
+target public APIs remain implementation details and are not additional runner
+boundaries.
+
+## Deterministic tolerances and acceptance semantics
+
+- Maximum absolute reduction-realization residual: `1.0e-12`.
+- Maximum absolute coordinate-map residual: `1.0e-12`.
+- Maximum absolute Hankel-evidence residual: `1.0e-12`.
+- Absolute error-bound residual: `1.0e-12`.
+- Maximum absolute sampled-error-singular-value residual: `1.0e-12`.
+- Bound comparison tolerance: `1.0e-12`; a sample satisfies the bound when it
+  is at most `bound + tolerance`, and the bound-satisfaction margin may be as
+  low as `-tolerance`.
+
+These limits establish numerical equivalence for exact terminating-decimal
+model/reduction values and direct scalar square-root evaluations; they are not
+source uncertainty. Equality with every limit passes.
+
+The benchmark passes if and only if all frozen inputs and both API results meet
+their exact structural validation; all six residuals/margins are finite; the
+five residual limits pass; all returned HSVs and sampled singular values are
+finite, real, nonnegative, and in their fixed order; the retained order is
+exactly one; the returned bound is finite and nonnegative; every sampled error
+gain satisfies the bound comparison; the DC equality Boolean is true; and the
+margin is at least `-1.0e-12`.
+
+Malformed, complex where real is required, nonfinite, negative singular-value
+or bound, wrong-shape, wrong-cardinality, wrong-order, inconsistent truncation
+record, or internally inconsistent residual/pass evidence raises `ValueError`
+before an `ExperimentRun` is constructed. Exceptions raised directly by either
+target API propagate unchanged. Structurally valid finite evidence outside a
+tolerance or bound returns an `ExperimentRun` with `passed = False`; comparison
+failure alone must not raise.
+
+## Evidence carrier and deterministic provenance
+
+Continue using `response_metrics()` and `experiment_run()` only as evidence-
+composition boundaries. This is not a time-response benchmark, so use fixed
+two-sample zero output/reference evidence and a zero two-state initial
+condition. Label the response metrics as an auxiliary carrier excluded from
+acceptance.
+
+Use run ID `verification-mathworks-balanced-truncation-v1`, method `exact`, and
+aware UTC creation time `2026-09-05T00:00:00+00:00`. Record in existing flat
+metadata:
+
+- the exact MathWorks provenance fields and absolute-error formula above;
+- fixed `A/B/C/D`, shapes, channel/state counts, ordering, absence of physical
+  units, retained order, and frequencies with `rad/s` units;
+- literal full/reduced transfer functions, scalar integral formulas, Gramians,
+  HSVs, reduced matrices, coordinate maps, bound, and sampled singular-value
+  oracle;
+- every returned truncation field, sampled singular-value array, shapes, all
+  residuals/tolerances, margin, bound and DC Booleans, auxiliary-carrier status,
+  evidence classification, and overall pass.
+
+Two equivalent calls must return exactly equal detached JSON-compatible
+`reproducibility_record()` dictionaries. Do not check in downloaded source
+content, generated matrices, plots, or serialized evidence.
+
+## Evidence classification and material distinction
+
+Classify this as **computational/software verification of continuous-time
+balanced truncation, Hankel-energy ordering, reduced realization, and the
+absolute input/output error bound against an authoritative algorithm contract
+and exact analytical oracles**. It is not runtime MathWorks cross-validation,
+physical model validation, or mixed evidence.
+
+This is materially distinct from all seven completed runners. It verifies an
+intentional loss-of-order transformation, state retention/discarding by joint
+input/output energy, a reduced model, and an a priori global input/output error
+bound. Prior runners verify full-order trajectories, modes, frequency response,
+controllability rank, controller synthesis, or one controllability Gramian, but
+none verifies model reduction or fidelity-bound evidence.
+
+## Focused tests to add during implementation
+
+- Assert exact MathWorks page/title/section/URL/access-date provenance,
+  algorithm statement, bound formula, evidence classification, fixed model,
+  shapes/order, run ID, method, and timestamp.
+- Independently hard-code every literal matrix, coordinate map, HSV, bound, and
+  the scalar sampled-error oracle; assert nominal returned evidence, residuals,
+  margin, bound/DC Booleans, and overall pass.
+- Spy on the two target APIs to require one direct call each with retained order
+  one and the exact five-frequency array; assert the runner directly invokes no
+  out-of-scope API listed above.
+- Assert the zero response carrier, zero initial state, JSON compatibility,
+  detachment, and exact repeated-run determinism.
+- Parameterize structurally valid finite target results that independently
+  exceed each realization, coordinate-map, HSV, bound, and sampled-error
+  tolerance; violate the bound away from DC; violate exact DC attainment; and
+  assert failed evidence is returned without raising.
+- Reject wrong record type/order, wrong shapes/cardinalities, complex/nonfinite
+  real evidence, negative/nonfinite HSVs or bounds, unordered HSVs, negative or
+  unordered sampled singular values, nonfinite residuals/margin, and internally
+  inconsistent truncation evidence with `ValueError` before record creation.
+- Verify exceptions from either target API propagate unchanged and importing or
+  running the benchmark loads no optional dependency.
+
+## Explicit non-goals
+
+- No experimental, flight-test, wind-tunnel, or aircraft data; no physical
+  validation, uncertainty, certification, performance, energy, or safety claim.
+- No runtime MATLAB/MathWorks/SciPy/python-control comparison and no external
+  service, numerical integration, optimization, or alternate reduction solver.
+- No automatic order selection, tolerance-driven reduction, multiple orders,
+  unstable/nonminimal system, relative-error algorithm, frequency/time-limited
+  balancing, descriptor/discrete/complex system, state elimination method, or
+  broad model family.
+- No balanced-realization, Gramian, HSV, transfer-response, or singular-
+  direction runner beyond evidence already returned by the two exact target
+  APIs; no simulation or state-reconstruction accuracy assertion.
+- No controller, observer, modal, trajectory, aircraft wrapper, campaign,
+  sweep, plotting, CLI, or optimization behavior.
+- No new abstraction, dependency, registry, source schema, result/report type,
+  serializer, persistence feature, generated artifact, or refactor of
+  `StateSpace`, `ExperimentRun`, existing runners, or unrelated tests unless
+  implementation exposes a demonstrated core discrepancy.
 
 ## Selected seventh V&V capability
 
@@ -2685,7 +2936,9 @@ git status
 
 ## Restart instruction
 
-Read `NEXT.md`, inspect the seven completed verification runners, then define
-the eighth single V&V capability exactly as directed under "Exact next smallest
-task." Do not implement it, expand the V&V framework, refactor unrelated
-modules, touch the existing untracked `.vscode/`, or push.
+Read `NEXT.md`, then implement
+`run_mathworks_balanced_truncation_verification_benchmark()` beside the seven
+completed verification runners exactly as directed under "Exact next smallest
+task." Add only the focused tests frozen there. Do not expand the V&V framework,
+add dependencies or persistence, refactor unrelated modules, touch the existing
+untracked `.vscode/`, or push.
